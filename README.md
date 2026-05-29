@@ -116,6 +116,34 @@ v0.1.0 未做代码签名 + 公证。临时绕过：右键 → 打开 → 在弹
 
 同上，v0.1.0 未做 Authenticode 签名。点「更多信息」→「仍要运行」即可。
 
+### Windows PowerShell 开发环境下无法加载或运行 `pnpm`/`npm`/`npx` 等脚本
+
+**症状**：提示 `无法加载文件 ...，因为在此系统上禁止运行脚本。有关详细信息，请参阅 ... 中的 about_Execution_Policies` 或提示 `pnpm : 无法将“pnpm”项识别为 cmdlet... `。
+
+**根因**：Windows PowerShell 默认的执行策略 (`Execution Policy`) 通常为 `Restricted` 或不支持脚本运行。同时若本地未全局安装 `pnpm`。
+
+**解决**：
+1. **解除脚本禁用**：在 PowerShell 终端会话运行以下命令（仅对当前终端进程窗口生效，安全绿色的绕过方式）：
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+   ```
+2. **安装全局 pnpm**（与 `package.json` 中的 pnpm 9.4 保持版本一致）：
+   ```powershell
+   npm install -g pnpm
+   ```
+
+### Windows 本地打包时提示 `ERROR: Cannot create symbolic link : 客户端没有所需的特权`
+
+**症状**：运行 `pnpm package:win`，在 `electron-builder` 下载并解压解包 `winCodeSign.7z` 时，提示 `ERROR: Cannot create symbolic link : 客户端没有所需的特权`，导致打包中途报错退出。
+
+**根因**：Windows 系统出于安全考虑，普通非管理员账号默认没有权限在 NTFS 文件系统上创建符号链接 / 软链接（`symlink`）。而 `winCodeSign.7z` 自带了 macOS/darwin 相关的部分符号链接动态库（`.dylib`）。
+
+**解决**：
+- **方案 A（无需管理员，最推荐）**：在 Windows 系统上开启 **开发人员模式**（Developer Mode）。这允许标准用户创建符号链接而无需特权。
+  - 打开 Windows **设置** -> **系统** -> **开发者选项**（在 Windows 10 为 **更新与安全** -> **针对开发人员**）。
+  - 将 **开发人员模式**（Developer Mode）选项开启。
+- **方案 B**：以管理员身份运行 VS Code（或以管理员身份启动 PowerShell 终端）后，重新执行命令。
+
 ---
 
 ## License

@@ -10,7 +10,7 @@
     "dev": "concurrently -k -n vite,electron -c blue,green \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dev:renderer": "vite",
     "dev:electron": "wait-on tcp:5173 && tsc -p tsconfig.electron.json --watch & node scripts/start-electron-dev.mjs",
-    "build": "pnpm build:renderer && pnpm build:electron",
+    "build": "node scripts/make-icons.mjs && pnpm build:renderer && pnpm build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -21,8 +21,8 @@
     "test:coverage": "vitest run --coverage",
     "package:mac": "pnpm build && electron-builder --mac --x64 --arm64 --publish never",
     "package:mac:universal": "pnpm build && electron-builder --mac --universal --publish never",
-    "package:win": "pnpm build && electron-builder --win --x64 --arm64 --publish never",
-    "package:all": "pnpm build && electron-builder -mwl --x64 --arm64 --publish never"
+    "package:win": "node scripts/unblock-win-packager.mjs && pnpm build && electron-builder --win --x64 --arm64 --publish never",
+    "package:all": "node scripts/unblock-win-packager.mjs && pnpm build && electron-builder -mwl --x64 --arm64 --publish never"
   },
   "dependencies": {
     "electron-log": "^5.1.7",

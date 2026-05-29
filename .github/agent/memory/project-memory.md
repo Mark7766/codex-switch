@@ -167,7 +167,9 @@
 
 | 编号 | 问题描述 | 解决方案 | 日期 |
 |------|---------|---------|------|
-| (待补充) | — | — | — |
+| BUG-001 | Node 23.x 下 `pnpm install` 进程在 linker 阶段死锁挂起 (0% CPU) | 推荐改用 Node 20 LTS；或者本地使用 `pnpm install --ignore-scripts` + `pnpm rebuild` 两步式安装 | 2026-05-30 |
+| BUG-002 | Windows 默认 PowerShell 脚本执行策略禁止运行 npx.ps1 / npm.ps1 / pnpm.ps1 | 运行 `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` 清理当前对话的受限策略 | 2026-05-30 |
+| BUG-003 | Windows 本地打包时，7-zip 提取 `winCodeSign.7z` 中的 OS 符号链接报错 `ERROR: Cannot create symbolic link: 客户端没有所需的特权` | 1. 开启 Windows 系统的【开发人员模式】（设置 -> 系统 -> 开发者选项 -> 开启【开发人员模式】）允许普通用户创建软链接。<br>2. 或以管理员权限重新启动 VS Code/PS终端。 | 2026-05-30 |
 
 ---
 

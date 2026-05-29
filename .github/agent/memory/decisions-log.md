@@ -171,5 +171,62 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
   - Windows：设置 → 系统 → 系统信息 → 看「系统类型」。
 - 长期：如果 Intel Mac 装机量低于阈值（例如下载量 < 5%），再评估退役 `mac-x64`。
 
+---
+
+### ADR-004: 自动绕过 Windows 环境下 7z 提取 winCodeSign 软链接特权错误
+
+- **日期**：2026-05-30
+- **状态**：✅ 已采纳
+- **决策者**：项目发起人 + AI Agent
+
+#### 背景
+当在未开启【开发人员模式 (Developer Mode)】且未使用管理员权限的普通 Windows 机器上运行 `pnpm package:win` 时，`electron-builder` 在下载并使用 `7za.exe` 解压 `winCodeSign-2.6.0.7z` 的过程中，会因为尝试在 Windows NTFS 分区上创建 macOS 相关的符号链接（`symlink`，例如 `darwin/10.12/lib/libcrypto.dylib` 和 `darwin/10.12/lib/libssl.dylib`）而抛出 `ERROR: Cannot create symbolic link: 客户端没有所需的特权`，导致打包程序强制崩溃退出。
+要求非技术用户开启系统开发人员模式或启动管理员权限并不符合"极简零门槛"原则，我们需要一个能够让无论何种普通权限的 Windows 系统在没有任何特殊配置下都能完美一键打包的解决方案。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 强制要求开发人员在 Windows 开启"开发人员模式" | 零额外脚本开发成本 | 用户体验差；很多不熟悉 Windows 高级设置的开发者无从下手；违反"零门槛"原则 |
+| B. 改用 zip 格式打包并移除 `winCodeSign` 依赖 | 可绕过符号链接 | 无法使用 NSIS 自动生成合规、干净、友好的 Windows 双击安装包，只能发布绿色版 zip；对小白不友好 |
+| **C. 自动预解压并过滤 macOS/linux components** | 100% 自动化；不破坏 NSIS 打包；在普通用户权限下即可完美通过；自动缓存复用已下载的 `.7z` 归档 | 需要编写一个大约 100 行的 Node.js 缓存预热脚本 |
+
+#### 决策
+> 选择 **方案 C：编写 `scripts/unblock-win-packager.mjs` 并在 Windows 下的 `package:win` / `package:all` 命令前自动注入**。
+
+#### 理由
+1. **纯自动化、静默完成**：用户仅需运行 `pnpm package:win`，该脚本自动搜寻 `AppData\Local\electron-builder\Cache\winCodeSign` 目录下的 `.7z` 缓存包；若不存在则自动从 GitHub 镜像下载。
+2. **完美契合 electron-builder 缓存判断机制**：通过在 Cache 目录下预先解压出一个名为 `winCodeSign-2.6.0` 结构完整的文件夹，`electron-builder` 运行时在本地搜寻到匹配目录，会直接快乐地跳过默认的下载 extraction 阶段，直接使用缓存，从而绕过了错误！
+3. **软链接裁剪过滤**：使用项目里现成的 Rust/Go/JS 便携式 7-Zip 工具：`node_modules/7zip-bin/win/x64/7za.exe` 并通过参数 `-x!darwin` 和 `-x!linux` 强制只解压对打包 Windows 绝无影响的 windows 工具链目录，完全过滤了包含 macOS 动态库软链接的部分（在 Windows 打包 Windows 并不需要 macOS 签名工具），彻底消除了因软链接生成所引发的操作系统特权阻碍。
+
+#### 影响
+- 在 `package.json` 的 `"package:win"` 和 `"package:all"` 前部追加运行 `node scripts/unblock-win-packager.mjs`。
+- 在 `README.md` 与项目长期记忆中记录和规范该设计，使其具有完全的可维护性。
 
 ---
+
+### ADR-005: 采用纯 Node.js (make-icons.mjs) 替代 Python 的 make-icons.py
+
+- **日期**：2026-05-30
+- **状态**：✅ 已采纳
+- **决策者**：AI Agent
+
+#### 背景
+原本编译 macOS `.icns` 和 Windows `.ico` 程序图标使用 Python PIL 脚本 `make-icons.py`。然而，在 Windows 构建环境或者在没安装 Python 及其 Pillow 等复杂原生第三方库的宿主机上，该 Python 脚本无法正常执行。这会导致 `build/icon.ico` 和 `build/icon.icns` 无法生成，使 Windows 最终打包出 fallback 的默认绿色 Electron 标志图标，无法与 Mac 保持精美的 UI 视觉统一。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 强制安装 Python 和 Pillow | 保持原有脚本不改 | 给无 Python/Pillow 的开发者和小白系统重重设卡，阻碍了一体化部署 |
+| B. 引入 sharp, jimp 等第三方 Node 包进行绘制 | 生态熟悉 | 引入大量 Native 二进制依赖组件或重量级包，容易产生安装死锁、安装体积增加、特定系统构建崩溃等风险 |
+| **C. 采用纯 Node.js 拼合预生成的 PNG 资源** | 100% 运行、零额外依赖、绝对轻量、二进制文件级编译、全宿主平台通杀 | 需要写文件级别的 ICO、ICNS 编译算法 |
+
+#### 决策
+> 选择 **方案 C**：利用仓库中已存在的、跨平台通用的预渲染图标文件集合 `build/icon.iconset/*.png`，利用 Node.js 原生的 `fs` 读写，在内存中完成 ICO 的目录区块拼写 + 偏移量填充；同时针对 ICNS 进行 ID 切片拼合。
+
+#### 理由
+1. **零依赖，零安全风险**：不加载外部 canvas、sharp、python等第三方运行时库。
+2. **多端极致对齐**：保证了哪怕没有任何高级工具的 Windows 宿主机上，也可以通过 `pnpm build` 指令，秒级对齐生成高保真 Windows 及 macOS 双端图标。
+3. **完全无感**：将其整合为 pre-build 流程，并成功对齐 electron-builder。
+

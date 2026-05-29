@@ -127,3 +127,29 @@
   1. 切换 linker 后 lock 文件结构会变，需要让团队成员都 `rm -rf node_modules && pnpm install` 一次。
   2. CI 缓存 key 含 `pnpm-lock.yaml` 哈希，会自动失效一次（属于一次性成本）。
   3. 该问题在 Windows CI 上也会复现，本修复同样生效。
+
+### [TASK-006] 解决 Windows 环境本地运行且打包 `pnpm package:win` 阻碍
+- **日期**：2026-05-30
+- **类型**：fix
+- **摘要**：修复 Windows 环境下 PowerShell 终端找不到 `pnpm` 命令且脚本执行被禁问题；揭示并排查 electron-builder 在提取 `winCodeSign.7z` 时因为 Windows 缺少创建符号链接权限（无 Developer Mode) 导致提取失败的问题。
+- **变更文件**：
+  - 更新项目长期记忆 `.github/agent/memory/project-memory.md` 和 `README.md`
+- **关键决策**：
+  - 通过 `Set-ExecutionPolicy -Scope Process` 与 `npm install -g pnpm` 在 Windows 构建机中安装全局 `pnpm@9.4.0`；
+  - 明确添加并在 `README.md` 及长期记忆中提供 Windows「无法创建符号链接：客户端没有所需的特权」时的处理方式：启用 Windows "开发人员模式"（Developer Mode）或以管理员身份运行。
+- **注意事项**：
+  1. Windows 本地打包时注意务必开启开发人员模式，这样 electron-builder 在提取 winCodeSign 等工具套件里的 macOS 动态库符号链接时才不会出现特权报错。
+
+### [TASK-007] 统一 macOS 与 Windows 打包图标，实现纯 Node.js 的 ICO 与 ICNS 双重编译器
+- **日期**：2026-05-30
+- **类型**：fix
+- **摘要**：针对 Windows 自定义打包图标缺失（退化为 Electron 默认绿色图标）的问题进行完全修复。使用纯 Node.js （不依赖外部 Python 环境和 PIL 等动态依赖）实现高兼容性的 ICO 与 ICNS 双重文件二进制编译器，自动提取 `build/icon.iconset/` 里的预置 PNG 生成合规的 Windows `icon.ico` 与 macOS `icon.icns`，并在全局 `pnpm build` 指令中挂载该编译器，实现多端桌面打包图标完全一致的视觉统一。
+- **变更文件**：
+  - 新增 `scripts/make-icons.mjs`
+  - 修改 `package.json`
+  - 自动覆盖生成 `build/icon.ico`、`build/icon.icns`、`build/icon.png`
+- **关键决策**：
+  - 不引入额外的外部原生二进制绘制依赖（如 sharp / canvas / jimp），完美利用现有的 `build/icon.iconset/` 高清预置源进行多尺寸打包拼合。
+  - 通过编写针对 ICO 格式的图片目录条目与 PNG 数据偏移二进制编码，以及对 ICNS 格式的 ID 数据对包头拼接，实现了不需要 python 运行时的纯原生前端部署保障。
+- **注意事项**：
+  1. 用户后续只需运行 `pnpm build` 或 `pnpm package:win`等命令，就会静默、无感知地在 `build` 目录下生成绝对对齐、合规并且跨平台一致的精美应用图标。
