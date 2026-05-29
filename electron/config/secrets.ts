@@ -1,0 +1,73 @@
+/**
+ * DeepSeek API Key 安全存储（OS keychain via keytar）。
+ * 失败时回退到 electron-store 加密字段（避免完全不可用）。
+ */
+import Store from 'electron-store';
+
+const SERVICE = 'codex-switch';
+const ACCOUNT = 'deepseek-api-key';
+
+interface FallbackShape {
+  apiKey: string;
+}
+
+let fallbackStore: Store<FallbackShape> | null = null;
+
+function getFallback(): Store<FallbackShape> {
+  if (!fallbackStore) {
+    fallbackStore = new Store<FallbackShape>({
+      name: 'secrets',
+      defaults: { apiKey: '' },
+      encryptionKey: 'codex-switch-local-only',
+    });
+  }
+  return fallbackStore;
+}
+
+async function loadKeytar(): Promise<typeof import('keytar') | null> {
+  try {
+    return await import('keytar');
+  } catch {
+    return null;
+  }
+}
+
+export async function getApiKey(): Promise<string> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      const v = await keytar.getPassword(SERVICE, ACCOUNT);
+      if (v) return v;
+    } catch {
+      /* fall through */
+    }
+  }
+  return getFallback().get('apiKey', '');
+}
+
+export async function setApiKey(apiKey: string): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.setPassword(SERVICE, ACCOUNT, apiKey);
+      // 同步清空 fallback，避免明文残留
+      getFallback().set('apiKey', '');
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+  getFallback().set('apiKey', apiKey);
+}
+
+export async function clearApiKey(): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.deletePassword(SERVICE, ACCOUNT);
+    } catch {
+      /* ignore */
+    }
+  }
+  getFallback().set('apiKey', '');
+}

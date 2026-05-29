@@ -1,0 +1,158 @@
+# ai-coding-ok: v2.2.0
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+
+jobs:
+  lint:
+    name: "🔍 Lint & Format"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting (Prettier)
+        run: pnpm format -- --check
+
+      - name: Lint (ESLint)
+        run: pnpm lint
+
+  type-check:
+    name: "🔬 Type Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check (tsc --noEmit)
+        run: pnpm typecheck
+
+  test:
+    name: "✅ Unit Tests (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    needs: [lint, type-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Vitest with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage report
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  build:
+    name: "🏗️ Build & Package (${{ matrix.os }} / ${{ matrix.arch }})"
+    runs-on: ${{ matrix.os }}
+    needs: [test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS 同时产出 Intel 与 Apple Silicon 两个 .dmg
+          - { os: macos-latest,   arch: x64,   target: mac }
+          - { os: macos-latest,   arch: arm64, target: mac }
+          # Windows 同时产出 x64 与 arm64 两个 NSIS .exe 安装包
+          - { os: windows-latest, arch: x64,   target: win }
+          - { os: windows-latest, arch: arm64, target: win }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        # NOTE: pnpm v9 + Node 23 偶发链接阶段挂起；CI 已锁 Node 20 LTS 规避（见 README troubleshooting）。
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (renderer + main)
+        run: pnpm build
+
+      - name: Package (electron-builder, unsigned dry-run on PRs)
+        # electron-builder 会根据 --${target} 和 --${arch} 产出对应架构的 .dmg / NSIS .exe
+        run: pnpm exec electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        shell: bash
+        env:
+          # 正式发布的签名凭据通过 release workflow 注入；CI 仅做无签名构建验证
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: List release artifacts
+        shell: bash
+        run: ls -lh release/ || dir release
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error

@@ -1,0 +1,42 @@
+appId: io.github.mark7766.codex-switch
+productName: Codex Switch
+copyright: Copyright © 2026 Codex Switch Contributors
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+asar: true
+asarUnpack:
+  - "dist/electron/preload.js"
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-Setup-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Codex Switch
+dmg:
+  title: Codex Switch ${version}
+  writeUpdateInfo: false
