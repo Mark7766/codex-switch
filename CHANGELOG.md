@@ -3,6 +3,10 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.6] - 2026-05-30
+
+验证 v1.0.5 引入的 macOS “检查更新 → 浏览器手动下载”回退路径，以及 Windows NSIS 原生 auto-update 在发布新版本后仍可正常检测/下载/安装。本版本仅用于升级流程验证，不包含功能变更。
+
 ## [1.0.5] - 2026-05-30
 
 根本性修复 macOS 自动升级 “代码不含资源”错误。
