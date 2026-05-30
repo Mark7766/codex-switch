@@ -32,7 +32,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, target: mac, name: mac }
+          # macos-13 (Intel) is more reliable for electron-builder hdiutil DMG creation;
+          # cross-builds both x64 and arm64 dmg from this runner.
+          - { os: macos-13, target: mac, name: mac }
           - { os: windows-latest, target: win, name: win }
     runs-on: ${{ matrix.os }}
     steps:

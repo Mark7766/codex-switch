@@ -48,6 +48,8 @@ nsis:
 dmg:
   title: Codex Switch ${version}
   writeUpdateInfo: true
+  format: UDZO
+  sign: false
 publish:
   provider: github
   owner: Mark7766
