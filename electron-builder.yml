@@ -47,7 +47,7 @@ nsis:
   shortcutName: Codex Switch
 dmg:
   title: Codex Switch ${version}
-  writeUpdateInfo: false
+  writeUpdateInfo: true
 publish:
   provider: github
   owner: Mark7766
