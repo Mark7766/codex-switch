@@ -248,3 +248,10 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 - **决策**：每次 `/v1/responses` 请求分配 `req_xxxxx`；日志结构化字段（reqId/phase/durationMs/model 等）；所有日志在 emit 前经 `redactSensitive`（sk-*, Authorization, OPENAI_API_KEY → ***）。
 - **理由**：诊断包要拿给社区分析时不能泄露密钥；按 reqId 分组的 UI 也需要结构化字段。
 - **影响**：`electron/proxy/server.ts`、`electron/proxy/errors.ts`、`src/pages/Logs.tsx`、`ReportIssueModal`。
+
+## ADR-011：macOS auto-update 必须同时产出 zip target（v1.0.3）
+- **日期**：2026-05-30
+- **决策**：`electron-builder.yml` 的 `mac.target` 必须同时包含 `dmg` 与 `zip`（x64 + arm64）；`.github/workflows/release.yml` 的 `actions/upload-artifact path:`、flatten `find` 命令、`softprops files:` 三处 glob 都必须覆盖 `*.zip`。
+- **理由**：electron-updater 在 macOS 上由 Squirrel.Mac 实施原子升级，**只接受 zip 格式补丁**；dmg 仅用于人工首次安装。若 release 中没有 zip，已发布客户端调用 auto-update 会直接报 `ZIP file not provided`，与产物 URL 是否能下载无关。
+- **影响**：`electron-builder.yml`、`.github/workflows/release.yml`、所有未来 release 的 mac asset 数量翻倍（dmg+zip 各 2 + blockmap × 4）。
+- **不踩坑提示**：electron-builder 默认 mac 配置只列 dmg；新工程很容易漏 zip 直到首位用户尝试自动升级才暴露。

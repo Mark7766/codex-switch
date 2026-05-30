@@ -241,6 +241,18 @@
   2. `ci.yml`（PR/main matrix）目前在 commit 3400273 仍 failure，与 release 流水线无关，需后续单独排查。
   3. PAT（osxkeychain 提取）拿不到 admin 权限，无法 cancel/重跑队列阻塞的 run；遇到 macos-13 这种长队列阻塞只能靠 push 新 commit 触发新 run。
 
+### [TASK-014] 修复 macOS auto-update "ZIP file not provided"（mac 漏发 zip 产物）
+- **日期**：2026-05-30
+- **类型**：fix / release
+- **摘要**：v1.0.2 客户端在 macOS 调用"检查更新"报 `ZIP file not provided: [{ url: ...mac-arm64.dmg, ... }]`，根因是 electron-updater 在 macOS 上由 Squirrel.Mac 实施原子升级，**只能从 zip 应用补丁**，dmg 仅服务于人工首次安装；而我们 v1.0.0/v1.0.1/v1.0.2 全程只产出 dmg。修复双管齐下：(a) `electron-builder.yml` mac.target 增加 `zip` (x64 + arm64)；(b) `release.yml` 的 `actions/upload-artifact` `path:`、flatten `find` 命令、`softprops` `files:` 三处 glob 全部从 `*.{dmg,exe,yml,blockmap}` 扩展到 `*.{dmg,exe,zip,yml,blockmap}`，否则 zip 在 runner 上构建出来但永远到不了 GitHub Release。bump 到 v1.0.3 + 重发 tag（中途首次推送时第二个 fix 还没合并，强制删除远程 tag 再推到正确 commit），release run 6c35dce ✓，v1.0.3 现含 17 个 asset：dmg/zip 各 2 + blockmap × 4 + win exe × 3 + blockmap × 3 + 2 个 yml + builder-debug；`latest-mac.yml` 头四条文件按 zip(arm64), zip(x64), dmg(arm64), dmg(x64) 排列，`path:` 指向 zip，Squirrel 会优先取 zip。
+- **变更文件**：
+  - `electron-builder.yml`（mac.target 增加 `- target: zip` arch [x64,arm64]）
+  - `.github/workflows/release.yml`（3 处 glob 加 `*.zip`）
+  - `package.json`（1.0.2 → 1.0.3）
+  - `CHANGELOG.md`（[1.0.3] 条目）
+- **关联 ADR**：ADR-011（凡 mac 启用 auto-update 必须同时构建 zip target；release.yml 上传/发布 glob 必须包含 zip）。
+- **注意事项**：v1.0.0..v1.0.2 客户端可通过 v1.0.3 升级；通知用户在客户端再点一次"检查更新"。
+
 ### [TASK-013] 修复 CI（prettier 参数解析 + 缺 coverage 依赖） + 修复 auto-update 致命 404（artifactName 与 yml 引用不一致）
 - **日期**：2026-05-30
 - **类型**：fix / ci / release
