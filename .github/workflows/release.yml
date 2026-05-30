@@ -93,6 +93,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.exe
+            release/*.zip
             release/*.yml
             release/*.blockmap
           if-no-files-found: error
@@ -113,7 +114,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.yml' -o -name '*.blockmap' \) -exec cp -v {} release/ \;
+          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -exec cp -v {} release/ \;
           ls -lh release/
 
       - name: Create / update GitHub Release
@@ -128,6 +129,7 @@ jobs:
           files: |
             release/*.dmg
             release/*.exe
+            release/*.zip
             release/*.yml
             release/*.blockmap
         env:
