@@ -29,7 +29,7 @@ mac:
       arch:
         - x64
         - arm64
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  artifactName: Codex-Switch-${version}-mac-${arch}.${ext}
 win:
   icon: build/icon.ico
   target:
@@ -37,7 +37,7 @@ win:
       arch:
         - x64
         - arm64
-  artifactName: ${productName}-Setup-${version}-win-${arch}.${ext}
+  artifactName: Codex-Switch-Setup-${version}-win-${arch}.${ext}
 nsis:
   oneClick: false
   perMachine: false

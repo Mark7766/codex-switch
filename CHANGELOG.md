@@ -3,6 +3,19 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.2] - 2026-05-30
+
+紧急修复 auto-update 的关键 404：v1.0.1 的 `latest-mac.yml` / `latest.yml`
+引用了 `Codex-Switch-1.0.1-*` 文件名，但 electron-builder 实际生成并上传的
+是 `Codex.Switch-1.0.1-*`（productName 含空格时 yml 与文件名转义不一致），
+导致已安装客户端调用 auto-update 拉取 dmg/exe 时 404。
+
+### 修复
+
+- **统一安装器命名为 `Codex-Switch-*`**：在 `electron-builder.yml` 把
+  `artifactName` 中的 `${productName}` 替换成字面量 `Codex-Switch`，使
+  yml 内引用与实际产物名 100% 一致。
+
 ## [1.0.1] - 2026-05-30
 
 端到端验证自动升级链路的小版本。无功能变化，仅用于让已安装 v1.0.0 的客户端
