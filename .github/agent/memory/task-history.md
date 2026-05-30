@@ -241,7 +241,24 @@
   2. `ci.yml`（PR/main matrix）目前在 commit 3400273 仍 failure，与 release 流水线无关，需后续单独排查。
   3. PAT（osxkeychain 提取）拿不到 admin 权限，无法 cancel/重跑队列阻塞的 run；遇到 macos-13 这种长队列阻塞只能靠 push 新 commit 触发新 run。
 
-### [TASK-015] 修复 macOS auto-update Squirrel.Mac 代码签名校验失败（v1.0.4）
+### [TASK-016] macOS 弃用 Squirrel.Mac 自动升级，改为浏览器手动下载（v1.0.5）
+- **日期**：2026-05-30
+- **类型**：fix / release / 架构调整
+- **摘要**：v1.0.4 客户端升级仍报相同错误 `代码不含资源，但签名指示这些资源必须存在`，证伪 TASK-015 / ADR-012。**真因**：Squirrel.Mac 在解压新版 .app 后会调用 `SecRequirementForLaunchedApp()` 取出当前运行 app 的 designated requirement，再用它校验新版 .app；对未签名 / ad-hoc 签名的 app，该 requirement 是 `cdhash == <某固定哈希>`——跨版本天然不可能成立。这是 Apple 平台对未签名 app 的硬性限制，任何 `identity` / `hardenedRuntime` / `zip target` 调参都绕不过去。**Plan B 落地**：`UpdaterManager.download()` 在 `process.platform === 'darwin'` 时跳过 `autoUpdater.downloadUpdate()`，改为 `shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest')` 并向渲染层 emit 新事件 `manual-download`，UI（UpdateBadge / Settings）提示「已在浏览器打开下载页，请下载 dmg 拖入 /Applications 替换」；Windows 路径完全不变。bump 1.0.5，commit eecdb22，tag v1.0.5 已推。
+- **变更文件**：
+  - `electron/updater/index.ts`（import shell；UpdateEvent 增加 `'manual-download'`；download() darwin 分支 → 浏览器打开 + 自定义事件）
+  - `src/types/global.d.ts`（UpdateEvent kind 联合类型同步）
+  - `src/components/UpdateBadge.tsx`（mac 用户提示按钮 title 改为「前往下载页」；新增 `manual-download` 状态展示）
+  - `src/pages/Settings.tsx`（新增 `manual-download` 提示文案）
+  - `package.json`（1.0.4 → 1.0.5）
+  - `CHANGELOG.md`（[1.0.5] 条目，详细解释 Squirrel.Mac/CDHash 限制）
+- **关联 ADR**：ADR-013（macOS 未签名分发禁用 Squirrel.Mac 自动升级路径，回退浏览器手动下载）；ADR-012 标记 SUPERSEDED。
+- **注意事项**：
+  1. v1.0.0..v1.0.4 已安装的 mac 客户端跑的是旧代码，点「下载更新」依然会触发 Squirrel.Mac 校验失败；这些用户必须**手动**访问 Releases 页面一次性升到 v1.0.5，之后才会走 Plan B。
+  2. 等待 v1.0.5 release run 完成后向用户告知一次性手动升级路径。
+  3. 长期解决：申请 Apple Developer ID（$99/年），重新启用原生 auto-update。
+
+### [TASK-015] 修复 macOS auto-update Squirrel.Mac 代码签名校验失败（v1.0.4）⛔ SUPERSEDED by TASK-016
 - **日期**：2026-05-30
 - **类型**：fix / release
 - **摘要**：v1.0.3 客户端拉到 zip 后 Squirrel.Mac 安装报 `Code signature at URL ... did not pass validation: 代码不含资源，但签名指示这些资源必须存在`。根因：`electron-builder.yml` `mac.hardenedRuntime: true` 与 `CSC_IDENTITY_AUTO_DISCOVERY=false`（无签名身份）共存时，electron-builder 仍会在 .app 内写入 `_CodeSignature/CodeResources` 清单，但 zip 化过程中清单与实际 bundle 资源不一致，Squirrel.Mac 严格校验时直接拒绝。修复：在 mac 块下显式 `identity: null` + 把 `hardenedRuntime` 从 `true` 改为 `false`，告诉 electron-builder「本构建完全不走签名」，.app 不再写这份不一致的签名清单。bump v1.0.4，release run bf6b2b7 ✓，17 个 asset 齐全，等待用户客户端二次验证升级。

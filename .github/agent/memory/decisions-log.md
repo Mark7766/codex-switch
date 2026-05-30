@@ -256,8 +256,15 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 - **影响**：`electron-builder.yml`、`.github/workflows/release.yml`、所有未来 release 的 mac asset 数量翻倍（dmg+zip 各 2 + blockmap × 4）。
 - **不踩坑提示**：electron-builder 默认 mac 配置只列 dmg；新工程很容易漏 zip 直到首位用户尝试自动升级才暴露。
 
-## ADR-012：未签名 macOS 构建必须 identity:null + hardenedRuntime:false（v1.0.4）
+## ADR-012：未签名 macOS 构建必须 identity:null + hardenedRuntime:false（v1.0.4）⛔ SUPERSEDED by ADR-013
 - **日期**：2026-05-30
-- **决策**：当 macOS 分发未配置 Apple Developer ID 证书时（`CSC_IDENTITY_AUTO_DISCOVERY=false`），`electron-builder.yml` 的 `mac` 块**必须**同时声明 `identity: null` 与 `hardenedRuntime: false`。
-- **理由**：仅依赖 `CSC_IDENTITY_AUTO_DISCOVERY=false` 不够 —— electron-builder 在 `hardenedRuntime: true` 下仍会在 .app 里写入 `_CodeSignature/CodeResources` 清单，但因为没有真正的签名身份，清单与最终 zip 内的资源列表不一致，Squirrel.Mac 严格校验时报 `代码不含资源，但签名指示这些资源必须存在`，自动升级失败。`identity: null` 才是 electron-builder 官方"完全跳过签名"开关；`hardenedRuntime` 离开真实签名毫无意义。
-- **影响**：`electron-builder.yml`；未来若启用 Apple Developer ID 签名需移除 `identity: null` 并恢复 `hardenedRuntime: true`。
+- **状态**：被 ADR-013 推翻。v1.0.4 客户端实测仍报同一签名错误，证明此路不通。`identity: null` + `hardenedRuntime: false` 调参可以保留（确实让 .app 不再写不一致的 CodeResources），但**不是**报错的根因，也不能修复 Squirrel.Mac 校验失败。详见 ADR-013。
+
+## ADR-013：macOS 未签名分发禁用 Squirrel.Mac 自动升级，回退浏览器手动下载（v1.0.5）
+- **日期**：2026-05-30
+- **决策**：在 macOS 上，`UpdaterManager.download()` 不调用 `autoUpdater.downloadUpdate()`，改为 `shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest')` 并向渲染层 emit `manual-download` 事件；UI 引导用户手动下载 dmg 并拖入 `/Applications` 替换。Windows / Linux 路径不变，仍走 electron-updater 原生 auto-update。
+- **理由**：Squirrel.Mac 在解压新 .app 后调用 `SecRequirementForLaunchedApp()` 获取**当前运行 app** 的 designated requirement，再用它校验新版 .app。对未通过 Apple Developer ID 真正签名的 app（包含 `identity: null` 与 `identity: '-'` ad-hoc 两种情况），该 requirement 退化为 `cdhash == <固定哈希>`——这意味着新版 app 必须与旧版字节完全一致，跨版本数学上不可能成立。这是 Apple 平台对未签名 app 的硬性限制，无法通过 electron-builder 配置或打包流程绕过。
+- **影响**：
+  - `electron/updater/index.ts`、`src/types/global.d.ts`、`src/components/UpdateBadge.tsx`、`src/pages/Settings.tsx` 都新增 `manual-download` 事件分支。
+  - v1.0.0..v1.0.4 已安装的 mac 客户端跑的是旧代码，无法享受此 fallback；这批用户必须**手动**升级到 v1.0.5 一次。
+  - 长期方案：若获取 Apple Developer ID 证书，移除 `darwin` 分支即可恢复原子自动升级。
