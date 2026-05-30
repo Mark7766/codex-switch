@@ -3,6 +3,26 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.4] - 2026-05-30
+
+紧急修复 auto-update：v1.0.3 客户端拉到 zip 后 Squirrel.Mac
+安装报错：
+
+```
+Code signature at URL ... did not pass validation:
+代码不含资源，但签名指示这些资源必须存在
+```
+
+### 修复
+
+- **明确未签名分发配置**：`electron-builder.yml` 的 `mac` 下
+  增加 `identity: null` 并将 `hardenedRuntime` 从 `true` 改为 `false`。
+  根因：之前设了 `hardenedRuntime: true` 但未提供签名证书，electron-builder
+  仍在 .app 里写入了 `_CodeSignature/CodeResources` 清单，但 zip 化过程中
+  清单与实际资源不一致，Squirrel.Mac 严格校验时报 “代码不含资源”。
+  明确告诉 electron-builder “本构建不走签名”后，.app 不再写入这份
+  不一致的签名清单，Squirrel.Mac 才能顺利应用更新。
+
 ## [1.0.3] - 2026-05-30
 
 再次紧急修复 auto-update：v1.0.2 客户端报 `ZIP file not provided`。
