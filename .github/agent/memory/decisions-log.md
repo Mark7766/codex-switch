@@ -255,3 +255,9 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 - **理由**：electron-updater 在 macOS 上由 Squirrel.Mac 实施原子升级，**只接受 zip 格式补丁**；dmg 仅用于人工首次安装。若 release 中没有 zip，已发布客户端调用 auto-update 会直接报 `ZIP file not provided`，与产物 URL 是否能下载无关。
 - **影响**：`electron-builder.yml`、`.github/workflows/release.yml`、所有未来 release 的 mac asset 数量翻倍（dmg+zip 各 2 + blockmap × 4）。
 - **不踩坑提示**：electron-builder 默认 mac 配置只列 dmg；新工程很容易漏 zip 直到首位用户尝试自动升级才暴露。
+
+## ADR-012：未签名 macOS 构建必须 identity:null + hardenedRuntime:false（v1.0.4）
+- **日期**：2026-05-30
+- **决策**：当 macOS 分发未配置 Apple Developer ID 证书时（`CSC_IDENTITY_AUTO_DISCOVERY=false`），`electron-builder.yml` 的 `mac` 块**必须**同时声明 `identity: null` 与 `hardenedRuntime: false`。
+- **理由**：仅依赖 `CSC_IDENTITY_AUTO_DISCOVERY=false` 不够 —— electron-builder 在 `hardenedRuntime: true` 下仍会在 .app 里写入 `_CodeSignature/CodeResources` 清单，但因为没有真正的签名身份，清单与最终 zip 内的资源列表不一致，Squirrel.Mac 严格校验时报 `代码不含资源，但签名指示这些资源必须存在`，自动升级失败。`identity: null` 才是 electron-builder 官方"完全跳过签名"开关；`hardenedRuntime` 离开真实签名毫无意义。
+- **影响**：`electron-builder.yml`；未来若启用 Apple Developer ID 签名需移除 `identity: null` 并恢复 `hardenedRuntime: true`。

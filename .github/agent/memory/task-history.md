@@ -241,6 +241,17 @@
   2. `ci.yml`（PR/main matrix）目前在 commit 3400273 仍 failure，与 release 流水线无关，需后续单独排查。
   3. PAT（osxkeychain 提取）拿不到 admin 权限，无法 cancel/重跑队列阻塞的 run；遇到 macos-13 这种长队列阻塞只能靠 push 新 commit 触发新 run。
 
+### [TASK-015] 修复 macOS auto-update Squirrel.Mac 代码签名校验失败（v1.0.4）
+- **日期**：2026-05-30
+- **类型**：fix / release
+- **摘要**：v1.0.3 客户端拉到 zip 后 Squirrel.Mac 安装报 `Code signature at URL ... did not pass validation: 代码不含资源，但签名指示这些资源必须存在`。根因：`electron-builder.yml` `mac.hardenedRuntime: true` 与 `CSC_IDENTITY_AUTO_DISCOVERY=false`（无签名身份）共存时，electron-builder 仍会在 .app 内写入 `_CodeSignature/CodeResources` 清单，但 zip 化过程中清单与实际 bundle 资源不一致，Squirrel.Mac 严格校验时直接拒绝。修复：在 mac 块下显式 `identity: null` + 把 `hardenedRuntime` 从 `true` 改为 `false`，告诉 electron-builder「本构建完全不走签名」，.app 不再写这份不一致的签名清单。bump v1.0.4，release run bf6b2b7 ✓，17 个 asset 齐全，等待用户客户端二次验证升级。
+- **变更文件**：
+  - `electron-builder.yml`（mac 增加 `identity: null`，`hardenedRuntime: true → false`）
+  - `package.json`（1.0.3 → 1.0.4）
+  - `CHANGELOG.md`（[1.0.4] 条目）
+- **关联 ADR**：ADR-012（未签名 mac 分发**必须** `mac.identity: null` + `mac.hardenedRuntime: false`，否则 .app 内的 _CodeSignature 清单会与 zip 化后的实际资源不一致）。
+- **注意事项**：若 v1.0.0 客户端升级到 v1.0.4 仍失败，下一步候选方案是用 `mac.identity: '-'` 做一致 ad-hoc 签名（强制 codesign --sign -），避免 OLD/NEW 签名机制错位。
+
 ### [TASK-014] 修复 macOS auto-update "ZIP file not provided"（mac 漏发 zip 产物）
 - **日期**：2026-05-30
 - **类型**：fix / release
