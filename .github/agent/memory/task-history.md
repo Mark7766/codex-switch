@@ -209,3 +209,34 @@
   4. autoUpdater 在 `app.isPackaged === false` 时不实际触发更新事件，只在打包后生效。
   5. WebSocket 路径下 `lastToolCalls` 修复了原版工具调用上下文，但与 Theme C 的 reqId 是独立维度，互不干扰。
   6. P1 主题中"极简风格扫荡"只在新增组件上落实（4 色/3 字号/8px 栅格，单主按钮），未对存量页面做整体视觉迁移；如需统一可作为 v1.1 任务。
+
+### [TASK-011] 修复 v1.0.0 发布流水线：Release 资产被并行任务互相清空
+- **日期**：2026-05-30
+- **类型**：fix / ci
+- **摘要**：v1.0.0 已成功打 tag、CI Release run 4 显示"completed successfully"，但 GitHub Release v1.0.0 真实状态为「存在 release 对象但 0 个 asset」（atom feed 看得见、anonymous API 返回 draft-like 空字段、所有 dmg/exe/yml 直接 URL 全部 404）。根因：原 `release.yml` 让 mac/win 两个 matrix 任务各自跑 `electron-builder --publish always`，每个任务在上传前会"列出 release 现有 assets → 删除属于自己输出的同名资产 → 上传"，并行/串行都会互相覆盖；曾尝试 `max-parallel: 1` 仍未解决（最终态为最后一个任务执行清理却没正确补回）。改为「构建-发布」两段式：build 矩阵只产出 dmg/exe/yml/blockmap 并 `actions/upload-artifact`（`--publish never`）；新增 `publish` job 在 ubuntu 上 download-artifact 全部产物，扁平化到 `release/` 后用 `softprops/action-gh-release@v2` 一次性把所有文件附加到 v1.0.0 release（draft:false, prerelease:false, generate_release_notes:true）。同时把 `ci.yml` 的 `PNPM_VERSION` 从裸 "9" 升到 "9.4.0"（pnpm/action-setup@v4 解析裸 "9" 在 Run 5/6 失败）。删除并重新推送 v1.0.0 tag 触发新 run。
+- **变更文件**：
+  - `.github/workflows/release.yml`（重写：build job → upload-artifact；新增 publish job 用 softprops/action-gh-release）
+  - `.github/workflows/ci.yml`（PNPM_VERSION "9" → "9.4.0"）
+- **关键决策（ADR-007）**：彻底放弃让 electron-builder 直接 publish 到 GitHub Release；改为 CI 收集 artifacts 后由独立 publish job 用 softprops/action-gh-release 一次性附加。理由：electron-builder GitHub publisher 的 "delete-then-upload" 行为对多平台/多架构并行/串行都不安全；softprops 单点上传是唯一稳定路径；副作用是 release notes 由 GitHub auto-generated 替代 electron-builder（可接受，且仍可读取 CHANGELOG）。
+- **验证**：本地 git push tag v1.0.0 后 Run 5 of Release 进入 currently running；待 build job (mac+win) 完成 → publish job 下载 artifact → 创建/更新 release v1.0.0 含 6+ 个 asset（mac arm64 dmg + mac x64 dmg + win x64 exe + win arm64 exe + latest-mac.yml + latest.yml + blockmaps）。
+- **注意事项**：
+  1. 之前 broken 的 v1.0.0 release 对象会被 softprops 接管；如果新 run 失败需要手动到 GitHub UI 删除该 release。
+  2. anonymous GitHub API rate-limit 严重（曾被 IP 85.237.207.179 限流），调试时优先用 atom feed `/releases.atom` 与 `curl -I /releases/download/...` 直探 asset URL 判断状态。
+  3. 后续验证 auto-update 链路需要再发 v1.0.1（bump package.json + tag）。
+
+### [TASK-012] 修复 macOS dmg 构建 hdiutil 偶发失败 + macos-13 队列阻塞
+- **日期**：2026-05-30
+- **类型**：fix / ci
+- **摘要**：TASK-011 推完后 Run 5 mac job 在 `electron-builder` dmg 阶段挂掉："Detected arm64 process, HFS+ is unavailable. Creating dmg with APFS" → "hdiutil: attach failed - no mountable file systems"（重试 6 次后死），是 electron-builder 在 macos-latest（arm64 Apple Silicon runner）上的已知偶发问题。先尝试切到 `os: macos-13`（Intel x64）并在 `electron-builder.yml` 把 dmg 显式设为 `format: UDZO, sign: false`；但 macos-13 runner 池排队 25 分钟仍未启动。最终方案：换回 `os: macos-latest`（队列快），保留 dmg `format: UDZO + sign: false`，并把 mac 构建步骤包成 3 次重试 bash 循环（每次失败清 release/ + sleep 10）。Run 7 (commit 3400273) 一次成功：version-check + build mac + build win + publish 全 ✓，v1.0.0 release 现含 23 个 asset（mac x64/arm64 dmg + win x64/arm64/combined nsis exe + 全部 blockmap + latest-mac.yml + latest.yml + builder-debug.yml）。
+- **变更文件**：
+  - `.github/workflows/release.yml`（matrix mac runner: macos-13 → macos-latest；mac build step 包 3 次 retry 循环）
+  - `electron-builder.yml`（dmg.format: UDZO + dmg.sign: false 显式声明）
+- **关键决策（ADR-008）**：CI 上 `electron-builder` 的 dmg 步骤必须包重试；macos-latest（arm64）队列性价比 > macos-13（Intel）队列速度。
+- **验证**：
+  - Release run 26676052084 全 ✓
+  - `GET /repos/Mark7766/codex-switch/releases/tags/v1.0.0` → 23 assets，含 `Codex-Switch-1.0.0-mac-{x64,arm64}.dmg`、`Codex-Switch-Setup-1.0.0-win-{x64,arm64}.exe`、`latest-mac.yml`、`latest.yml`
+  - 可下载：`https://github.com/Mark7766/codex-switch/releases/tag/v1.0.0`
+- **注意事项**：
+  1. release 内有重复文件名（`Codex-Switch-` 与 `Codex.Switch-` 各一份），是 TASK-011/TASK-012 早期 run 残留 + softprops 默认不覆盖的副产品；不影响下载与 auto-update（latest-mac.yml / latest.yml 引用的是 `Codex-Switch-` 系列）；如要洁净化可在 GitHub UI 手动删除 `Codex.Switch-*` 同义重复 asset。
+  2. `ci.yml`（PR/main matrix）目前在 commit 3400273 仍 failure，与 release 流水线无关，需后续单独排查。
+  3. PAT（osxkeychain 提取）拿不到 admin 权限，无法 cancel/重跑队列阻塞的 run；遇到 macos-13 这种长队列阻塞只能靠 push 新 commit 触发新 run。
