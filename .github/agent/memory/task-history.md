@@ -240,3 +240,32 @@
   1. release 内有重复文件名（`Codex-Switch-` 与 `Codex.Switch-` 各一份），是 TASK-011/TASK-012 早期 run 残留 + softprops 默认不覆盖的副产品；不影响下载与 auto-update（latest-mac.yml / latest.yml 引用的是 `Codex-Switch-` 系列）；如要洁净化可在 GitHub UI 手动删除 `Codex.Switch-*` 同义重复 asset。
   2. `ci.yml`（PR/main matrix）目前在 commit 3400273 仍 failure，与 release 流水线无关，需后续单独排查。
   3. PAT（osxkeychain 提取）拿不到 admin 权限，无法 cancel/重跑队列阻塞的 run；遇到 macos-13 这种长队列阻塞只能靠 push 新 commit 触发新 run。
+
+### [TASK-013] 修复 CI（prettier 参数解析 + 缺 coverage 依赖） + 修复 auto-update 致命 404（artifactName 与 yml 引用不一致）
+- **日期**：2026-05-30
+- **类型**：fix / ci / release
+- **摘要**：用户要求"清理重复资产、排查 ci.yml 失败、发 v1.0.1 测自动升级"。三件事并发处理：
+  1. **清理重复资产**：osxkeychain PAT 在仓库 `permissions` 中 `admin/push/maintain` 全 false（git push 走 SSH，与 HTTPS API 是两套 token），DELETE release asset 需要 push，权限不足返回 404；让用户去 UI 删除即可。
+  2. **CI 修复**：先发现 `pnpm format -- --check` 在 CI 把 `--check` 当成 prettier 文件 glob，报 "No files matching the pattern"；新增 `format:check` 脚本（`prettier --check .`），`.prettierignore` 排除 lockfile / 自动生成文档 / memory 目录，并对 43 个文件 `pnpm format` 修风格；此后 Lint 通过但 Unit Tests 全 OS 失败：`Cannot find dependency '@vitest/coverage-v8'`，CI 跑 `pnpm test:coverage`；补 `@vitest/coverage-v8@^1.6.0` 到 devDeps。
+  3. **auto-update 致命 404**：bump 到 v1.0.1 触发 release 后发现 `latest-mac.yml` 引用 `Codex-Switch-1.0.1-mac-x64.dmg`（连字符），但实际上传的产物是 `Codex.Switch-1.0.1-mac-x64.dmg`（点号）。根因：`electron-builder.yml` 的 `artifactName: ${productName}-${version}-...`，而 `productName: "Codex Switch"`（含空格）在 yml 内部引用时被替换为 `Codex-Switch-`、在文件名渲染时被替换为 `Codex.Switch-`，两边转义规则不一致 → 已发布客户端调用 auto-update 拉 dmg/exe 必 404。修复：把 `artifactName` 中的 `${productName}` 替换为字面量 `Codex-Switch`。bump 到 v1.0.2，release run 全 ✓，13 个 asset 全部统一为 `Codex-Switch-*`，yml 与文件名 100% 一致。
+- **变更文件**：
+  - `package.json`（新增 `format:check` 脚本，加 `@vitest/coverage-v8` devDep，bump 1.0.0 → 1.0.1 → 1.0.2）
+  - `.github/workflows/ci.yml`（`pnpm format -- --check` → `pnpm format:check`）
+  - `.prettierignore`（新建：dist/release/node_modules/coverage/pnpm-lock.yaml/CHANGELOG.md/docs/help/*.json/.github/agent/memory/）
+  - `electron-builder.yml`（mac/win 的 artifactName: `${productName}-…` → `Codex-Switch-…` / `Codex-Switch-Setup-…`）
+  - `pnpm-lock.yaml`
+  - `CHANGELOG.md`（[1.0.1]、[1.0.2] 条目）
+  - 43 个被 prettier 重排的源文件
+- **关键决策（ADR-009）**：electron-builder `artifactName` 中**禁用** `${productName}` 变量，强制用 ASCII 字面量。理由：当 productName 含空格/中文/特殊字符时，electron-builder 在 yml 内部引用与文件名渲染时使用不同转义（空格 → `-` vs 空格 → `.`），导致 auto-update 100% 404，此 bug 隐藏 release 全绿后才能在客户端复现。
+- **关键决策（ADR-010）**：项目脚本中 `--check`、`--coverage` 等"模式开关"应有独立脚本（`format:check`、`test:coverage`），而非靠 `pnpm xxx -- --flag` 透传，避免被基础脚本里的位置参数（如 `prettier --write .` 末尾的 `.`）吞掉或误解析。
+- **验证**：
+  - Local: `pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm exec prettier --check .` 全绿
+  - Release run 26676429570（v1.0.2）四 job 全 ✓
+  - `latest-mac.yml` 引用 `Codex-Switch-1.0.2-mac-{x64,arm64}.dmg` ↔ release 中 asset 名一致；`latest.yml` 同
+  - `curl -I https://.../v1.0.2/Codex-Switch-1.0.2-mac-arm64.dmg` → HTTP 302（GitHub CDN 重定向，OK）
+- **注意事项**：
+  1. v1.0.0 / v1.0.1 release 中的 `Codex.Switch-*` 文件不可被任何已安装客户端通过 auto-update 拉到，但 v1.0.2 客户端起所有命名规范一致，未来都安全。
+  2. 用户需手动到 https://github.com/Mark7766/codex-switch/releases/tag/v1.0.0 删除残留的 `Codex.Switch-*` 与 `builder-debug.yml`（11 个文件，本 token 权限不够）。
+  3. 已安装的 v1.0.0 客户端因为 yml/文件名不一致**无法自升级到 v1.0.0/v1.0.1**，但**可以自升级到 v1.0.2**，因为 v1.0.2 的 yml/文件名都对。后续 v1.0.x 的 auto-update 链路稳定。
+  4. Release Run 在 commit c6738b4 触发，`build (macos-latest)` 跳过 hdiutil 重试一次成功；TASK-012 加的 retry loop 是有效的兜底。
+
