@@ -3,6 +3,23 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-05-30
+
+端到端验证自动升级链路的小版本。无功能变化，仅用于让已安装 v1.0.0 的客户端
+拉取并应用一次完整的自动更新流程。
+
+### 修复
+
+- **CI 格式检查**：`pnpm format -- --check` 在 CI 上被解析成
+  `prettier --write . --check`，导致 prettier 把 `--check` 当成文件 glob 报
+  `No files matching the pattern were found`。新增独立 `format:check` 脚本，
+  CI 改用 `pnpm format:check`，并补 `.prettierignore` 排除 lockfile / 自动生成
+  文档 / 记忆文件。
+
+### 内部
+
+- 重新格式化 43 个被 prettier 标记的源文件，使 CI 全绿。
+
 ## [1.0.0] - 2025-11-18
 
 首个公开稳定版。本次升级聚焦"小白用户能用、有问题看得懂、有问题能反馈"。
