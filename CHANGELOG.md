@@ -3,6 +3,17 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.3] - 2026-05-30
+
+再次紧急修复 auto-update：v1.0.2 客户端报 `ZIP file not provided`。
+
+### 修复
+
+- **macOS 增加 zip 产物**：electron-updater 在 macOS 上由 Squirrel.Mac 实施
+  原子升级，**必须**通过 zip 应用补丁，dmg 只用于首次手动安装。`electron-builder.yml`
+  的 mac target 此前只有 `dmg`，导致 `latest-mac.yml` 缺 zip 条目；现补上
+  `zip (x64+arm64)`，auto-update 链路完整。
+
 ## [1.0.2] - 2026-05-30
 
 紧急修复 auto-update 的关键 404：v1.0.1 的 `latest-mac.yml` / `latest.yml`
