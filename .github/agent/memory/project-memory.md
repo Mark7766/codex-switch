@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v0.1.0（初始化中） |
+| 当前阶段 | v1.0.0（首个公开稳定版） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -142,7 +142,7 @@
 | Settings | `src/pages/Settings.tsx` | API Key / 模型映射 / 端口 | ✅ 已完成 v0.1 |
 | Logs | `src/pages/Logs.tsx` | 实时请求日志（脱敏） | ✅ 已完成 v0.1 |
 | 打包配置 | `electron-builder.yml` | macOS .dmg + Windows NSIS .exe；每平台 x64 + arm64 两个分包（暂未配图标） | ✅ 已完成 v0.1 |
-| 发布流水线 | `.github/workflows/release.yml` | tag → 多平台构建 + 上传 | ⬜ 待开发 |
+| 发布流水线 | `.github/workflows/release.yml` | tag → 多平台构建 + 上传 | ✅ v1.0.0 |
 
 ---
 

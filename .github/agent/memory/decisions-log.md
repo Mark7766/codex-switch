@@ -230,3 +230,21 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 2. **多端极致对齐**：保证了哪怕没有任何高级工具的 Windows 宿主机上，也可以通过 `pnpm build` 指令，秒级对齐生成高保真 Windows 及 macOS 双端图标。
 3. **完全无感**：将其整合为 pre-build 流程，并成功对齐 electron-builder。
 
+
+## ADR-004：模型映射四级回退（v1.0.0）
+- **日期**：2026-05-30
+- **决策**：mapModel 改为 `精确 → 白名单 → 前缀（按特异性排序）→ 默认回退`，前缀/回退命中时 WARN 日志且默认回退到 `deepseek-v4-flash`；存量用户通过 `modelMappingVersion` + `migrateIfNeeded` 安全合并默认映射。
+- **理由**：v0.1.0 的 `mapping[req] || req || fallback` 会把未识别模型透传给 DeepSeek 触发 400，且新增映射对老用户不可见。
+- **影响**：`electron/proxy/translate.ts`、`electron/config/store.ts`、相关单测；行为对新模型更友好。
+
+## ADR-005：自动更新走 electron-updater + ghproxy 镜像（v1.0.0）
+- **日期**：2026-05-30
+- **决策**：使用 `electron-updater` 的 generic provider + `setFeedURL`；镜像 4 选 1（auto/github/ghproxy/custom），auto 时 5s HEAD 探测，sha512 校验保留。
+- **理由**：国内用户直连 GitHub Release 经常超时；ghproxy 镜像可加速且对 electron-updater 透明，sha512 防镜像劫持。
+- **影响**：`electron/updater/*`、`electron-builder.yml`（publish: github）、`release.yml`。
+
+## ADR-006：日志生命周期 + 集中脱敏（v1.0.0）
+- **日期**：2026-05-30
+- **决策**：每次 `/v1/responses` 请求分配 `req_xxxxx`；日志结构化字段（reqId/phase/durationMs/model 等）；所有日志在 emit 前经 `redactSensitive`（sk-*, Authorization, OPENAI_API_KEY → ***）。
+- **理由**：诊断包要拿给社区分析时不能泄露密钥；按 reqId 分组的 UI 也需要结构化字段。
+- **影响**：`electron/proxy/server.ts`、`electron/proxy/errors.ts`、`src/pages/Logs.tsx`、`ReportIssueModal`。

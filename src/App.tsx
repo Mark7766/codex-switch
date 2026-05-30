@@ -1,12 +1,17 @@
 import { useEffect } from 'react';
+import { useState } from 'react';
 import { Setup } from './pages/Setup';
 import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { Logs } from './pages/Logs';
+import { ChangelogModal } from './components/ChangelogModal';
+import { HeaderBar } from './components/HeaderBar';
 import { useAppStore } from './lib/store';
 
 export default function App(): JSX.Element {
   const { page, setPage, proxyStatus, setProxyStatus, setPort, pushLog, setLogs } = useAppStore();
+  const [version, setVersion] = useState('');
+  const [showChangelog, setShowChangelog] = useState(false);
 
   useEffect(() => {
     let unsubStatus: (() => void) | undefined;
@@ -16,6 +21,12 @@ export default function App(): JSX.Element {
       const prefs = await window.codexSwitch.getPreferences();
       setPort(prefs.proxyPort);
       setPage(prefs.hasCompletedSetup ? 'dashboard' : 'setup');
+
+      const v = await window.codexSwitch.getVersion();
+      setVersion(v);
+      if (prefs.hasCompletedSetup && prefs.lastSeenVersion !== v) {
+        setShowChangelog(true);
+      }
 
       const info = await window.codexSwitch.proxyInfo();
       setProxyStatus(info.status);
@@ -32,17 +43,34 @@ export default function App(): JSX.Element {
     };
   }, [setPage, setPort, setProxyStatus, pushLog, setLogs]);
 
+  const closeChangelog = async (): Promise<void> => {
+    setShowChangelog(false);
+    if (version) await window.codexSwitch.setPreferences({ lastSeenVersion: version });
+  };
+
   return (
     <div className="flex h-full">
       <Sidebar page={page} setPage={setPage} status={proxyStatus} />
-      <main className="flex-1 overflow-auto bg-slate-900">
-        {page === 'setup' && <Setup />}
-        {page === 'dashboard' && <Dashboard />}
-        {page === 'settings' && <Settings />}
-        {page === 'logs' && <Logs />}
+      <main className="flex-1 overflow-auto bg-slate-900 flex flex-col">
+        <HeaderBar title={titleOf(page)} page={page} />
+        <div className="flex-1 overflow-auto">
+          {page === 'setup' && <Setup />}
+          {page === 'dashboard' && <Dashboard />}
+          {page === 'settings' && <Settings />}
+          {page === 'logs' && <Logs />}
+        </div>
       </main>
+      <ChangelogModal open={showChangelog} onClose={closeChangelog} version={version} />
     </div>
   );
+}
+
+function titleOf(page: string): string {
+  if (page === 'setup') return '首次设置';
+  if (page === 'dashboard') return '主面板';
+  if (page === 'settings') return '设置';
+  if (page === 'logs') return '日志';
+  return 'Codex Switch';
 }
 
 interface SidebarProps {

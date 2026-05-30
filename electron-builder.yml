@@ -8,6 +8,14 @@ files:
   - dist/**/*
   - package.json
   - "!**/*.map"
+extraResources:
+  - from: CHANGELOG.md
+    to: CHANGELOG.md
+  - from: docs/help
+    to: docs/help
+    filter: ["**/*"]
+  - from: docs/qa.png
+    to: docs/qa.png
 asar: true
 asarUnpack:
   - "dist/electron/preload.js"
@@ -40,3 +48,8 @@ nsis:
 dmg:
   title: Codex Switch ${version}
   writeUpdateInfo: false
+publish:
+  provider: github
+  owner: Mark7766
+  repo: codex-switch
+  releaseType: release

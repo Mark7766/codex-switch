@@ -20,6 +20,23 @@ export const IPC = {
   codexRestore: 'codex:restore',
   // 应用信息
   appGetVersion: 'app:get-version',
+  appGetChangelog: 'app:get-changelog',
+  // 帮助
+  helpGetFaq: 'help:get-faq',
+  helpGetOnboarding: 'help:get-onboarding',
+  helpGetQaImage: 'help:get-qa-image',
+  helpOpenLogsDir: 'help:open-logs-dir',
+  helpOpenExternal: 'help:open-external',
+  helpGetDiagnostics: 'help:get-diagnostics',
+  // 更新
+  updateCheck: 'update:check',
+  updateDownload: 'update:download',
+  updateInstall: 'update:install',
+  updateOnEvent: 'update:on-event',
+  updateSetMirror: 'update:set-mirror',
+  // 备份
+  codexBackupClean: 'codex:backup-clean',
+  codexBackupDelete: 'codex:backup-delete',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

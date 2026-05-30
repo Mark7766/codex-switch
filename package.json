@@ -1,6 +1,6 @@
 {
   "name": "codex-switch",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Cross-platform desktop GUI proxy that lets Codex CLI / Desktop talk to DeepSeek.",
   "author": "Codex Switch Contributors",
   "license": "MIT",
@@ -27,6 +27,7 @@
   "dependencies": {
     "electron-log": "^5.1.7",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.3",
     "keytar": "^7.9.0",
     "ws": "^8.18.0",
     "zustand": "^4.5.5"

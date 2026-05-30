@@ -7,12 +7,19 @@ export function Dashboard(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
   const [uptime, setUptime] = useState(0);
+  const [recent, setRecent] = useState<{
+    total: number;
+    successRate: number;
+    avgDurationMs: number;
+    lastError: string | null;
+  }>({ total: 0, successRate: 1, avgDurationMs: 0, lastError: null });
 
   useEffect(() => {
     const t = setInterval(async () => {
       const info = await window.codexSwitch.proxyInfo();
       setRequestCount(info.requestCount);
       setUptime(info.uptimeMs);
+      setRecent(info.recentStats);
     }, 1500);
     return () => clearInterval(t);
   }, []);
@@ -35,7 +42,6 @@ export function Dashboard(): JSX.Element {
   return (
     <div className="p-10 max-w-3xl">
       <h1 className="text-2xl font-semibold mb-6">主面板</h1>
-
       <div className="bg-slate-800/50 rounded-xl p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -65,6 +71,26 @@ export function Dashboard(): JSX.Element {
           <Stat label="运行时长" value={formatUptime(uptime)} />
           <Stat label="协议" value="HTTP + WS" />
         </div>
+      </div>
+
+      <div className="bg-slate-800/30 rounded-xl p-6 mb-6">
+        <div className="text-sm font-medium mb-3">近 5 分钟</div>
+        <div className="grid grid-cols-3 gap-4 text-sm">
+          <Stat label="请求数" value={String(recent.total)} />
+          <Stat
+            label="成功率"
+            value={recent.total === 0 ? '—' : `${(recent.successRate * 100).toFixed(0)}%`}
+          />
+          <Stat
+            label="平均耗时"
+            value={recent.avgDurationMs ? `${Math.round(recent.avgDurationMs)} ms` : '—'}
+          />
+        </div>
+        {recent.lastError && (
+          <div className="mt-3 text-xs text-red-300 bg-red-900/30 border border-red-900 rounded px-3 py-2">
+            最近一次错误：{recent.lastError}
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-800/30 rounded-xl p-6 text-sm leading-relaxed">

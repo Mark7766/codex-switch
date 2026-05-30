@@ -16,7 +16,21 @@ const IPC = {
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',
+  codexBackupClean: 'codex:backup-clean',
+  codexBackupDelete: 'codex:backup-delete',
   appGetVersion: 'app:get-version',
+  appGetChangelog: 'app:get-changelog',
+  helpGetFaq: 'help:get-faq',
+  helpGetOnboarding: 'help:get-onboarding',
+  helpGetQaImage: 'help:get-qa-image',
+  helpOpenLogsDir: 'help:open-logs-dir',
+  helpOpenExternal: 'help:open-external',
+  helpGetDiagnostics: 'help:get-diagnostics',
+  updateCheck: 'update:check',
+  updateDownload: 'update:download',
+  updateInstall: 'update:install',
+  updateSetMirror: 'update:set-mirror',
+  updateOnEvent: 'update:on-event',
 } as const;
 
 const api = {
@@ -45,8 +59,30 @@ const api = {
   codexWrite: (payload: unknown) => ipcRenderer.invoke(IPC.codexWrite, payload),
   codexBackups: () => ipcRenderer.invoke(IPC.codexBackups),
   codexRestore: (backupPath: string) => ipcRenderer.invoke(IPC.codexRestore, backupPath),
-  // 应用信息
+  codexBackupClean: () => ipcRenderer.invoke(IPC.codexBackupClean),
+  codexBackupDelete: (backupPath: string) =>
+    ipcRenderer.invoke(IPC.codexBackupDelete, backupPath),
+  // 应用
   getVersion: () => ipcRenderer.invoke(IPC.appGetVersion),
+  getChangelog: () => ipcRenderer.invoke(IPC.appGetChangelog),
+  // 帮助
+  getFaq: () => ipcRenderer.invoke(IPC.helpGetFaq),
+  getOnboarding: () => ipcRenderer.invoke(IPC.helpGetOnboarding),
+  getQaImage: () => ipcRenderer.invoke(IPC.helpGetQaImage),
+  openLogsDir: () => ipcRenderer.invoke(IPC.helpOpenLogsDir),
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.helpOpenExternal, url),
+  getDiagnostics: () => ipcRenderer.invoke(IPC.helpGetDiagnostics),
+  // 更新
+  updateCheck: () => ipcRenderer.invoke(IPC.updateCheck),
+  updateDownload: () => ipcRenderer.invoke(IPC.updateDownload),
+  updateInstall: () => ipcRenderer.invoke(IPC.updateInstall),
+  updateSetMirror: (mirror: string, custom?: string) =>
+    ipcRenderer.invoke(IPC.updateSetMirror, mirror, custom),
+  onUpdateEvent: (cb: (e: unknown) => void) => {
+    const handler = (_: unknown, e: unknown) => cb(e);
+    ipcRenderer.on(IPC.updateOnEvent, handler);
+    return () => ipcRenderer.removeListener(IPC.updateOnEvent, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);

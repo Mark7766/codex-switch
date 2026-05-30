@@ -180,14 +180,69 @@ export function extractTools(tools: unknown): ChatRequest['tools'] {
   return result.length > 0 ? result : undefined;
 }
 
+/** DeepSeek 官方接受的模型白名单，命中即直接透传。 */
+export const VALID_DEEPSEEK_MODELS = new Set<string>([
+  'deepseek-v4-flash',
+  'deepseek-v4-pro',
+  'deepseek-chat',
+  'deepseek-reasoner',
+  'deepseek-coder',
+]);
+
+/** 前缀兜底规则：当精确映射 / 白名单都未命中时，按前缀分流。顺序敏感（更具体的在前）。 */
+export const PREFIX_RULES: ReadonlyArray<{ prefix: string; target: string }> = [
+  { prefix: 'gpt-5-codex', target: 'deepseek-v4-flash' },
+  { prefix: 'gpt-4o-mini', target: 'deepseek-v4-flash' },
+  { prefix: 'gpt-4o', target: 'deepseek-v4-flash' },
+  { prefix: 'gpt-4-turbo', target: 'deepseek-v4-pro' },
+  { prefix: 'gpt-4', target: 'deepseek-v4-pro' },
+  { prefix: 'gpt-3.5', target: 'deepseek-v4-flash' },
+  { prefix: 'gpt-', target: 'deepseek-v4-flash' },
+  { prefix: 'o1-mini', target: 'deepseek-v4-flash' },
+  { prefix: 'o1', target: 'deepseek-v4-pro' },
+  { prefix: 'o3-mini', target: 'deepseek-v4-flash' },
+  { prefix: 'o3', target: 'deepseek-v4-pro' },
+  { prefix: 'text-davinci', target: 'deepseek-v4-flash' },
+];
+
+export type ModelMatchKind = 'exact' | 'whitelist' | 'prefix' | 'fallback';
+
+export interface ModelMapResult {
+  model: string;
+  matched: ModelMatchKind;
+}
+
 /**
- * 模型映射：把 Codex 发来的模型名映射到 DeepSeek 真实模型。
+ * 详细版映射：返回命中类型，便于上层日志区分（exact/whitelist 走静默；prefix/fallback 应打 WARN）。
+ */
+export function resolveModel(
+  requested: string | undefined,
+  mapping: Record<string, string>,
+  fallback = 'deepseek-v4-flash',
+): ModelMapResult {
+  if (!requested) return { model: fallback, matched: 'fallback' };
+  if (Object.prototype.hasOwnProperty.call(mapping, requested)) {
+    return { model: mapping[requested]!, matched: 'exact' };
+  }
+  if (VALID_DEEPSEEK_MODELS.has(requested)) {
+    return { model: requested, matched: 'whitelist' };
+  }
+  for (const rule of PREFIX_RULES) {
+    if (requested.startsWith(rule.prefix)) {
+      return { model: rule.target, matched: 'prefix' };
+    }
+  }
+  return { model: fallback, matched: 'fallback' };
+}
+
+/**
+ * 模型映射：精确 → 白名单 → 前缀 → fallback。
+ * 未知模型一律命中 fallback，绝不透传给 DeepSeek。
  */
 export function mapModel(
   requested: string | undefined,
   mapping: Record<string, string>,
   fallback = 'deepseek-v4-flash',
 ): string {
-  if (!requested) return fallback;
-  return mapping[requested] || requested || fallback;
+  return resolveModel(requested, mapping, fallback).model;
 }

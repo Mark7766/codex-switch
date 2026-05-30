@@ -153,3 +153,59 @@
   - 通过编写针对 ICO 格式的图片目录条目与 PNG 数据偏移二进制编码，以及对 ICNS 格式的 ID 数据对包头拼接，实现了不需要 python 运行时的纯原生前端部署保障。
 - **注意事项**：
   1. 用户后续只需运行 `pnpm build` 或 `pnpm package:win`等命令，就会静默、无感知地在 `build` 目录下生成绝对对齐、合规并且跨平台一致的精美应用图标。
+
+### [TASK-008] 编写 v1.0.0 改进方案（仅文档）
+- **日期**：2026-05-30
+- **类型**：docs
+- **摘要**：在 `docs/PROPOSAL-v1.0.0-improvements.md` 系统化写下 v1.0.0 升级方案，覆盖 7 大主题（A 模型映射健壮性、B 备份治理、C 日志体验、D 版本记录、E 升级体验+国内镜像 ghproxy 加速、F 极简风格中文帮助+交流群二维码、G mac/Windows 双机协作发布流程）+ 优先级表（P0/P1/P2）+ 测试 + 风险 + 文件总览。本次任务**未写代码**，仅产出方案文档。
+- **变更文件**：
+  - 修改 `docs/PROPOSAL-v1.0.0-improvements.md`（新增 §5.E9 镜像加速 + §7 主题 G 多平台发布流程 + §6.F8 二维码 + §6.F9 Codex 入门向导 + §1.0.0 changelog 补充国内镜像/全中文化/入门向导条目；章节重新编号 8→8/9/10/11/12）
+- **关键决策**：
+  - 升级链路走 electron-updater + GitHub Releases 为主，国内 ghproxy 镜像作为自动 fallback；客户端运行时探测 5s 超时切换；sha512 校验防镜像劫持。
+  - 发版采用"双轨"：首选 GitHub Actions `release.yml`（tag 推送 → mac+win 并行 publish always）；兜底是双机手动 + `gh release upload` 同 tag 累加资产。
+  - UI 全中文（保留 DeepSeek、Codex 产品名），帮助抽屉 + 交流群二维码（docs/qa.png）通过 extraResources 打包。
+- **注意事项**：
+  1. 方案中提到的所有"新增/修改文件"在落地实现前都未真正创建；下一个任务才进入编码阶段。
+  2. 本次未触动代码，typecheck / 测试无需重跑。
+
+### [TASK-009] 方案中文化扫荡（仅文档）
+- **日期**：2026-05-30
+- **类型**：docs
+- **摘要**：根据用户要求"UI/UX 界面都用中文"，对 `docs/PROPOSAL-v1.0.0-improvements.md` 中所有用户可见的英文 UI 名词进行中文化替换：Setup→「首次设置」、Dashboard→「仪表盘」、Settings→「设置」、Logs→「日志」、Help→「帮助」、Drawer→抽屉、Modal→弹窗、Tab→标签页、Section→区块、FAQ→常见问题、accordion→折叠面板、context-aware→随当前页面切换、toast→浮层提示。在 §6.1 新增"中英对照表"明确：用户文案中文，代码标识（文件名/类名/IPC 通道）保持英文/驼峰。本次未写代码。
+- **变更文件**：
+  - 修改 `docs/PROPOSAL-v1.0.0-improvements.md`
+- **注意事项**：
+  1. 仍保留的英文片段均为代码标识符（如 `Dashboard.tsx` / `UpdateModal` / `help:get-faq` / `electron-builder.yml`），非用户可见 UI 文案，符合 §6.1 对照表约定。
+  2. 未触动源码，无需重跑测试。
+
+### [TASK-010] 端到端实施 v1.0.0 全部主题（代码、测试、构建全通）
+- **日期**：2026-05-30
+- **类型**：feat
+- **摘要**：把 `docs/PROPOSAL-v1.0.0-improvements.md` 七大主题（A 模型映射健壮性 / B 备份治理 / C 日志体验 / D 版本记录 / E 升级体验+ghproxy 镜像 / F 中文帮助中心+交流群+入门向导 / G 双机发布流程）全部落地为代码。版本号从 0.1.0 升到 1.0.0。51 个单测全部通过、typecheck 干净、lint 仅一个无害 warning、`pnpm build` 渲染器+主进程构建成功。
+- **变更文件（核心）**：
+  - 协议代理：`electron/proxy/translate.ts`（resolveModel + 白名单 + 前缀回退）、`electron/proxy/server.ts`（ProxyLogEntry 增加 reqId/phase/durationMs/model 等字段，HTTP+WS 全程发 start/success/error 三阶段日志，5 分钟滚动统计，端口冲突重试，错误就地翻译）、`electron/proxy/errors.ts`（新增：DeepSeek 错误翻译表 + 4 类 errorAction + redactSensitive 脱敏）、`electron/proxy/stream.ts` 沿用现有错误格式被 server 解析。
+  - Codex 配置：`electron/codex/writer.ts`（按内容相同跳过备份+写入；按 maxBackupsPerFile 滚动保留；删除单份/清空全部；恢复时强制 0o600）。
+  - 配置存储：`electron/config/store.ts`（新增 7 个偏好 + CURRENT_MAPPING_VERSION=2 + migrateIfNeeded 合并默认映射保留用户键）。
+  - 自动更新：`electron/updater/index.ts` + `electron/updater/mirrors.ts`（auto/github/ghproxy/custom 四种镜像，HEAD 5s 探测，sha512 校验保留）。
+  - 主进程：`electron/main.ts`（appGetChangelog / help * 5 / update * 4 / codexBackupClean+Delete IPC；启动时按偏好挂载镜像 + 3s 静默检查；诊断包含 100 条脱敏日志）。
+  - IPC + preload：`electron/ipc/channels.ts` + `electron/preload.ts` 全量同步。
+  - 帮助资源：`docs/help/faq.json`（12 条）、`docs/help/onboarding.json`（5 步入门）、`docs/qa.png` 已就位 ; `electron-builder.yml` 加 `extraResources` + `publish: github`。
+  - 渲染端：`src/App.tsx`（HeaderBar+ChangelogModal lastSeenVersion 触发）；新增 `src/components/{ChangelogModal, HeaderBar, HelpDrawer, FaqList, ReportIssueModal, QaGroupModal, OnboardingDrawer, UpdateBadge}.tsx`；`src/pages/Logs.tsx`（按 reqId 折叠分组+统计条+过滤）；`src/pages/Dashboard.tsx`（5 分钟统计卡）；`src/pages/Settings.tsx`（备份治理 GUI + 自动更新区块 + 查看版本记录按钮）；`src/lib/store.ts` 与 `src/types/global.d.ts` 类型同步。
+  - 测试：`tests/unit/errors.test.ts`（11 条：401/402/429/400 model/timeout/5xx/raw + 脱敏 4 条）；`tests/unit/translate.test.ts` 扩到 25 条（whitelist+prefix+fallback+pure resolveModel）；`tests/unit/writer.test.ts` 7 条（vi.mock 重定向 codex 路径到 tmpdir，覆盖 dedup/retention/restore/clean/delete-safety）。
+  - CI / 发布：`.github/workflows/release.yml`（tag 触发；版本一致性校验 + macOS/Windows matrix；electron-builder --publish always）；`.github/RELEASE_TEMPLATE.md`；`docs/RELEASING.md`。
+  - 文档：`CHANGELOG.md`（Keep a Changelog 格式，含 1.0.0 + 0.1.0 段落）；`package.json` version 升到 1.0.0；新增依赖 `electron-updater`。
+- **关键决策**：
+  - 模型映射改为「精确 → 白名单 → 前缀（按特异性排序）→ 默认回退」四级链；前缀/回退命中时打 WARN，附带 requested→resolved 信息。
+  - 备份默认保留 5 份；删除前正则校验 `\.bak\.\d+$` 防误删；恢复时先备份当前文件。
+  - 日志带 `reqId`（`req_${randomBytes(3).hex}`）+ `phase` 三段；所有日志在 emit 前经 `redactSensitive`。
+  - 自动更新走 `electron-updater` generic provider + `setFeedURL`，国内用户切 ghproxy 不破坏 sha512。
+  - 帮助中心走"右侧抽屉 + 标签页"形态，FAQ/入门/二维码静态打包到 `extraResources`。
+  - 渲染端 Markdown 用 30 行手写解析器，避免引入 react-markdown。
+- **验证**：`pnpm typecheck` 干净；`pnpm test` 5 文件 51/51 passed；`pnpm lint` 0 errors / 1 warning（已存在的测试无害 unused import）；`pnpm build:renderer` + `pnpm build:electron` 均成功，57 模块打包，CSS 16 KB / JS 178 KB。
+- **注意事项**：
+  1. release.yml 仅校验 + macOS/Windows 自助发布；首次发版前需要先在 GitHub 仓库设置好 `GITHUB_TOKEN`（默认有，无需手工）和（如需）签名证书 secrets；当前流程默认无签名构建。
+  2. `docs/qa.png` 当前是历史占位图（171 KB），上线前最好换成正式交流群二维码。
+  3. `electron-store` 升级未必同步，旧版用户首次打开 v1.0.0 会触发 `migrateIfNeeded`，把内置默认映射合并到本地映射；一次性事件，无回滚需求。
+  4. autoUpdater 在 `app.isPackaged === false` 时不实际触发更新事件，只在打包后生效。
+  5. WebSocket 路径下 `lastToolCalls` 修复了原版工具调用上下文，但与 Theme C 的 reqId 是独立维度，互不干扰。
+  6. P1 主题中"极简风格扫荡"只在新增组件上落实（4 色/3 字号/8px 栅格，单主按钮），未对存量页面做整体视觉迁移；如需统一可作为 v1.1 任务。

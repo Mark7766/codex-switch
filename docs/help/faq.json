@@ -1,0 +1,74 @@
+[
+  {
+    "id": "what-is",
+    "tag": "入门",
+    "question": "Codex Switch 是什么？我为什么需要它？",
+    "answer": "Codex Switch 是一个本地代理工具，让 Codex CLI 和 Codex Desktop 可以无痛连上 DeepSeek。点几下按钮就能用，不用改任何 Codex 自身配置。"
+  },
+  {
+    "id": "where-key",
+    "tag": "API Key",
+    "question": "去哪里申请 DeepSeek API Key？",
+    "answer": "登录 https://platform.deepseek.com/ → 左侧「API Keys」→ 创建新 Key。复制后粘贴到 Codex Switch 的「设置 → API Key」即可，本应用会保存到操作系统的钥匙串。"
+  },
+  {
+    "id": "key-invalid",
+    "tag": "401",
+    "question": "为什么提示「API Key 无效或已过期」？",
+    "answer": "通常有 3 种原因：1) Key 输错或多了空格；2) Key 已被删除或撤销；3) 账户被冻结。前往 DeepSeek 控制台重新生成一个 Key，回到「设置」中粘贴即可。"
+  },
+  {
+    "id": "rate-limit",
+    "tag": "429",
+    "question": "为什么会出现「请求过于频繁，已被 DeepSeek 限流」？",
+    "answer": "DeepSeek 对每分钟请求数有限制。等 30~60 秒后再试；若长时间限流，检查是否被脚本反复触发。频繁触发限流可考虑升级 DeepSeek 套餐。"
+  },
+  {
+    "id": "quota",
+    "tag": "余额",
+    "question": "为什么提示「DeepSeek 账户额度不足」？",
+    "answer": "DeepSeek 账户余额或赠送额度已用尽。前往 https://platform.deepseek.com/ → 「充值」即可恢复。"
+  },
+  {
+    "id": "model-mapping",
+    "tag": "模型",
+    "question": "Codex 用的是 gpt-4o，DeepSeek 没有这个模型怎么办？",
+    "answer": "Codex Switch 会自动把 OpenAI 模型名映射到 DeepSeek 模型（如 gpt-4o → deepseek-v4-flash）。你可以在「设置 → 模型映射」里自定义。"
+  },
+  {
+    "id": "port-busy",
+    "tag": "端口",
+    "question": "提示端口 11435 被占用怎么办？",
+    "answer": "Codex Switch 会自动尝试 11436、11437…直到找到可用端口，并把新端口写到 ~/.codex/config.toml。如果你想强制用某个端口，去「设置」修改。"
+  },
+  {
+    "id": "backup-restore",
+    "tag": "备份",
+    "question": "Codex Switch 改了我的 ~/.codex 配置，能恢复吗？",
+    "answer": "每次写入 config.toml / auth.json 之前，都会自动备份成 `*.bak.<时间戳>`。在「设置 → 备份管理」里可以一键还原任意一份历史备份。"
+  },
+  {
+    "id": "where-logs",
+    "tag": "日志",
+    "question": "怎么找到详细日志？",
+    "answer": "「日志」页可以直接看应用内日志；如需向开发者反馈，请在「帮助 → 报告问题」一键打包诊断信息（已自动脱敏）。"
+  },
+  {
+    "id": "auto-update",
+    "tag": "更新",
+    "question": "应用怎么升级到新版？",
+    "answer": "Codex Switch 启动时会静默检查 GitHub Release，如有新版会在右上角弹徽标。点「下载」即可，下载完后点「立即安装」会自动重启。"
+  },
+  {
+    "id": "ghproxy",
+    "tag": "更新",
+    "question": "国内下载新版很慢/连不上 GitHub 怎么办？",
+    "answer": "「设置 → 检查更新」中把镜像切换为 ghproxy，会通过镜像代理加速；sha512 校验仍然保留，下载内容与 GitHub 原版一致。"
+  },
+  {
+    "id": "offline",
+    "tag": "网络",
+    "question": "我能离线使用 Codex Switch 吗？",
+    "answer": "代理服务本身可以离线启动，但 Codex 调用模型仍需访问 DeepSeek 服务器，所以核心功能必须联网。"
+  }
+]

@@ -5,6 +5,7 @@ import {
   fixOrphanedToolResults,
   extractTools,
   mapModel,
+  resolveModel,
 } from '../../electron/proxy/translate';
 
 describe('normalizeRole', () => {
@@ -107,10 +108,40 @@ describe('mapModel', () => {
   it('maps known model', () => {
     expect(mapModel('gpt-5-codex', mapping)).toBe('deepseek-v4-flash');
   });
-  it('returns requested if unknown', () => {
-    expect(mapModel('foo', mapping)).toBe('foo');
+  it('falls back to default for unknown unmapped name (not pass-through)', () => {
+    expect(mapModel('foo-bar-unknown', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-flash');
   });
   it('falls back when empty', () => {
     expect(mapModel(undefined, mapping)).toBe('deepseek-v4-flash');
+  });
+  it('passes through deepseek whitelist names', () => {
+    expect(mapModel('deepseek-v4-pro', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-pro');
+    expect(mapModel('deepseek-reasoner', {}, 'deepseek-v4-flash')).toBe('deepseek-reasoner');
+  });
+  it('uses prefix rule for unknown gpt-* (e.g. gpt-5.4-mini)', () => {
+    expect(mapModel('gpt-5.4-mini', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-flash');
+    expect(mapModel('gpt-99-future', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-flash');
+  });
+  it('uses prefix rule for o1/o3 family', () => {
+    expect(mapModel('o3', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-pro');
+    expect(mapModel('o3-mini', {}, 'deepseek-v4-flash')).toBe('deepseek-v4-flash');
+  });
+});
+
+describe('resolveModel', () => {
+  it('reports exact match when mapping hits', () => {
+    expect(resolveModel('gpt-5-codex', { 'gpt-5-codex': 'deepseek-v4-pro' }).matched).toBe('exact');
+  });
+  it('reports whitelist match when DeepSeek native name passed', () => {
+    expect(resolveModel('deepseek-v4-pro', {}).matched).toBe('whitelist');
+  });
+  it('reports prefix match when only prefix rule applies', () => {
+    expect(resolveModel('gpt-5.4-mini', {}).matched).toBe('prefix');
+  });
+  it('reports fallback when nothing matches', () => {
+    expect(resolveModel('totally-unknown-model', {}).matched).toBe('fallback');
+  });
+  it('reports fallback when requested is empty', () => {
+    expect(resolveModel(undefined, {}).matched).toBe('fallback');
   });
 });
