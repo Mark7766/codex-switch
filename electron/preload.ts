@@ -60,8 +60,7 @@ const api = {
   codexBackups: () => ipcRenderer.invoke(IPC.codexBackups),
   codexRestore: (backupPath: string) => ipcRenderer.invoke(IPC.codexRestore, backupPath),
   codexBackupClean: () => ipcRenderer.invoke(IPC.codexBackupClean),
-  codexBackupDelete: (backupPath: string) =>
-    ipcRenderer.invoke(IPC.codexBackupDelete, backupPath),
+  codexBackupDelete: (backupPath: string) => ipcRenderer.invoke(IPC.codexBackupDelete, backupPath),
   // 应用
   getVersion: () => ipcRenderer.invoke(IPC.appGetVersion),
   getChangelog: () => ipcRenderer.invoke(IPC.appGetChangelog),

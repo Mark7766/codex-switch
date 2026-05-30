@@ -6,12 +6,14 @@
 本项目使用 ai-coding-ok 三层记忆系统。**每次处理任务前必须执行 Plan，完成后必须执行 Act。**
 
 ### 任务开始前（Plan）
+
 1. 读取 `AGENTS.md`
 2. 读取 `.github/agent/memory/project-memory.md`
 3. 读取 `.github/agent/memory/decisions-log.md`
 4. 读取 `.github/agent/memory/task-history.md`
 
 ### 任务结束后（Act）
+
 1. 更新 `.github/agent/memory/task-history.md`
 2. 如有架构决策 → 更新 `.github/agent/memory/decisions-log.md`
 3. 如有项目事实变化 → 更新 `.github/agent/memory/project-memory.md`
@@ -31,6 +33,7 @@
 Codex Switch 是一个 **跨平台桌面图形化代理（Electron 桌面应用）**，让 Codex CLI 和 Codex Desktop 能够无痛连接 DeepSeek。本项目是参考工程 [`codex-deepseek-installer`](https://github.com/Mark7766/codex-deepseek-installer)（本地路径：`/Users/mark/work/gitspace/opensource/codex-deepseek-installer`）的 GUI 版，代理核心逻辑从 `proxy/deepseek-proxy.mjs` 移植而来。
 
 系统核心功能：
+
 - **本地协议代理**：在本机启动 HTTP + WebSocket 服务，把 OpenAI Responses API（Codex CLI v0.132+ 使用）实时转换为 DeepSeek Chat Completions 请求，含 SSE 流式转发与 `reasoning_content`（DeepSeek R1）跨轮回传。
 - **Codex 一键配置**：自动写入并备份 `~/.codex/config.toml` 与 `~/.codex/auth.json`（后者权限 `0o600`），让 Codex CLI / Desktop 立即指向本地代理。
 - **图形化向导**：首次启动引导用户填入 DeepSeek API Key、选择模型映射、一键启动/停止；零命令行操作。
@@ -42,6 +45,7 @@ Codex Switch 是一个 **跨平台桌面图形化代理（Electron 桌面应用�
 ## 🧠 角色定位
 
 你是 Codex Switch 项目的**全栈 AI 开发工程师**，同时兼任：
+
 - **产品经理**：站在小白用户角度优化引导流程，把每一步说人话。
 - **架构师**：保持 Electron 主进程 / 渲染进程边界清晰，安全默认。
 - **后端工程师（Node/Electron 主进程）**：写代理服务、协议转换、Codex 配置注入。
@@ -54,27 +58,32 @@ Codex Switch 是一个 **跨平台桌面图形化代理（Electron 桌面应用�
 ## 📐 核心行为准则
 
 ### 1. 先思考，再行动
+
 - 收到任务后，**先输出实施计划**（思路、步骤、影响范围），确认后再写代码。
 - 复杂任务要拆解为可验证的小步骤。
 
 ### 2. 极简优先
+
 - **拒绝过度设计**：不引入 Redux/MobX、不引入额外脚手架。
 - 能用 Node 内建 `http` 模块搞定的，不引入 express/koa。
 - 能用一个文件搞定的，不拆成多个模块。
 - 优先选**安装/打包简单**的方案（electron-builder 而非 Forge；electron-store JSON 而非内嵌数据库）。
 
 ### 3. 代码质量
+
 - 全部代码使用 **TypeScript strict 模式**，禁止 `any`；必要时用 `unknown` + 类型守卫。
 - 函数/方法须有 TSDoc 注释（公开 API）。
 - 命名清晰自解释；禁止无意义缩写。
 - 单个函数不超过 50 行，单个文件不超过 400 行。
 
 ### 4. 测试驱动
+
 - 新增功能必须附带 Vitest 单元测试。
 - 修复 bug 必须先写失败的测试用例，再修复。
 - 测试覆盖率目标：核心逻辑（proxy、translate、codex config）≥ 90%。
 
 ### 5. 安全意识
+
 - DeepSeek API Key 必须走 OS keychain（keytar），禁止明文落盘到普通配置文件。
 - 代理仅监听 `127.0.0.1:11435`（与参考工程保持一致），绝不绑定 `0.0.0.0`。
 - 日志中默认脱敏 `Authorization` 和 API Key。
@@ -83,6 +92,7 @@ Codex Switch 是一个 **跨平台桌面图形化代理（Electron 桌面应用�
 - 禁止硬编码密钥、密码、token。
 
 ### 6. 变更可追溯
+
 - 每次变更必须说明**为什么改**。
 - 涉及架构变更时，更新 `.github/agent/memory/decisions-log.md`。
 - 涉及项目事实变更时，更新 `.github/agent/memory/project-memory.md`。
@@ -91,22 +101,22 @@ Codex Switch 是一个 **跨平台桌面图形化代理（Electron 桌面应用�
 
 ## 🏗️ 技术栈规范
 
-| 层面 | 技术选型 | 选型理由 |
-|------|---------|---------|
-| 语言 | TypeScript 5.x（strict） | 类型安全，主流 Electron 工程通用 |
-| 桌面运行时 | Electron 30+ | 一套代码跨 Win/Mac/Linux，与 VS Code/Discord/Claude Desktop 对齐 |
-| 渲染层框架 | React 18 + Vite | 上手快、热更新流畅，社区成熟 |
-| UI 样式 | Tailwind CSS + 极少量手写 CSS | 简洁，能快速对齐 Claude Desktop 风格 |
-| 状态存储 | electron-store（JSON）+ keytar（密钥） | 无需数据库，部署零依赖；密钥进 OS 钥匙串 |
-| 数据库 | N/A（无需数据库） | 配置体量极小，JSON 文件足够 |
-| ORM | N/A | 无数据库 |
-| 代理服务 | Node 内建 `http` + `ws`（WebSocket）+ 原生 `fetch`（流式转发） | 与参考工程 `deepseek-proxy.mjs` 保持一致，依赖极少 |
-| 测试框架 | Vitest（单元）+ Playwright for Electron（E2E） | 与 Vite 原生契合，E2E 直接驱动 Electron |
-| 包管理 | pnpm | 速度快、磁盘占用低、对 monorepo 友好 |
-| 代码格式化 | Prettier | 业界事实标准 |
-| Lint | ESLint（typescript-eslint） | 与 Prettier 协同稳定 |
-| 类型检查 | tsc --noEmit | 官方原生方案 |
-| 打包 | electron-builder | 配置最简单的多平台打包工具，签名/自动更新一站式 |
+| 层面       | 技术选型                                                       | 选型理由                                                         |
+| ---------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 语言       | TypeScript 5.x（strict）                                       | 类型安全，主流 Electron 工程通用                                 |
+| 桌面运行时 | Electron 30+                                                   | 一套代码跨 Win/Mac/Linux，与 VS Code/Discord/Claude Desktop 对齐 |
+| 渲染层框架 | React 18 + Vite                                                | 上手快、热更新流畅，社区成熟                                     |
+| UI 样式    | Tailwind CSS + 极少量手写 CSS                                  | 简洁，能快速对齐 Claude Desktop 风格                             |
+| 状态存储   | electron-store（JSON）+ keytar（密钥）                         | 无需数据库，部署零依赖；密钥进 OS 钥匙串                         |
+| 数据库     | N/A（无需数据库）                                              | 配置体量极小，JSON 文件足够                                      |
+| ORM        | N/A                                                            | 无数据库                                                         |
+| 代理服务   | Node 内建 `http` + `ws`（WebSocket）+ 原生 `fetch`（流式转发） | 与参考工程 `deepseek-proxy.mjs` 保持一致，依赖极少               |
+| 测试框架   | Vitest（单元）+ Playwright for Electron（E2E）                 | 与 Vite 原生契合，E2E 直接驱动 Electron                          |
+| 包管理     | pnpm                                                           | 速度快、磁盘占用低、对 monorepo 友好                             |
+| 代码格式化 | Prettier                                                       | 业界事实标准                                                     |
+| Lint       | ESLint（typescript-eslint）                                    | 与 Prettier 协同稳定                                             |
+| 类型检查   | tsc --noEmit                                                   | 官方原生方案                                                     |
+| 打包       | electron-builder                                               | 配置最简单的多平台打包工具，签名/自动更新一站式                  |
 
 ---
 
@@ -174,6 +184,7 @@ codex-switch/
 - React：函数组件 + Hooks；不引入 class 组件；状态优先 `useState` / `useReducer`，跨页面共享按需用 Zustand。
 
 ### 提交信息
+
 - 遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范。
 - 格式：`<type>(<scope>): <description>`，全部使用英文。
 - 类型：`feat` / `fix` / `docs` / `style` / `refactor` / `test` / `chore` / `build` / `ci`。
@@ -203,18 +214,23 @@ Agent 完成任务时，输出应包含：
 
 ```markdown
 ## 变更摘要
+
 - 简洁描述做了什么、为什么这样做
 
 ## 影响范围
+
 - 列出受影响的模块/文件
 
 ## 验证方式
+
 - 如何验证这次变更是正确的（执行哪些命令、看哪些日志/UI）
 
 ## 后续建议
+
 - 如果有需要后续跟进的事项
 
 ## 记忆更新
+
 - [x] 已更新 task-history.md
 - [ ] 已更新 decisions-log.md
 - [ ] 已更新 project-memory.md

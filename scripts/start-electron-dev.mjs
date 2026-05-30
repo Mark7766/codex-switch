@@ -16,6 +16,9 @@ async function waitForFile(file, timeoutMs = 20000) {
 (async () => {
   await waitForFile(mainJs);
   const electronExe = require('electron');
-  const child = spawn(electronExe, ['.'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'development' } });
+  const child = spawn(electronExe, ['.'], {
+    stdio: 'inherit',
+    env: { ...process.env, NODE_ENV: 'development' },
+  });
   child.on('exit', (code) => process.exit(code ?? 0));
 })();

@@ -33,8 +33,8 @@ function readPngDimensions(buffer) {
  */
 function createIco(pngPaths, outputPath) {
   const images = pngPaths
-    .filter(filePath => fs.existsSync(filePath))
-    .map(filePath => {
+    .filter((filePath) => fs.existsSync(filePath))
+    .map((filePath) => {
       const data = fs.readFileSync(filePath);
       const { width, height } = readPngDimensions(data);
       return { width, height, data };
@@ -81,7 +81,9 @@ function createIco(pngPaths, outputPath) {
 
   const finalIcoBuffer = Buffer.concat([header, entries, ...dataBuffers]);
   fs.writeFileSync(outputPath, finalIcoBuffer);
-  console.log(`[Success] Compiled ICO file: ${outputPath} (size: ${finalIcoBuffer.length} bytes, images: ${count})`);
+  console.log(
+    `[Success] Compiled ICO file: ${outputPath} (size: ${finalIcoBuffer.length} bytes, images: ${count})`,
+  );
 }
 
 /**
@@ -121,7 +123,9 @@ function createIcns(mappings, outputPath) {
 
   const finalIcnsBuffer = Buffer.concat([fileHeader, ...chunks]);
   fs.writeFileSync(outputPath, finalIcnsBuffer);
-  console.log(`[Success] Compiled ICNS file: ${outputPath} (size: ${finalIcnsBuffer.length} bytes)`);
+  console.log(
+    `[Success] Compiled ICNS file: ${outputPath} (size: ${finalIcnsBuffer.length} bytes)`,
+  );
 }
 
 function main() {

@@ -207,7 +207,11 @@ export class DeepSeekProxy extends EventEmitter {
     });
   }
 
-  private resolveAndWarn(requested: string | undefined, reqId: string, source: 'http' | 'ws'): string {
+  private resolveAndWarn(
+    requested: string | undefined,
+    reqId: string,
+    source: 'http' | 'ws',
+  ): string {
     const r = resolveModel(
       requested,
       this.opts.modelMapping,
@@ -289,7 +293,13 @@ export class DeepSeekProxy extends EventEmitter {
     let body = '';
     req.on('data', (c: Buffer) => (body += c));
     req.on('end', () => {
-      let parsed: { instructions?: string; input?: unknown; model?: string; tools?: unknown; stream?: boolean };
+      let parsed: {
+        instructions?: string;
+        input?: unknown;
+        model?: string;
+        tools?: unknown;
+        stream?: boolean;
+      };
       try {
         parsed = JSON.parse(body);
       } catch (e) {
@@ -357,18 +367,39 @@ export class DeepSeekProxy extends EventEmitter {
           })
           .catch((e) => {
             const friendly = translateStreamError(e as Error);
-            this.recordError(reqId, 'http', startedAt, requestedModel, resolvedModel, friendly.reason, friendly.action, friendly.statusCode);
+            this.recordError(
+              reqId,
+              'http',
+              startedAt,
+              requestedModel,
+              resolvedModel,
+              friendly.reason,
+              friendly.action,
+              friendly.statusCode,
+            );
             res.end();
           });
       } else {
-        callDeepSeekSync({ ...chatReq, stream: false }, {
-          apiKey: this.opts.apiKey,
-          agent: this.agent,
-        })
+        callDeepSeekSync(
+          { ...chatReq, stream: false },
+          {
+            apiKey: this.opts.apiKey,
+            agent: this.agent,
+          },
+        )
           .then((r) => {
             if (r.status !== 200) {
               const f = translateError({ statusCode: r.status, body: r.body });
-              this.recordError(reqId, 'http', startedAt, requestedModel, resolvedModel, f.reason, f.action, r.status);
+              this.recordError(
+                reqId,
+                'http',
+                startedAt,
+                requestedModel,
+                resolvedModel,
+                f.reason,
+                f.action,
+                r.status,
+              );
               res.writeHead(r.status);
               res.end(JSON.stringify(r.body));
               return;
@@ -400,7 +431,16 @@ export class DeepSeekProxy extends EventEmitter {
           })
           .catch((e) => {
             const f = translateError({ networkErrorMessage: (e as Error).message });
-            this.recordError(reqId, 'http', startedAt, requestedModel, resolvedModel, f.reason, f.action, undefined);
+            this.recordError(
+              reqId,
+              'http',
+              startedAt,
+              requestedModel,
+              resolvedModel,
+              f.reason,
+              f.action,
+              undefined,
+            );
             res.writeHead(500);
             res.end(JSON.stringify({ error: { message: (e as Error).message } }));
           });
@@ -417,11 +457,21 @@ export class DeepSeekProxy extends EventEmitter {
     ws.on('message', (data) => {
       const reqId = newReqId();
       const startedAt = Date.now();
-      let msg: { type?: string; input?: unknown; instructions?: string; model?: string; tools?: unknown };
+      let msg: {
+        type?: string;
+        input?: unknown;
+        instructions?: string;
+        model?: string;
+        tools?: unknown;
+      };
       try {
         msg = JSON.parse(data.toString());
       } catch (e) {
-        this.log({ level: 'error', source: 'ws', message: `消息解析失败：${(e as Error).message}` });
+        this.log({
+          level: 'error',
+          source: 'ws',
+          message: `消息解析失败：${(e as Error).message}`,
+        });
         return;
       }
       if (msg.type !== 'response.create') return;
@@ -491,7 +541,16 @@ export class DeepSeekProxy extends EventEmitter {
         })
         .catch((e) => {
           const f = translateStreamError(e as Error);
-          this.recordError(reqId, 'ws', startedAt, requestedModel, resolvedModel, f.reason, f.action, f.statusCode);
+          this.recordError(
+            reqId,
+            'ws',
+            startedAt,
+            requestedModel,
+            resolvedModel,
+            f.reason,
+            f.action,
+            f.statusCode,
+          );
           send('error', { error: { message: f.reason, type: 'server_error' } });
         });
     });

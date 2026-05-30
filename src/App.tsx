@@ -88,7 +88,13 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
   const statusColor =
     status === 'running' ? 'bg-green-500' : status === 'error' ? 'bg-red-500' : 'bg-slate-500';
   const statusText =
-    status === 'running' ? '运行中' : status === 'starting' ? '启动中' : status === 'error' ? '出错' : '已停止';
+    status === 'running'
+      ? '运行中'
+      : status === 'starting'
+        ? '启动中'
+        : status === 'error'
+          ? '出错'
+          : '已停止';
   return (
     <aside className="w-56 bg-slate-950 border-r border-slate-800 flex flex-col">
       <div className="px-5 py-6 border-b border-slate-800">
@@ -101,9 +107,7 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
             key={it.id}
             onClick={() => setPage(it.id)}
             className={`w-full text-left px-3 py-2 rounded-md text-sm transition ${
-              page === it.id
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
+              page === it.id ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-slate-800'
             }`}
           >
             <span className="mr-2">{it.emoji}</span>

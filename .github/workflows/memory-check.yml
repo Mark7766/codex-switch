@@ -5,16 +5,16 @@ on:
   pull_request:
     branches: [main, develop]
     paths:
-      - "electron/**"
-      - "src/**"
-      - "electron-builder.yml"
-      - "package.json"
-      - "vite.config.ts"
-      - "tsconfig.json"
+      - 'electron/**'
+      - 'src/**'
+      - 'electron-builder.yml'
+      - 'package.json'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
 
 jobs:
   memory-check:
-    name: "🧠 Memory Update Check"
+    name: '🧠 Memory Update Check'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

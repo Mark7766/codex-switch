@@ -51,7 +51,12 @@ export function probe(url: string, timeoutMs = PROBE_TIMEOUT): Promise<boolean> 
     }
     const lib = target.protocol === 'http:' ? http : https;
     const req = lib.request(
-      { method: 'HEAD', host: target.host, path: target.pathname + target.search, timeout: timeoutMs },
+      {
+        method: 'HEAD',
+        host: target.host,
+        path: target.pathname + target.search,
+        timeout: timeoutMs,
+      },
       (res) => {
         const code = res.statusCode ?? 0;
         finish(code >= 200 && code < 400);

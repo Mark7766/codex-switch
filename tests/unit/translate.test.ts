@@ -44,9 +44,7 @@ describe('itemsToMessages', () => {
     expect(out[0]?.content).toBeNull();
   });
   it('flattens content array', () => {
-    const out = itemsToMessages([
-      { role: 'user', content: [{ text: 'a' }, 'b', { text: 'c' }] },
-    ]);
+    const out = itemsToMessages([{ role: 'user', content: [{ text: 'a' }, 'b', { text: 'c' }] }]);
     expect(out).toEqual([{ role: 'user', content: 'a\nb\nc' }]);
   });
   it('returns empty for non-array', () => {
@@ -56,9 +54,7 @@ describe('itemsToMessages', () => {
 
 describe('fixOrphanedToolResults', () => {
   it('injects missing function_call before orphan output', () => {
-    const lastToolCalls = [
-      { type: 'function_call', call_id: 'c1', name: 'sh', arguments: '{}' },
-    ];
+    const lastToolCalls = [{ type: 'function_call', call_id: 'c1', name: 'sh', arguments: '{}' }];
     const input = [{ type: 'function_call_output', call_id: 'c1', output: 'ok' }];
     const out = fixOrphanedToolResults(input, lastToolCalls);
     expect(out).toHaveLength(2);

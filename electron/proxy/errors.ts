@@ -59,28 +59,46 @@ export function translateError(input: {
   const code = typeof err?.code === 'string' ? err.code : '';
   const haystack = `${msg} ${type} ${code}`.toLowerCase();
 
-  if (statusCode === 401 || haystack.includes('authentication') || haystack.includes('invalid api key') || haystack.includes('invalid_api_key')) {
+  if (
+    statusCode === 401 ||
+    haystack.includes('authentication') ||
+    haystack.includes('invalid api key') ||
+    haystack.includes('invalid_api_key')
+  ) {
     return {
       reason: 'DeepSeek API Key 无效或已过期，请在「设置」中更新',
       action: 'open-settings-key',
       raw: msg.slice(0, RAW_LIMIT),
     };
   }
-  if (haystack.includes('insufficient_quota') || haystack.includes('quota') || haystack.includes('balance')) {
+  if (
+    haystack.includes('insufficient_quota') ||
+    haystack.includes('quota') ||
+    haystack.includes('balance')
+  ) {
     return {
       reason: 'DeepSeek 账户额度不足，请前往 DeepSeek 充值',
       action: 'open-deepseek-billing',
       raw: msg.slice(0, RAW_LIMIT),
     };
   }
-  if (statusCode === 429 || haystack.includes('rate_limit') || haystack.includes('rate limit') || haystack.includes('too many requests')) {
+  if (
+    statusCode === 429 ||
+    haystack.includes('rate_limit') ||
+    haystack.includes('rate limit') ||
+    haystack.includes('too many requests')
+  ) {
     return {
       reason: '请求过于频繁，已被 DeepSeek 限流，稍后重试',
       action: 'open-rate-limit-help',
       raw: msg.slice(0, RAW_LIMIT),
     };
   }
-  if (haystack.includes('context_length') || haystack.includes('context length') || haystack.includes('maximum context')) {
+  if (
+    haystack.includes('context_length') ||
+    haystack.includes('context length') ||
+    haystack.includes('maximum context')
+  ) {
     return {
       reason: '对话过长，超过模型上下文限制',
       action: 'none',

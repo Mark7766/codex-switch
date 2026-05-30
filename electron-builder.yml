@@ -7,18 +7,18 @@ directories:
 files:
   - dist/**/*
   - package.json
-  - "!**/*.map"
+  - '!**/*.map'
 extraResources:
   - from: CHANGELOG.md
     to: CHANGELOG.md
   - from: docs/help
     to: docs/help
-    filter: ["**/*"]
+    filter: ['**/*']
   - from: docs/qa.png
     to: docs/qa.png
 asar: true
 asarUnpack:
-  - "dist/electron/preload.js"
+  - 'dist/electron/preload.js'
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns

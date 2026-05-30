@@ -54,7 +54,11 @@ describe('writeCodexConfig — content dedup', () => {
 
   it('creates new backup when content changes', async () => {
     await writeCodexConfig({ proxyPort: 11435, model: 'deepseek-v4-flash', apiKey: 'sk-x' });
-    const r2 = await writeCodexConfig({ proxyPort: 11436, model: 'deepseek-v4-flash', apiKey: 'sk-x' });
+    const r2 = await writeCodexConfig({
+      proxyPort: 11436,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-x',
+    });
     expect(r2.configSkipped).toBe(false);
     expect(r2.configBackup).not.toBeNull();
   });
@@ -108,7 +112,11 @@ describe('cleanAllBackups', () => {
 
 describe('restoreCodexConfig', () => {
   it('round-trip: backup then restore yields original content', async () => {
-    const r1 = await writeCodexConfig({ proxyPort: 11435, model: 'deepseek-v4-flash', apiKey: 'k1' });
+    const r1 = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'k1',
+    });
     await new Promise((r) => setTimeout(r, 5));
     await writeCodexConfig({ proxyPort: 99999, model: 'deepseek-v4-pro', apiKey: 'k2' });
     const backups = await listBackups();

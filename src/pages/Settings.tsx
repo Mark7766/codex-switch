@@ -5,9 +5,14 @@ export function Settings(): JSX.Element {
   const [maskedKey, setMaskedKey] = useState('');
   const [newKey, setNewKey] = useState('');
   const [port, setPort] = useState(11435);
-  const [defaultModel, setDefaultModel] = useState<'deepseek-v4-flash' | 'deepseek-v4-pro'>('deepseek-v4-flash');
+  const [defaultModel, setDefaultModel] = useState<'deepseek-v4-flash' | 'deepseek-v4-pro'>(
+    'deepseek-v4-flash',
+  );
   const [autoStart, setAutoStart] = useState(true);
-  const [backups, setBackups] = useState<{ config: string[]; auth: string[] }>({ config: [], auth: [] });
+  const [backups, setBackups] = useState<{ config: string[]; auth: string[] }>({
+    config: [],
+    auth: [],
+  });
   const [msg, setMsg] = useState<string | null>(null);
   const [version, setVersion] = useState('');
   const [autoCheckUpdate, setAutoCheckUpdate] = useState(true);
@@ -113,7 +118,10 @@ export function Settings(): JSX.Element {
             onChange={(e) => setNewKey(e.target.value)}
             className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm"
           />
-          <button onClick={saveKey} className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm">
+          <button
+            onClick={saveKey}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm"
+          >
             保存
           </button>
         </div>
@@ -134,7 +142,9 @@ export function Settings(): JSX.Element {
             <span>默认模型</span>
             <select
               value={defaultModel}
-              onChange={(e) => setDefaultModel(e.target.value as 'deepseek-v4-flash' | 'deepseek-v4-pro')}
+              onChange={(e) =>
+                setDefaultModel(e.target.value as 'deepseek-v4-flash' | 'deepseek-v4-pro')
+              }
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
               <option value="deepseek-v4-flash">DeepSeek V4 Flash (deepseek-v4-flash)</option>
@@ -150,10 +160,16 @@ export function Settings(): JSX.Element {
             />
           </label>
           <div className="flex gap-2 pt-2">
-            <button onClick={savePrefs} className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md">
+            <button
+              onClick={savePrefs}
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md"
+            >
               保存偏好
             </button>
-            <button onClick={rewriteCodex} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md">
+            <button
+              onClick={rewriteCodex}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md"
+            >
               重新写入 ~/.codex
             </button>
           </div>

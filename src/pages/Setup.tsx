@@ -82,9 +82,10 @@ export function Setup(): JSX.Element {
         </button>
 
         <p className="text-xs text-slate-500 leading-relaxed">
-          完成后 Codex CLI / Desktop 会自动指向本地代理（127.0.0.1:11435）。
-          原有 <code className="text-slate-300">~/.codex/config.toml</code> 与{' '}
-          <code className="text-slate-300">~/.codex/auth.json</code> 会先备份再覆盖，你随时可以在「设置」里一键还原。
+          完成后 Codex CLI / Desktop 会自动指向本地代理（127.0.0.1:11435）。 原有{' '}
+          <code className="text-slate-300">~/.codex/config.toml</code> 与{' '}
+          <code className="text-slate-300">~/.codex/auth.json</code>{' '}
+          会先备份再覆盖，你随时可以在「设置」里一键还原。
         </p>
       </div>
     </div>

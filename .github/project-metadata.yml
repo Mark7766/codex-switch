@@ -3,114 +3,119 @@
 # 此文件为机器可读的项目元信息，供 CI/CD、Agent 和工具使用
 
 project:
-  name: "codex-switch"
-  display_name: "Codex Switch"
-  description: "跨平台桌面图形化代理，让 Codex CLI 和 Codex Desktop 无痛连接 DeepSeek（Electron 桌面应用，零命令行操作）"
-  version: "0.1.0"
-  stage: "development"  # development / staging / production
-  created: "2026-05-30"
-  user_scale: "面向不懂命令行的个人用户与小团队，预计早期 100 - 1000 人"
-  design_principle: "零门槛、图形化、一键安装；极简实用 > 功能堆砌"
+  name: 'codex-switch'
+  display_name: 'Codex Switch'
+  description: '跨平台桌面图形化代理，让 Codex CLI 和 Codex Desktop 无痛连接 DeepSeek（Electron 桌面应用，零命令行操作）'
+  version: '0.1.0'
+  stage: 'development' # development / staging / production
+  created: '2026-05-30'
+  user_scale: '面向不懂命令行的个人用户与小团队，预计早期 100 - 1000 人'
+  design_principle: '零门槛、图形化、一键安装；极简实用 > 功能堆砌'
   platforms:
-    - "macOS x64 (Intel)"
-    - "macOS arm64 (Apple Silicon)"
-    - "Windows x64"
-    - "Windows arm64 (Surface / ARM 笔电)"
-  homepage: "https://github.com/Mark7766/codex-switch"
+    - 'macOS x64 (Intel)'
+    - 'macOS arm64 (Apple Silicon)'
+    - 'Windows x64'
+    - 'Windows arm64 (Surface / ARM 笔电)'
+  homepage: 'https://github.com/Mark7766/codex-switch'
   reference_project:
-    name: "codex-deepseek-installer"
-    path: "/Users/mark/work/gitspace/opensource/codex-deepseek-installer"
-    url: "https://github.com/Mark7766/codex-deepseek-installer"
-    description: "早期 CLI 版安装器。代理核心逻辑（proxy/deepseek-proxy.mjs）会被移植重写为 TypeScript，默认端口 11435 与其保持一致。"
+    name: 'codex-deepseek-installer'
+    path: '/Users/mark/work/gitspace/opensource/codex-deepseek-installer'
+    url: 'https://github.com/Mark7766/codex-deepseek-installer'
+    description: '早期 CLI 版安装器。代理核心逻辑（proxy/deepseek-proxy.mjs）会被移植重写为 TypeScript，默认端口 11435 与其保持一致。'
 
 tech_stack:
-  language: "TypeScript"
-  language_version: "5.x（strict 模式）"
-  runtime: "Node.js 20 LTS"
-  desktop_runtime: "Electron 30+"
-  backend_framework: "Node 内建 http 模块 + ws（WebSocket），轻量代理无 express/koa"
-  frontend: "React 18 + Vite + Tailwind CSS"
-  ui_reference: "Claude Desktop（简洁、白底/暗黑双主题）"
-  orm: "N/A（无数据库）"
-  database: "N/A（配置使用 electron-store JSON；密钥使用 OS keychain via keytar）"
-  database_driver: "N/A"
-  test_framework: "Vitest（单元）+ Playwright for Electron（E2E）"
-  config: "electron-store（用户偏好）+ keytar（DeepSeek API Key）"
-  package_manager: "pnpm"
-  bundler: "Vite（渲染进程）+ tsc/esbuild（主进程）"
-  installer: "electron-builder（macOS .dmg / Windows NSIS .exe；每平台同时产出 x64 与 arm64 分包）"
+  language: 'TypeScript'
+  language_version: '5.x（strict 模式）'
+  runtime: 'Node.js 20 LTS'
+  desktop_runtime: 'Electron 30+'
+  backend_framework: 'Node 内建 http 模块 + ws（WebSocket），轻量代理无 express/koa'
+  frontend: 'React 18 + Vite + Tailwind CSS'
+  ui_reference: 'Claude Desktop（简洁、白底/暗黑双主题）'
+  orm: 'N/A（无数据库）'
+  database: 'N/A（配置使用 electron-store JSON；密钥使用 OS keychain via keytar）'
+  database_driver: 'N/A'
+  test_framework: 'Vitest（单元）+ Playwright for Electron（E2E）'
+  config: 'electron-store（用户偏好）+ keytar（DeepSeek API Key）'
+  package_manager: 'pnpm'
+  bundler: 'Vite（渲染进程）+ tsc/esbuild（主进程）'
+  installer: 'electron-builder（macOS .dmg / Windows NSIS .exe；每平台同时产出 x64 与 arm64 分包）'
 
 code_quality:
-  formatter: "Prettier"
-  linter: "ESLint + typescript-eslint"
-  type_checker: "tsc --noEmit（strict）"
-  test_framework: "Vitest + Playwright"
+  formatter: 'Prettier'
+  linter: 'ESLint + typescript-eslint'
+  type_checker: 'tsc --noEmit（strict）'
+  test_framework: 'Vitest + Playwright'
   min_coverage: 80
-  core_module_coverage: 90  # proxy / translate / codex 配置注入
+  core_module_coverage: 90 # proxy / translate / codex 配置注入
 
 commands:
-  install: "pnpm install"
-  dev: "pnpm dev"
-  test: "pnpm test"
-  test_e2e: "pnpm test:e2e"
-  test_coverage: "pnpm test:coverage"
-  lint: "pnpm lint"
-  format: "pnpm format"
-  typecheck: "pnpm typecheck"
-  build: "pnpm build"
-  package_mac: "pnpm package:mac"           # 产出 mac-x64 + mac-arm64 两个 .dmg
-  package_mac_universal: "pnpm package:mac:universal"  # 可选：universal .dmg
-  package_win: "pnpm package:win"           # 产出 win-x64 + win-arm64 两个 NSIS .exe
-  package_all: "pnpm package:all"           # CI 一键多平台多架构
+  install: 'pnpm install'
+  dev: 'pnpm dev'
+  test: 'pnpm test'
+  test_e2e: 'pnpm test:e2e'
+  test_coverage: 'pnpm test:coverage'
+  lint: 'pnpm lint'
+  format: 'pnpm format'
+  typecheck: 'pnpm typecheck'
+  build: 'pnpm build'
+  package_mac: 'pnpm package:mac' # 产出 mac-x64 + mac-arm64 两个 .dmg
+  package_mac_universal: 'pnpm package:mac:universal' # 可选：universal .dmg
+  package_win: 'pnpm package:win' # 产出 win-x64 + win-arm64 两个 NSIS .exe
+  package_all: 'pnpm package:all' # CI 一键多平台多架构
 
 structure:
-  main_process_dir: "electron"
-  renderer_dir: "src"
-  test_dir: "tests"
-  docs_dir: "docs"
-  scripts_dir: "scripts"
-  installer_assets_dir: "build"
+  main_process_dir: 'electron'
+  renderer_dir: 'src'
+  test_dir: 'tests'
+  docs_dir: 'docs'
+  scripts_dir: 'scripts'
+  installer_assets_dir: 'build'
 
 core_modules:
-  - name: "proxy"
-    path: "electron/proxy/"
-    description: "本地 HTTP + WebSocket 代理；OpenAI Responses ⇄ DeepSeek Chat Completions 协议转换；SSE 流式转发；`reasoning_content` 跨轮状态（移植自 codex-deepseek-installer/proxy/deepseek-proxy.mjs）"
-  - name: "codex"
-    path: "electron/codex/"
-    description: "Codex 配置注入 ~/.codex/config.toml 与 auth.json（含备份/还原；auth.json 权限 0o600）"
-  - name: "config"
-    path: "electron/config/"
-    description: "用户偏好与密钥管理（electron-store + keytar）"
-  - name: "ipc"
-    path: "electron/ipc/"
-    description: "主进程 ↔ 渲染进程通道（白名单、类型安全）"
-  - name: "ui"
-    path: "src/"
-    description: "React 渲染层：Setup 向导 / Dashboard / Settings / Logs"
+  - name: 'proxy'
+    path: 'electron/proxy/'
+    description: '本地 HTTP + WebSocket 代理；OpenAI Responses ⇄ DeepSeek Chat Completions 协议转换；SSE 流式转发；`reasoning_content` 跨轮状态（移植自 codex-deepseek-installer/proxy/deepseek-proxy.mjs）'
+  - name: 'codex'
+    path: 'electron/codex/'
+    description: 'Codex 配置注入 ~/.codex/config.toml 与 auth.json（含备份/还原；auth.json 权限 0o600）'
+  - name: 'config'
+    path: 'electron/config/'
+    description: '用户偏好与密钥管理（electron-store + keytar）'
+  - name: 'ipc'
+    path: 'electron/ipc/'
+    description: '主进程 ↔ 渲染进程通道（白名单、类型安全）'
+  - name: 'ui'
+    path: 'src/'
+    description: 'React 渲染层：Setup 向导 / Dashboard / Settings / Logs'
 
 security:
   context_isolation: true
   node_integration_in_renderer: false
-  proxy_bind_address: "127.0.0.1"
+  proxy_bind_address: '127.0.0.1'
   default_proxy_port: 11435
-  secrets_storage: "OS keychain (keytar)"
-  auth_json_mode: "0o600"
-  log_redaction: ["Authorization", "api_key", "sk-*"]
+  secrets_storage: 'OS keychain (keytar)'
+  auth_json_mode: '0o600'
+  log_redaction: ['Authorization', 'api_key', 'sk-*']
 
 build_targets:
   mac:
-    - { arch: "x64",   format: "dmg", artifact: "Codex-Switch-${version}-mac-x64.dmg" }
-    - { arch: "arm64", format: "dmg", artifact: "Codex-Switch-${version}-mac-arm64.dmg" }
+    - { arch: 'x64', format: 'dmg', artifact: 'Codex-Switch-${version}-mac-x64.dmg' }
+    - { arch: 'arm64', format: 'dmg', artifact: 'Codex-Switch-${version}-mac-arm64.dmg' }
     # 可选：universal
-    - { arch: "universal", format: "dmg", artifact: "Codex-Switch-${version}-mac-universal.dmg", optional: true }
+    - {
+        arch: 'universal',
+        format: 'dmg',
+        artifact: 'Codex-Switch-${version}-mac-universal.dmg',
+        optional: true,
+      }
   win:
-    - { arch: "x64",   format: "nsis", artifact: "Codex-Switch-Setup-${version}-win-x64.exe" }
-    - { arch: "arm64", format: "nsis", artifact: "Codex-Switch-Setup-${version}-win-arm64.exe" }
+    - { arch: 'x64', format: 'nsis', artifact: 'Codex-Switch-Setup-${version}-win-x64.exe' }
+    - { arch: 'arm64', format: 'nsis', artifact: 'Codex-Switch-Setup-${version}-win-arm64.exe' }
 
 conventions:
-  commit_format: "conventional-commits"
-  branch_strategy: "github-flow"
-  code_review: "required"  # 个人项目也强制至少 self-review
+  commit_format: 'conventional-commits'
+  branch_strategy: 'github-flow'
+  code_review: 'required' # 个人项目也强制至少 self-review
   line_width: 100
   max_function_lines: 50
   max_file_lines: 400

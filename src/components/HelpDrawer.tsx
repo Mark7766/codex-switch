@@ -62,16 +62,16 @@ export function HelpDrawer({ open, onClose, page }: HelpDrawerProps): JSX.Elemen
                 else setTab(id);
               }}
               className={`flex-1 py-2 ${
-                tab === id ? 'text-white border-b-2 border-brand-500' : 'text-slate-400 hover:text-slate-200'
+                tab === id
+                  ? 'text-white border-b-2 border-brand-500'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {label}
             </button>
           ))}
         </nav>
-        <div className="flex-1 overflow-auto p-3 text-sm">
-          {tab === 'faq' && <FaqList />}
-        </div>
+        <div className="flex-1 overflow-auto p-3 text-sm">{tab === 'faq' && <FaqList />}</div>
       </aside>
       <ReportIssueModal open={showReport} onClose={() => setShowReport(false)} />
       <QaGroupModal open={showQa} onClose={() => setShowQa(false)} />

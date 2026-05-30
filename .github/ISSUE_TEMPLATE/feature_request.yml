@@ -1,7 +1,7 @@
-name: "✨ Feature Request"
-description: "提出一个新功能建议"
-title: "[Feature]: "
-labels: ["enhancement"]
+name: '✨ Feature Request'
+description: '提出一个新功能建议'
+title: '[Feature]: '
+labels: ['enhancement']
 body:
   - type: markdown
     attributes:
@@ -11,24 +11,24 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: "问题 / 动机"
-      description: "这个功能要解决什么问题？"
-      placeholder: "当我需要 xxx 的时候，目前没有办法..."
+      label: '问题 / 动机'
+      description: '这个功能要解决什么问题？'
+      placeholder: '当我需要 xxx 的时候，目前没有办法...'
     validations:
       required: true
 
   - type: textarea
     id: solution
     attributes:
-      label: "期望的解决方案"
-      placeholder: "我希望可以..."
+      label: '期望的解决方案'
+      placeholder: '我希望可以...'
     validations:
       required: true
 
   - type: textarea
     id: user_story
     attributes:
-      label: "用户故事"
+      label: '用户故事'
       placeholder: |
         作为一个 [角色]，
         我想要 [功能]，
@@ -37,7 +37,7 @@ body:
   - type: textarea
     id: acceptance_criteria
     attributes:
-      label: "验收标准"
+      label: '验收标准'
       placeholder: |
         - [ ] 条件 1
         - [ ] 条件 2
@@ -45,16 +45,15 @@ body:
   - type: dropdown
     id: priority
     attributes:
-      label: "优先级建议"
+      label: '优先级建议'
       options:
-        - "P0 — 必须有"
-        - "P1 — 应该有"
-        - "P2 — 锦上添花"
+        - 'P0 — 必须有'
+        - 'P1 — 应该有'
+        - 'P2 — 锦上添花'
     validations:
       required: true
 
   - type: textarea
     id: additional
     attributes:
-      label: "补充信息"
-
+      label: '补充信息'

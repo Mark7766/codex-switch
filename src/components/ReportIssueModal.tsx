@@ -48,7 +48,10 @@ export function ReportIssueModal({ open, onClose }: ReportIssueModalProps): JSX.
   };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
         className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -61,8 +64,8 @@ export function ReportIssueModal({ open, onClose }: ReportIssueModalProps): JSX.
         </header>
         <div className="p-4 text-sm text-slate-300 space-y-3 overflow-auto">
           <p>
-            为了帮我们更快定位问题，我们生成了一份诊断信息（<strong>已自动脱敏</strong>，不包含
-            API Key）。请把它粘贴到 GitHub issue 里。
+            为了帮我们更快定位问题，我们生成了一份诊断信息（<strong>已自动脱敏</strong>，不包含 API
+            Key）。请把它粘贴到 GitHub issue 里。
           </p>
           <textarea
             readOnly

@@ -10,7 +10,11 @@ interface ChangelogModalProps {
   version: string;
 }
 
-export function ChangelogModal({ open, onClose, version }: ChangelogModalProps): JSX.Element | null {
+export function ChangelogModal({
+  open,
+  onClose,
+  version,
+}: ChangelogModalProps): JSX.Element | null {
   const [text, setText] = useState<string>('加载中…');
 
   useEffect(() => {

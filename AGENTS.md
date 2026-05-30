@@ -1,4 +1,5 @@
 <!-- ai-coding-ok: v2.2.0 -->
+
 # AGENTS.md — Codex Switch
 
 ## ⚠️ AI Agent 必读规范（每次任务必须执行）
@@ -6,11 +7,13 @@
 本项目使用 [ai-coding-ok](https://github.com/Mark7766/ai-coding-ok) 三层记忆系统。**在执行任何任务之前，必须完成以下步骤：**
 
 ### Plan 阶段（强制，任务开始前）
+
 1. 读取 `.github/agent/memory/project-memory.md` — 了解项目事实和架构约束
 2. 读取 `.github/agent/memory/decisions-log.md` — 了解历史技术决策
 3. 读取 `.github/agent/memory/task-history.md` — 了解近期任务上下文
 
 ### Act 阶段（强制，任务结束后）
+
 1. 更新 `.github/agent/memory/task-history.md` — 记录本次任务摘要
 2. 如有架构决策变化 → 更新 `.github/agent/memory/decisions-log.md`
 3. 如有项目事实变化 → 更新 `.github/agent/memory/project-memory.md`
@@ -109,28 +112,28 @@ pnpm package:all                 # 多平台一键打包（CI 使用）
 
 ```typescript
 // 单元测试：协议转换示例（Vitest）
-import { describe, it, expect } from 'vitest'
-import { openAIToDeepSeek } from '@/electron/proxy/translate'
+import { describe, it, expect } from 'vitest';
+import { openAIToDeepSeek } from '@/electron/proxy/translate';
 
 describe('openAIToDeepSeek', () => {
   it('maps gpt-5-codex to deepseek-chat', () => {
-    const req = { model: 'gpt-5-codex', messages: [{ role: 'user', content: 'hi' }] }
-    const out = openAIToDeepSeek(req, { 'gpt-5-codex': 'deepseek-chat' })
-    expect(out.model).toBe('deepseek-chat')
-  })
-})
+    const req = { model: 'gpt-5-codex', messages: [{ role: 'user', content: 'hi' }] };
+    const out = openAIToDeepSeek(req, { 'gpt-5-codex': 'deepseek-chat' });
+    expect(out.model).toBe('deepseek-chat');
+  });
+});
 
 // E2E：首次启动向导（Playwright + electron）
-import { test, expect, _electron as electron } from '@playwright/test'
+import { test, expect, _electron as electron } from '@playwright/test';
 
 test('first-run wizard saves API key and starts proxy', async () => {
-  const app = await electron.launch({ args: ['.'] })
-  const window = await app.firstWindow()
-  await window.getByLabel('DeepSeek API Key').fill('sk-test-xxxx')
-  await window.getByRole('button', { name: '完成并启动代理' }).click()
-  await expect(window.getByText('代理运行中')).toBeVisible()
-  await app.close()
-})
+  const app = await electron.launch({ args: ['.'] });
+  const window = await app.firstWindow();
+  await window.getByLabel('DeepSeek API Key').fill('sk-test-xxxx');
+  await window.getByRole('button', { name: '完成并启动代理' }).click();
+  await expect(window.getByText('代理运行中')).toBeVisible();
+  await app.close();
+});
 ```
 
 ## 重要约束

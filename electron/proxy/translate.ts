@@ -75,8 +75,7 @@ export function itemsToMessages(
       messages.push({
         role: 'tool',
         tool_call_id: item.call_id ?? '',
-        content:
-          typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? ''),
+        content: typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? ''),
       });
       continue;
     }
@@ -170,10 +169,11 @@ export function extractTools(tools: unknown): ChatRequest['tools'] {
       function: {
         name,
         description: t.function?.description || t.description || '',
-        parameters: t.function?.parameters || t.parameters || {
-          type: 'object',
-          properties: {},
-        },
+        parameters: t.function?.parameters ||
+          t.parameters || {
+            type: 'object',
+            properties: {},
+          },
       },
     });
   }

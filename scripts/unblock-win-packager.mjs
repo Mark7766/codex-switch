@@ -7,10 +7,11 @@ const CACHE_DIR = path.join(
   process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local'),
   'electron-builder',
   'Cache',
-  'winCodeSign'
+  'winCodeSign',
 );
 const TARGET_DIR = path.join(CACHE_DIR, 'winCodeSign-2.6.0');
-const ZIP_URL = 'https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z';
+const ZIP_URL =
+  'https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z';
 
 // Locate local 7za.exe
 const SEVEN_ZIP_EXE = path.join(process.cwd(), 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
@@ -19,31 +20,33 @@ async function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     console.log(`Downloading: ${url} -> ${dest}`);
     const file = fs.createWriteStream(dest);
-    https.get(url, (response) => {
-      if (response.statusCode === 302 || response.statusCode === 301) {
-        // Handle redirect
-        downloadFile(response.headers.location, dest).then(resolve).catch(reject);
-        return;
-      }
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download: ${response.statusCode}`));
-        return;
-      }
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolve();
+    https
+      .get(url, (response) => {
+        if (response.statusCode === 302 || response.statusCode === 301) {
+          // Handle redirect
+          downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+          return;
+        }
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download: ${response.statusCode}`));
+          return;
+        }
+        response.pipe(file);
+        file.on('finish', () => {
+          file.close();
+          resolve();
+        });
+      })
+      .on('error', (err) => {
+        fs.unlinkSync(dest);
+        reject(err);
       });
-    }).on('error', (err) => {
-      fs.unlinkSync(dest);
-      reject(err);
-    });
   });
 }
 
 async function main() {
   console.log('=== winCodeSign Symlink Workaround Tool ===');
-  
+
   if (process.platform !== 'win32') {
     console.log('This script is only needed and designed for Windows host systems.');
     return;
@@ -64,7 +67,7 @@ async function main() {
   // Find any existing .7z file in CACHE_DIR
   let zipFile = '';
   const files = fs.readdirSync(CACHE_DIR);
-  const existingZips = files.filter(f => f.endsWith('.7z'));
+  const existingZips = files.filter((f) => f.endsWith('.7z'));
 
   if (existingZips.length > 0) {
     // Sort by largest or just pick the first one matching 2.6.0 or any
@@ -95,7 +98,9 @@ async function main() {
   }
 
   console.log(`Extracting ${zipFile} directly to ${TARGET_DIR} ...`);
-  console.log('Excluding darwin/ and linux/ subdirectories to bypass symlink creations (and prevent privilege errors!)');
+  console.log(
+    'Excluding darwin/ and linux/ subdirectories to bypass symlink creations (and prevent privilege errors!)',
+  );
 
   try {
     // -x!darwin and -x!linux excludes those folders from extraction, removing symlinks
@@ -103,14 +108,16 @@ async function main() {
     execSync(cmd, { stdio: 'inherit' });
     console.log('\n[Success] Manifest extracted safely without macOS/linux symlink dependency.');
     console.log(`Cache is prepopulated at: ${TARGET_DIR}`);
-    console.log('You can now run "pnpm package:win" successfully without Administrator / Developer Mode privileges!');
+    console.log(
+      'You can now run "pnpm package:win" successfully without Administrator / Developer Mode privileges!',
+    );
   } catch (err) {
     console.error('Extraction failed:', err.message);
     process.exit(1);
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(err);
   process.exit(1);
 });

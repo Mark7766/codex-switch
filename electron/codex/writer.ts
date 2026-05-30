@@ -26,7 +26,10 @@ export interface WriteOpts {
   maxBackupsPerFile?: number;
 }
 
-const TEMPLATE = (port: number, model: string): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
+const TEMPLATE = (
+  port: number,
+  model: string,
+): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
 # 完整配置参考: https://github.com/openai/codex
 
 model = "${model}"

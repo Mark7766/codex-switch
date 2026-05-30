@@ -7,7 +7,13 @@ import { IPC } from './ipc/channels';
 import { getPreferences, setPreferences, type UserPreferences } from './config/store';
 import { clearApiKey, getApiKey, setApiKey } from './config/secrets';
 import { DeepSeekProxy, type ProxyLogEntry, type ProxyStatus } from './proxy/server';
-import { listBackups, restoreCodexConfig, writeCodexConfig, deleteBackup, cleanAllBackups } from './codex/writer';
+import {
+  listBackups,
+  restoreCodexConfig,
+  writeCodexConfig,
+  deleteBackup,
+  cleanAllBackups,
+} from './codex/writer';
 import { UpdaterManager, type UpdateEvent } from './updater';
 import { redactSensitive } from './proxy/errors';
 
@@ -161,7 +167,10 @@ function registerIpc(): void {
           path.join(process.resourcesPath, 'CHANGELOG.md'),
           path.join(process.resourcesPath, 'app.asar.unpacked', 'CHANGELOG.md'),
         ]
-      : [path.join(__dirname, '..', '..', 'CHANGELOG.md'), path.join(process.cwd(), 'CHANGELOG.md')];
+      : [
+          path.join(__dirname, '..', '..', 'CHANGELOG.md'),
+          path.join(process.cwd(), 'CHANGELOG.md'),
+        ];
     for (const p of candidates) {
       try {
         return await fs.readFile(p, 'utf-8');

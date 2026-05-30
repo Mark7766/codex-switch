@@ -41,9 +41,9 @@ return mapping[requested] || requested || fallback;
 ```typescript
 const VALID_DEEPSEEK_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro']);
 const PREFIX_RULES: Array<{ prefix: string; target: string }> = [
-  { prefix: 'gpt-',         target: 'deepseek-v4-flash' },
-  { prefix: 'o1',           target: 'deepseek-v4-pro'   },
-  { prefix: 'o3',           target: 'deepseek-v4-pro'   },
+  { prefix: 'gpt-', target: 'deepseek-v4-flash' },
+  { prefix: 'o1', target: 'deepseek-v4-pro' },
+  { prefix: 'o3', target: 'deepseek-v4-pro' },
   { prefix: 'text-davinci', target: 'deepseek-v4-flash' },
 ];
 ```
@@ -69,13 +69,13 @@ WARN [proxy] 模型 "gpt-5.4-mini" 未在映射表中找到，已自动回退到
 
 ### 1.3 测试用例
 
-| 输入 | 期望 |
-|------|------|
-| `mapModel('gpt-5.4-mini', {}, 'deepseek-v4-flash')` | `'deepseek-v4-flash'`（前缀） |
+| 输入                                                   | 期望                              |
+| ------------------------------------------------------ | --------------------------------- |
+| `mapModel('gpt-5.4-mini', {}, 'deepseek-v4-flash')`    | `'deepseek-v4-flash'`（前缀）     |
 | `mapModel('deepseek-v4-pro', {}, 'deepseek-v4-flash')` | `'deepseek-v4-pro'`（白名单透传） |
-| `mapModel('gpt-99-future', {}, 'deepseek-v4-flash')` | `'deepseek-v4-flash'`（前缀） |
-| `mapModel('o3', {}, 'deepseek-v4-flash')` | `'deepseek-v4-pro'` |
-| `mapModel(undefined, {}, 'deepseek-v4-flash')` | `'deepseek-v4-flash'` |
+| `mapModel('gpt-99-future', {}, 'deepseek-v4-flash')`   | `'deepseek-v4-flash'`（前缀）     |
+| `mapModel('o3', {}, 'deepseek-v4-flash')`              | `'deepseek-v4-pro'`               |
+| `mapModel(undefined, {}, 'deepseek-v4-flash')`         | `'deepseek-v4-flash'`             |
 | `mapModel('foo-bar-unknown', {}, 'deepseek-v4-flash')` | `'deepseek-v4-flash'`（fallback） |
 
 ---
@@ -136,7 +136,9 @@ auth.json.bak.1717050000    2026-05-30 10:00  [还原] [删除]
 当前日志条目结构：
 
 ```typescript
-{ ts, level, source, message }
+{
+  (ts, level, source, message);
+}
 ```
 
 UI 只显示一行文本。无法回答用户的核心疑问："**我刚才那次请求成功了吗？花了多久？用的哪个模型？为什么失败？**"
@@ -164,10 +166,10 @@ interface ProxyLogEntry {
   reqId?: string;
   phase?: 'start' | 'success' | 'error';
   durationMs?: number;
-  model?: string;        // 实际发给 DeepSeek 的模型
+  model?: string; // 实际发给 DeepSeek 的模型
   requestedModel?: string; // 客户端原始模型
   statusCode?: number;
-  errorReason?: string;  // 友好化的失败原因
+  errorReason?: string; // 友好化的失败原因
 }
 ```
 
@@ -175,15 +177,15 @@ interface ProxyLogEntry {
 
 把 DeepSeek 原始错误翻译成用户能看懂的中文：
 
-| DeepSeek 原文/code | 友好提示 |
-|---------|---------|
-| `invalid_request_error` + `model` 关键字 | "模型名不被 DeepSeek 接受，请检查模型映射设置" |
+| DeepSeek 原文/code                         | 友好提示                                        |
+| ------------------------------------------ | ----------------------------------------------- |
+| `invalid_request_error` + `model` 关键字   | "模型名不被 DeepSeek 接受，请检查模型映射设置"  |
 | `authentication_error` / `Invalid API key` | "DeepSeek API Key 无效或已过期，请在设置中更新" |
-| `insufficient_quota` | "DeepSeek 账户额度不足，请前往 DeepSeek 充值" |
-| `rate_limit_exceeded` | "请求过于频繁，已被 DeepSeek 限流，稍后重试" |
-| `context_length_exceeded` | "对话过长，超过模型上下文限制" |
-| 网络超时 / ECONNRESET | "无法连接到 DeepSeek，请检查网络或代理设置" |
-| 其他 | 透传原始消息 + 状态码 |
+| `insufficient_quota`                       | "DeepSeek 账户额度不足，请前往 DeepSeek 充值"   |
+| `rate_limit_exceeded`                      | "请求过于频繁，已被 DeepSeek 限流，稍后重试"    |
+| `context_length_exceeded`                  | "对话过长，超过模型上下文限制"                  |
+| 网络超时 / ECONNRESET                      | "无法连接到 DeepSeek，请检查网络或代理设置"     |
+| 其他                                       | 透传原始消息 + 状态码                           |
 
 **C3. 「日志」页面渲染升级**
 
@@ -244,8 +246,10 @@ interface ProxyLogEntry {
 # 更新日志
 
 ## [1.0.0] - 2026-05-30
+
 ### 新增
-- 模型映射前缀兜底，自动识别 gpt-* / o1 / o3 系列
+
+- 模型映射前缀兜底，自动识别 gpt-\* / o1 / o3 系列
 - Codex 配置备份滚动保留最近 5 份，新增 GUI 备份管理
 - 日志按请求维度分组展示，含成功率、耗时、错误原因翻译
 - 设置 → 关于 → 版本记录，可查看历史变更
@@ -255,15 +259,19 @@ interface ProxyLogEntry {
 - Codex 入门向导：首次启动、「仪表盘」、「帮助」抽屉三处入口，5 分钟跑通 Hello World
 
 ### 修复
+
 - 修复 `gpt-5.4-mini` 等未知模型被透传给 DeepSeek 导致 400 的问题
 - 修复 Codex 配置每次启动生成重复备份的问题
 
 ### 变更
+
 - 默认 fallback 模型 `deepseek-v4-flash`，未知模型不再透传
 - 全中文界面，移除界面中所有英文术语（保留 DeepSeek、Codex 等产品名）
 
 ## [0.1.0] - 2026-05-29
+
 ### 新增
+
 - 初始版本：本地代理 + Codex 配置注入 + React UI 向导
 - macOS / Windows 双平台打包（x64 + arm64）
 ```
@@ -324,11 +332,11 @@ v0.1.0 用户升级靠"自己去 GitHub Release 页下载新 dmg/exe → 拖应�
 
 **electron-updater**（electron-builder 官方配套）
 
-| 备选 | 评估 | 结论 |
-|------|------|------|
-| `electron-updater` | electron-builder 原生支持，配置一行；支持 GitHub Releases / S3 / 通用 HTTP；macOS 增量更新 | ✅ 选用 |
-| Squirrel.Mac / Squirrel.Windows | Electron 内建 autoUpdater，需自己搭服务器，签名要求高 | ❌ 重 |
-| 应用内开浏览器跳转下载 | 用户体验差，等同手工升级 | ❌ 仅作 fallback |
+| 备选                            | 评估                                                                                       | 结论             |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | ---------------- |
+| `electron-updater`              | electron-builder 原生支持，配置一行；支持 GitHub Releases / S3 / 通用 HTTP；macOS 增量更新 | ✅ 选用          |
+| Squirrel.Mac / Squirrel.Windows | Electron 内建 autoUpdater，需自己搭服务器，签名要求高                                      | ❌ 重            |
+| 应用内开浏览器跳转下载          | 用户体验差，等同手工升级                                                                   | ❌ 仅作 fallback |
 
 后端用 **GitHub Releases**：不需要服务器、不需要 CDN，CI 打包流水线已经把产物上传到 Release 资产，electron-updater 直接读 `latest-mac.yml` / `latest.yml`。
 
@@ -382,7 +390,7 @@ publish:
   provider: github
   owner: Mark7766
   repo: codex-switch
-  releaseType: release  # 不抓 prerelease
+  releaseType: release # 不抓 prerelease
 ```
 
 主进程 `electron/updater/index.ts`（新）封装：
@@ -418,11 +426,11 @@ publish:
 
 **E6. 平台特殊性处理**
 
-| 平台 | 注意点 |
-|------|--------|
-| macOS | 必须 Developer ID 签名 + notarization，否则 electron-updater 拒绝安装；未签名版本降级为"打开浏览器跳转 GitHub Release 页"（fallback 路径） |
-| Windows | NSIS 安装包自动支持差量；未签名时 SmartScreen 会拦，README 已有说明 |
-| ARM64 | electron-updater 自动按 `process.arch` 匹配正确 dmg/exe，无需额外配置 |
+| 平台    | 注意点                                                                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| macOS   | 必须 Developer ID 签名 + notarization，否则 electron-updater 拒绝安装；未签名版本降级为"打开浏览器跳转 GitHub Release 页"（fallback 路径） |
+| Windows | NSIS 安装包自动支持差量；未签名时 SmartScreen 会拦，README 已有说明                                                                        |
+| ARM64   | electron-updater 自动按 `process.arch` 匹配正确 dmg/exe，无需额外配置                                                                      |
 
 **E7. 失败回滚与诊断**
 
@@ -464,16 +472,16 @@ publish:
 
 ### 5.5 测试用例
 
-| 场景 | 期望 |
-|------|------|
-| 当前 v1.0.0，启动后 5 秒检查 → Release 是 v1.0.0 | 静默，无任何 UI 提示 |
-| 当前 v1.0.0，Release 是 v1.0.1 | 「仪表盘」出现升级徽标，点击弹升级弹窗显示 v1.0.1 changelog |
-| 点「立即更新」断网 → 下载失败 | 提示用户失败，提供 GitHub Release 页跳转 |
-| 下载完成时代理刚被 Codex 调用 | 延迟 30 秒后才弹「已就绪」提示 |
-| 用户在「设置」关闭自动检查 | 启动不检查；手动按「检查更新」仍可工作 |
-| Release 是 prerelease | 不被自动检查发现（releaseType: release） |
-| GitHub 直连超时但 ghproxy 可达 | 自动切到 ghproxy，下载成功，日志显示使用的镜像 |
-| 镜像下载完成后 sha512 不匹配 | 拒绝安装，提示用户"安装包校验失败，请稍后重试或切换镜像" |
+| 场景                                             | 期望                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| 当前 v1.0.0，启动后 5 秒检查 → Release 是 v1.0.0 | 静默，无任何 UI 提示                                        |
+| 当前 v1.0.0，Release 是 v1.0.1                   | 「仪表盘」出现升级徽标，点击弹升级弹窗显示 v1.0.1 changelog |
+| 点「立即更新」断网 → 下载失败                    | 提示用户失败，提供 GitHub Release 页跳转                    |
+| 下载完成时代理刚被 Codex 调用                    | 延迟 30 秒后才弹「已就绪」提示                              |
+| 用户在「设置」关闭自动检查                       | 启动不检查；手动按「检查更新」仍可工作                      |
+| Release 是 prerelease                            | 不被自动检查发现（releaseType: release）                    |
+| GitHub 直连超时但 ghproxy 可达                   | 自动切到 ghproxy，下载成功，日志显示使用的镜像              |
+| 镜像下载完成后 sha512 不匹配                     | 拒绝安装，提示用户"安装包校验失败，请稍后重试或切换镜像"    |
 
 ### 5.6 受影响文件
 
@@ -493,13 +501,13 @@ package.json                      ← 加 dep: electron-updater
 
 ### 5.7 风险与缓解
 
-| 风险 | 缓解 |
-|------|------|
-| 未签名版本在 macOS 上 electron-updater 报错 | 加入"签名检测"，未签名时降级为打开浏览器跳转，绝不让用户卡住 |
-| 用户网络无法访问 GitHub | 检查超时设为 10s，失败静默；不提示"无网络"以免反复打扰 |
-| GitHub API rate limit（未登录 60 次/小时/IP） | electron-updater 默认走 `releases/latest` 静态 JSON，不触发 API；6 小时一次远低于上限 |
+| 风险                                             | 缓解                                                                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 未签名版本在 macOS 上 electron-updater 报错      | 加入"签名检测"，未签名时降级为打开浏览器跳转，绝不让用户卡住                                                |
+| 用户网络无法访问 GitHub                          | 检查超时设为 10s，失败静默；不提示"无网络"以免反复打扰                                                      |
+| GitHub API rate limit（未登录 60 次/小时/IP）    | electron-updater 默认走 `releases/latest` 静态 JSON，不触发 API；6 小时一次远低于上限                       |
 | 版本号不一致（package.json 1.0.0 vs tag v1.0.1） | CI 加 `node -e "process.exit(require('./package.json').version === process.env.TAG.slice(1) ? 0 : 1)"` 校验 |
-| 安装包被运营商劫持/篡改 | electron-updater 默认校验 sha512（写在 latest-*.yml 里），不匹配直接拒绝 |
+| 安装包被运营商劫持/篡改                          | electron-updater 默认校验 sha512（写在 latest-\*.yml 里），不匹配直接拒绝                                   |
 
 ---
 
@@ -515,20 +523,20 @@ package.json                      ← 加 dep: electron-updater
 
   > 备注：本文档后续全部采用表中中文名描述界面。代码侧的文件名、类名、IPC 通道名依然使用英文 / 驼峰命名（例如 `Dashboard.tsx` / `UpdateModal` / `help:get-faq`），仅是实现细节，不会出现在用户看得到的 UI 上。
 
-  | UI 中文名（用户可见） | 代码标识 / 路径（开发侧） |
-  |--------------------|----------------------------|
-  | 「首次设置」向导 | `src/pages/Setup.tsx` |
-  | 「仪表盘」 | `src/pages/Dashboard.tsx` |
-  | 「设置」 | `src/pages/Settings.tsx` |
-  | 「日志」 | `src/pages/Logs.tsx` |
-  | 「帮助」抽屉 | `HelpDrawer` 组件 |
-  | 「Codex 入门」抽屉 | `OnboardingDrawer` 组件 |
-  | 「升级提示」弹窗 | `UpdateModal` 组件 |
-  | 「版本记录」弹窗 | `ChangelogModal` 组件 |
-  | 「报告问题」弹窗 | `ReportIssueModal` 组件 |
-  | 「加入交流群」弹窗 | `QaGroupModal` 组件 |
-  | 「顶栏」 | `HeaderBar` 组件 |
-  | 「常见问题」折叠列表 | `FaqList` 组件（数据源 `docs/help/faq.json`）|
+  | UI 中文名（用户可见） | 代码标识 / 路径（开发侧）                     |
+  | --------------------- | --------------------------------------------- |
+  | 「首次设置」向导      | `src/pages/Setup.tsx`                         |
+  | 「仪表盘」            | `src/pages/Dashboard.tsx`                     |
+  | 「设置」              | `src/pages/Settings.tsx`                      |
+  | 「日志」              | `src/pages/Logs.tsx`                          |
+  | 「帮助」抽屉          | `HelpDrawer` 组件                             |
+  | 「Codex 入门」抽屉    | `OnboardingDrawer` 组件                       |
+  | 「升级提示」弹窗      | `UpdateModal` 组件                            |
+  | 「版本记录」弹窗      | `ChangelogModal` 组件                         |
+  | 「报告问题」弹窗      | `ReportIssueModal` 组件                       |
+  | 「加入交流群」弹窗    | `QaGroupModal` 组件                           |
+  | 「顶栏」              | `HeaderBar` 组件                              |
+  | 「常见问题」折叠列表  | `FaqList` 组件（数据源 `docs/help/faq.json`） |
 
 - **零跳转优先**：能在应用内 1 次点击解决的问题，绝不让用户开浏览器
 - **就地求助**：错误发生在哪里，"如何修"的链接就放在哪里（旁边/卡片底部）
@@ -544,12 +552,12 @@ package.json                      ← 加 dep: electron-updater
 
 抽屉内容**随当前页面智能切换**：
 
-| 当前页面 | 抽屉默认显示 |
-|---------|------------|
-| Setup | "如何获取 DeepSeek API Key" + "向导每一步说明" |
-| Dashboard | "代理状态指标含义" + "无法启动怎么办" |
-| Settings | "模型映射如何工作" + "备份何时生成" |
-| Logs | "如何看懂日志卡片" + "常见错误原因翻译表" |
+| 当前页面  | 抽屉默认显示                                   |
+| --------- | ---------------------------------------------- |
+| Setup     | "如何获取 DeepSeek API Key" + "向导每一步说明" |
+| Dashboard | "代理状态指标含义" + "无法启动怎么办"          |
+| Settings  | "模型映射如何工作" + "备份何时生成"            |
+| Logs      | "如何看懂日志卡片" + "常见错误原因翻译表"      |
 
 抽屉底部固定 3 个按钮：
 
@@ -577,13 +585,13 @@ Logs 卡片的错误原因下方，**根据错误类型**直接给出"修复建�
         ↳ [打开设置更新 Key]   [查看完整常见问题]
 ```
 
-| 错误类型 | 就地建议 |
-|---------|---------|
-| API Key 无效 | 「打开设置 → API Key 输入框聚焦」 |
-| 模型未识别 | 「打开设置 → 模型映射区块」 |
-| 额度不足 | 「打开 DeepSeek 充值页」（外链） |
-| 网络问题 | 「打开诊断」按钮：自动 ping api.deepseek.com、检查代理设置、输出报告 |
-| 限流 | 「了解 DeepSeek 限流策略」（外链） |
+| 错误类型     | 就地建议                                                             |
+| ------------ | -------------------------------------------------------------------- |
+| API Key 无效 | 「打开设置 → API Key 输入框聚焦」                                    |
+| 模型未识别   | 「打开设置 → 模型映射区块」                                          |
+| 额度不足     | 「打开 DeepSeek 充值页」（外链）                                     |
+| 网络问题     | 「打开诊断」按钮：自动 ping api.deepseek.com、检查代理设置、输出报告 |
+| 限流         | 「了解 DeepSeek 限流策略」（外链）                                   |
 
 **F4. 内置「常见问题」集（不超过 12 条）**
 
@@ -647,6 +655,7 @@ Logs 卡片的错误原因下方，**根据错误类型**直接给出"修复建�
 仓库已备二维码图 `docs/qa.png`，用于引导用户加入咨询群。两个入口：
 
 1. **「帮助」抽屉底部加一个「加入交流群」按钮**，点击弹出小弹窗展示二维码 + 一句说明：
+
    ```
    加入 Codex Switch 交流群
 
@@ -654,6 +663,7 @@ Logs 卡片的错误原因下方，**根据错误类型**直接给出"修复建�
 
    微信扫一扫，与作者和其他用户交流问题。
    ```
+
 2. **「设置」→ 关于** 区块底部加一行「遇到问题？[加入交流群]」，点击同上
 
 营造「有人答疑」的心理安全感；常见问题解决不了的问题加群问作者。
@@ -728,18 +738,18 @@ Codex 入门（5 分钟）
 
 帮助系统设计完，顺手检查全应用是否符合极简：
 
-| 项 | 现状 | 调整 |
-|----|------|------|
-| 「首次设置」向导 | 多步流程？ | 一屏完成：API Key + 模型默认 + 完成按钮，3 个字段封顶 |
-| 「仪表盘」 | 信息密度 | 突出 1 个核心指标（"代理运行中 ●"），其他 ≤ 4 个次要指标 |
-| 「设置」 | 标签页/分组 | 全部展开在单页，不用标签页；用「关于」「模型」「备份」「更新」4 个区块即可 |
-| 「日志」 | 默认视图 | 按 reqId 卡片折叠，默认只显示卡片头部；详情点击展开 |
-| 文案 | 用词 | 全部口语化中文；禁用"配置"、"实例化"、"启用"等术语，改"设置"、"打开"、"开启" |
-| 按钮 | 主次 | 一个页面最多一个**主按钮**（蓝色实心），其余次按钮（白底/灰边） |
-| 颜色 | 调色板 | 仅 4 色：白底 + 黑字 + 蓝主色 + 错误红；告警黄、成功绿仅出现在状态徽标 |
-| 图标 | 来源 | 全部用 lucide-react（已有依赖或新加），统一线条风格，禁止 emoji 作为永久 UI 元素 |
-| 字号 | 层级 | 仅 3 级：标题 18px / 正文 14px / 辅助 12px |
-| 间距 | 节奏 | 8px 网格：组件间距 8/16/24 三档 |
+| 项               | 现状        | 调整                                                                             |
+| ---------------- | ----------- | -------------------------------------------------------------------------------- |
+| 「首次设置」向导 | 多步流程？  | 一屏完成：API Key + 模型默认 + 完成按钮，3 个字段封顶                            |
+| 「仪表盘」       | 信息密度    | 突出 1 个核心指标（"代理运行中 ●"），其他 ≤ 4 个次要指标                         |
+| 「设置」         | 标签页/分组 | 全部展开在单页，不用标签页；用「关于」「模型」「备份」「更新」4 个区块即可       |
+| 「日志」         | 默认视图    | 按 reqId 卡片折叠，默认只显示卡片头部；详情点击展开                              |
+| 文案             | 用词        | 全部口语化中文；禁用"配置"、"实例化"、"启用"等术语，改"设置"、"打开"、"开启"     |
+| 按钮             | 主次        | 一个页面最多一个**主按钮**（蓝色实心），其余次按钮（白底/灰边）                  |
+| 颜色             | 调色板      | 仅 4 色：白底 + 黑字 + 蓝主色 + 错误红；告警黄、成功绿仅出现在状态徽标           |
+| 图标             | 来源        | 全部用 lucide-react（已有依赖或新加），统一线条风格，禁止 emoji 作为永久 UI 元素 |
+| 字号             | 层级        | 仅 3 级：标题 18px / 正文 14px / 辅助 12px                                       |
+| 间距             | 节奏        | 8px 网格：组件间距 8/16/24 三档                                                  |
 
 ### 6.4 受影响文件
 
@@ -766,17 +776,17 @@ README.md                              ← 顶部加 4 节导航
 
 ### 6.5 测试用例
 
-| 场景 | 期望 |
-|------|------|
-| 「仪表盘」页点 `?` | 抽屉显示"代理状态指标含义"为默认展开项 |
-| 「日志」页一条错误显示"API Key 无效" | 旁边「打开设置更新 Key」直达「设置」且 Key 输入框聚焦 |
-| 点「报告问题」→「复制诊断信息」 | 剪贴板含版本/OS/日志，**不含**任何 API Key 明文 |
-| 点「打开日志目录」 | 系统文件管理器打开 `userData/logs/`，最新日志高亮 |
-| 「完整常见问题」 | 12 条以内、默认全部折叠、可单条展开 |
-| 「帮助」抽屉点「加入交流群」 | 弹出二维码弹窗，图片来自打包内的 `qa.png` |
-| 首次启动「首次设置」完成 | 自动弹出「Codex 入门」抽屉，有「以后不再提醒」复选框 |
-| 「仪表盘」点「看 5 分钟上手」 | 抽屉展开入门步骤，Base URL 有「一键复制」按钮 |
-| 入门抽屉点「一键复制」`http://127.0.0.1:11435/v1` | 剪切板内容为完整 URL，浮层提示已复制 |
+| 场景                                              | 期望                                                  |
+| ------------------------------------------------- | ----------------------------------------------------- |
+| 「仪表盘」页点 `?`                                | 抽屉显示"代理状态指标含义"为默认展开项                |
+| 「日志」页一条错误显示"API Key 无效"              | 旁边「打开设置更新 Key」直达「设置」且 Key 输入框聚焦 |
+| 点「报告问题」→「复制诊断信息」                   | 剪贴板含版本/OS/日志，**不含**任何 API Key 明文       |
+| 点「打开日志目录」                                | 系统文件管理器打开 `userData/logs/`，最新日志高亮     |
+| 「完整常见问题」                                  | 12 条以内、默认全部折叠、可单条展开                   |
+| 「帮助」抽屉点「加入交流群」                      | 弹出二维码弹窗，图片来自打包内的 `qa.png`             |
+| 首次启动「首次设置」完成                          | 自动弹出「Codex 入门」抽屉，有「以后不再提醒」复选框  |
+| 「仪表盘」点「看 5 分钟上手」                     | 抽屉展开入门步骤，Base URL 有「一键复制」按钮         |
+| 入门抽屉点「一键复制」`http://127.0.0.1:11435/v1` | 剪切板内容为完整 URL，浮层提示已复制                  |
 
 ---
 
@@ -834,7 +844,7 @@ Windows 机器（你或 Copilot 操作）：
        "release/latest.yml"
 ```
 
-> **关键**：mac 和 win 必须基于**同一个 git tag** 打包，确保 `package.json` 里 version 一致。否则 electron-updater 会因为 latest-*.yml 互相覆盖而出错。
+> **关键**：mac 和 win 必须基于**同一个 git tag** 打包，确保 `package.json` 里 version 一致。否则 electron-updater 会因为 latest-\*.yml 互相覆盖而出错。
 
 ### 7.3 推荐的实际操作流（v1.0.0 发布日）
 
@@ -894,9 +904,9 @@ Step 3 — 任意一端把 draft release 改为正式 published：
 
 `gh` 是 GitHub 官方 CLI，跨平台可用，是发布最顺手的工具：
 
-| 平台 | 安装 |
-|------|------|
-| macOS | `brew install gh` |
+| 平台    | 安装                                                                                |
+| ------- | ----------------------------------------------------------------------------------- |
+| macOS   | `brew install gh`                                                                   |
 | Windows | `winget install GitHub.cli` 或下载 [https://cli.github.com](https://cli.github.com) |
 
 首次使用：
@@ -930,17 +940,19 @@ gh auth login
 
 ### 下载
 
-| 平台 | 架构 | 下载 |
-|------|------|------|
-| macOS | Apple Silicon (M1/M2/M3/M4) | [Codex Switch-1.0.0-mac-arm64.dmg](...) |
-| macOS | Intel | [Codex Switch-1.0.0-mac-x64.dmg](...) |
-| Windows | x64 | [Codex Switch-Setup-1.0.0-win-x64.exe](...) |
-| Windows | arm64 | [Codex Switch-Setup-1.0.0-win-arm64.exe](...) |
+| 平台    | 架构                        | 下载                                          |
+| ------- | --------------------------- | --------------------------------------------- |
+| macOS   | Apple Silicon (M1/M2/M3/M4) | [Codex Switch-1.0.0-mac-arm64.dmg](...)       |
+| macOS   | Intel                       | [Codex Switch-1.0.0-mac-x64.dmg](...)         |
+| Windows | x64                         | [Codex Switch-Setup-1.0.0-win-x64.exe](...)   |
+| Windows | arm64                       | [Codex Switch-Setup-1.0.0-win-arm64.exe](...) |
 
 ### 本版本变更
+
 （粘贴 CHANGELOG.md 1.0.0 段落）
 
 ### 国内用户访问
+
 若 GitHub 下载慢，本应用内置自动镜像加速，可直接打开应用→「检查更新」。
 ```
 
@@ -948,13 +960,13 @@ gh auth login
 
 ### 7.7 风险与应对
 
-| 风险 | 应对 |
-|------|------|
-| 双机打包时 git tag 不一致，latest.yml 与 latest-mac.yml 标的版本号不同 | 严格按"先 tag 再 checkout 再打包"；CI 加版本一致性脚本（已计划） |
-| Windows 机器没有 pnpm | 一行解决：`npm i -g pnpm@9.4.0`（README 加注） |
-| draft release 忘了 publish，用户永远看不到 | CI/手动操作 checklist 末尾必有「`gh release edit v1.0.0 --draft=false`」 |
-| 不同机器打出的 latest-*.yml 互相覆盖 | mac 产出 `latest-mac.yml`+`latest-mac-arm64.yml`，win 产出 `latest.yml`，文件名不冲突，可安全并存 |
-| Windows 上 keytar 编译失败 | electron-builder 会自动 prebuild-install；若失败，README 加注 "需要 Visual Studio Build Tools" |
+| 风险                                                                   | 应对                                                                                              |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 双机打包时 git tag 不一致，latest.yml 与 latest-mac.yml 标的版本号不同 | 严格按"先 tag 再 checkout 再打包"；CI 加版本一致性脚本（已计划）                                  |
+| Windows 机器没有 pnpm                                                  | 一行解决：`npm i -g pnpm@9.4.0`（README 加注）                                                    |
+| draft release 忘了 publish，用户永远看不到                             | CI/手动操作 checklist 末尾必有「`gh release edit v1.0.0 --draft=false`」                          |
+| 不同机器打出的 latest-\*.yml 互相覆盖                                  | mac 产出 `latest-mac.yml`+`latest-mac-arm64.yml`，win 产出 `latest.yml`，文件名不冲突，可安全并存 |
+| Windows 上 keytar 编译失败                                             | electron-builder 会自动 prebuild-install；若失败，README 加注 "需要 Visual Studio Build Tools"    |
 
 ### 7.8 受影响文件
 
@@ -971,26 +983,26 @@ README.md                              ← 加"如何升级"段落给用户
 
 ## 8. 优先级与发布范围
 
-| 优先级 | 主题 | 改动量 | UI | 是否必上 1.0.0 |
-|--------|------|--------|----|---------------|
-| **P0-A** | mapModel 修复 + 白名单 + 前缀 + 扩充默认表 + 迁移 + WARN 日志（主题 A 全部） | ~80 行 | 否 | **必须** |
-| **P0-B** | 备份滚动保留 + 内容去重（B1 + B2） | ~40 行 | 否 | **必须** |
-| **P0-C** | 日志生命周期 + 错误翻译表 + 脱敏（C1 + C2 + C5 持久化） | ~120 行 | 否 | **必须** |
-| **P0-D** | CHANGELOG.md + 版本升 1.0.0 + 「设置」版本记录弹窗（D1 + D3） | ~80 行 | 是（小） | **必须** |
-| **P0-E** | electron-updater 接入 + 检查/下载/安装流程 + 「设置」开关 + **镜像加速**（E1/E2/E5/E6/E8/E9） | ~200 行 | 是（小） | **必须** |
-| **P0-F** | 顶栏「帮助」抽屉 + 随页面智能帮助 + 常见问题（12 条）+ 报告问题 + 打开日志目录 + 二维码交流群 + Codex 入门向导（F1–F9） | ~320 行 | 是 | **必须** |
-| **P0-G** | release CI 流水线（tag 推送自动多平台打包+上传） + RELEASING.md 发版手册（G1/G2/G3） | ~50 行（yml+md） | 否 | **必须** |
-| **P1-1** | 「日志」卡片重设计 + 统计条 + 过滤器（C3） | ~150 行 | 是 | **必须** |
-| **P1-2** | 「设置」备份管理 GUI（B3 + B4） | ~120 行 | 是 | **必须** |
-| **P1-3** | 「仪表盘」近 5 分钟统计小窗（C4） | ~60 行 | 是 | **建议** |
-| **P1-4** | 首启「新版亮点」弹窗（D4） | ~50 行 | 是 | **建议** |
-| **P1-5** | 「仪表盘」升级徽标 + 下载进度条 + 升级提示弹窗（E3/E4/E7） | ~120 行 | 是 | **必须** |
-| **P1-6** | 极简风格全应用扫荡（F6.3 表格）：「日志」/「设置」/「仪表盘」修边幅、调色床、字号、间距 | ~80 行 | 是 | **必须** |
-| **P2-1** | 「设置」自定义模型映射 GUI（用户能自助加规则） | ~100 行 | 是 | 留 v1.1 |
-| **P2-2** | 400 自动重试 fallback 模型 | ~40 行 | 否 | 留 v1.1 |
-| **P2-3** | 增量/差量更新优化（macOS blockmap） | 调研 | 否 | 留 v1.1 |
-| **P2-4** | 常见问题反馈收集（匿名上报）与运营分析 | ~60 行 | 否 | 留 v1.1 |
-| **P2-5** | 自建镜像服务器（阉于公共 ghproxy 不稳定时） | OSS+Webhook | 否 | 留 v1.1 |
+| 优先级   | 主题                                                                                                                    | 改动量           | UI       | 是否必上 1.0.0 |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------- | -------- | -------------- |
+| **P0-A** | mapModel 修复 + 白名单 + 前缀 + 扩充默认表 + 迁移 + WARN 日志（主题 A 全部）                                            | ~80 行           | 否       | **必须**       |
+| **P0-B** | 备份滚动保留 + 内容去重（B1 + B2）                                                                                      | ~40 行           | 否       | **必须**       |
+| **P0-C** | 日志生命周期 + 错误翻译表 + 脱敏（C1 + C2 + C5 持久化）                                                                 | ~120 行          | 否       | **必须**       |
+| **P0-D** | CHANGELOG.md + 版本升 1.0.0 + 「设置」版本记录弹窗（D1 + D3）                                                           | ~80 行           | 是（小） | **必须**       |
+| **P0-E** | electron-updater 接入 + 检查/下载/安装流程 + 「设置」开关 + **镜像加速**（E1/E2/E5/E6/E8/E9）                           | ~200 行          | 是（小） | **必须**       |
+| **P0-F** | 顶栏「帮助」抽屉 + 随页面智能帮助 + 常见问题（12 条）+ 报告问题 + 打开日志目录 + 二维码交流群 + Codex 入门向导（F1–F9） | ~320 行          | 是       | **必须**       |
+| **P0-G** | release CI 流水线（tag 推送自动多平台打包+上传） + RELEASING.md 发版手册（G1/G2/G3）                                    | ~50 行（yml+md） | 否       | **必须**       |
+| **P1-1** | 「日志」卡片重设计 + 统计条 + 过滤器（C3）                                                                              | ~150 行          | 是       | **必须**       |
+| **P1-2** | 「设置」备份管理 GUI（B3 + B4）                                                                                         | ~120 行          | 是       | **必须**       |
+| **P1-3** | 「仪表盘」近 5 分钟统计小窗（C4）                                                                                       | ~60 行           | 是       | **建议**       |
+| **P1-4** | 首启「新版亮点」弹窗（D4）                                                                                              | ~50 行           | 是       | **建议**       |
+| **P1-5** | 「仪表盘」升级徽标 + 下载进度条 + 升级提示弹窗（E3/E4/E7）                                                              | ~120 行          | 是       | **必须**       |
+| **P1-6** | 极简风格全应用扫荡（F6.3 表格）：「日志」/「设置」/「仪表盘」修边幅、调色床、字号、间距                                 | ~80 行           | 是       | **必须**       |
+| **P2-1** | 「设置」自定义模型映射 GUI（用户能自助加规则）                                                                          | ~100 行          | 是       | 留 v1.1        |
+| **P2-2** | 400 自动重试 fallback 模型                                                                                              | ~40 行           | 否       | 留 v1.1        |
+| **P2-3** | 增量/差量更新优化（macOS blockmap）                                                                                     | 调研             | 否       | 留 v1.1        |
+| **P2-4** | 常见问题反馈收集（匿名上报）与运营分析                                                                                  | ~60 行           | 否       | 留 v1.1        |
+| **P2-5** | 自建镜像服务器（阉于公共 ghproxy 不稳定时）                                                                             | OSS+Webhook      | 否       | 留 v1.1        |
 
 **v1.0.0 发布范围 = P0 全部 + P1-1 / P1-2 / P1-5 / P1-6，P1-3 / P1-4 视进度。**
 
@@ -1003,16 +1015,16 @@ README.md                              ← 加"如何升级"段落给用户
 
 ### 8.1 单元测试（Vitest）
 
-| 模块 | 新增/修改用例 |
-|------|--------------|
-| `translate.mapModel` | 见 1.3 的 6 条 |
-| `codex/writer` | 内容相同时不生成新备份；写入第 6 个备份时最老的被删除；备份+还原 round-trip 一致 |
-| `proxy/errors`（新） | 各类 DeepSeek 错误码 → 友好消息映射 |
-| `proxy/server` | 生命周期日志含 reqId / phase / duration / model；reqId 在 success/error 中保持一致 |
-| `config/store` | mapping 版本迁移：旧版本启动后新增 key 被合并，用户自定义 key 不丢 |
+| 模块                          | 新增/修改用例                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| `translate.mapModel`          | 见 1.3 的 6 条                                                                         |
+| `codex/writer`                | 内容相同时不生成新备份；写入第 6 个备份时最老的被删除；备份+还原 round-trip 一致       |
+| `proxy/errors`（新）          | 各类 DeepSeek 错误码 → 友好消息映射                                                    |
+| `proxy/server`                | 生命周期日志含 reqId / phase / duration / model；reqId 在 success/error 中保持一致     |
+| `config/store`                | mapping 版本迁移：旧版本启动后新增 key 被合并，用户自定义 key 不丢                     |
 | `updater`（mock autoUpdater） | 版本比较：当前 == latest 不触发；当前 < latest 触发 update-available；下载失败上抛错误 |
-| `help/faq.json` | JSON Schema 校验；条数 ≤ 12；每条 q+a 长度限制 |
-| `report-issue` 打包 | 脱敏检查：输入含 `sk-xxx` 的日志→输出不含明文 key |
+| `help/faq.json`               | JSON Schema 校验；条数 ≤ 12；每条 q+a 长度限制                                         |
+| `report-issue` 打包           | 脱敏检查：输入含 `sk-xxx` 的日志→输出不含明文 key                                      |
 
 ### 8.2 手动验证场景
 
@@ -1030,16 +1042,16 @@ README.md                              ← 加"如何升级"段落给用户
 
 ## 10. 风险与注意事项
 
-| 风险 | 缓解 |
-|------|------|
-| 内容去重后用户手动改了 `~/.codex/config.toml` 但等价于模板 → 软件不再帮他备份 | 去重比对**写入前与目标文件**字节相等；若用户手动改成不同内容，下次仍会备份 |
-| 滚动删除可能误删用户珍贵的备份 | 提供 `maxBackupsPerFile` 配置项；删除前所有备份按时间倒序明确日志输出 |
-| 实时日志推送可能 IPC 风暴（高 QPS 场景） | 主进程节流：每 200ms 批量 flush 一次；渲染端虚拟列表 |
-| `react-markdown` 增加包体积 | 改用 30 行手写解析（仅支持 h2/h3/ul/li/em/code），CHANGELOG 受控不需要完整 markdown |
-| What's New 在企业批量部署场景下打扰用户 | 提供「不再提示」勾选；electron-store 持久化偏好 |
-| 升级期间 Codex CLI 正在调用代理被打断 | 安装时机由用户决定（E5）；默认下次启动安装；强制立即重启时先优雅停止代理 |
-| macOS 未签名导致 electron-updater 拒绝 | 检测签名状态，未签名版本降级为「打开 Release 页」浏览器跳转（fallback） |
-| GitHub Release 在中国大陆访问慢/失败 | 检查 10s 超时即放弃；提供「设置」「手动从镜像下载」入口（可放置 Gitee 镜像 URL，留 v1.1） |
+| 风险                                                                          | 缓解                                                                                      |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 内容去重后用户手动改了 `~/.codex/config.toml` 但等价于模板 → 软件不再帮他备份 | 去重比对**写入前与目标文件**字节相等；若用户手动改成不同内容，下次仍会备份                |
+| 滚动删除可能误删用户珍贵的备份                                                | 提供 `maxBackupsPerFile` 配置项；删除前所有备份按时间倒序明确日志输出                     |
+| 实时日志推送可能 IPC 风暴（高 QPS 场景）                                      | 主进程节流：每 200ms 批量 flush 一次；渲染端虚拟列表                                      |
+| `react-markdown` 增加包体积                                                   | 改用 30 行手写解析（仅支持 h2/h3/ul/li/em/code），CHANGELOG 受控不需要完整 markdown       |
+| What's New 在企业批量部署场景下打扰用户                                       | 提供「不再提示」勾选；electron-store 持久化偏好                                           |
+| 升级期间 Codex CLI 正在调用代理被打断                                         | 安装时机由用户决定（E5）；默认下次启动安装；强制立即重启时先优雅停止代理                  |
+| macOS 未签名导致 electron-updater 拒绝                                        | 检测签名状态，未签名版本降级为「打开 Release 页」浏览器跳转（fallback）                   |
+| GitHub Release 在中国大陆访问慢/失败                                          | 检查 10s 超时即放弃；提供「设置」「手动从镜像下载」入口（可放置 Gitee 镜像 URL，留 v1.1） |
 
 ---
 

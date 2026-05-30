@@ -11,13 +11,7 @@ import { autoUpdater } from 'electron-updater';
 import { buildFeedUrl, pickAuto, type MirrorMode } from './mirrors';
 
 export interface UpdateEvent {
-  kind:
-    | 'checking'
-    | 'available'
-    | 'not-available'
-    | 'error'
-    | 'download-progress'
-    | 'downloaded';
+  kind: 'checking' | 'available' | 'not-available' | 'error' | 'download-progress' | 'downloaded';
   version?: string;
   notes?: string;
   message?: string;
@@ -39,7 +33,9 @@ export class UpdaterManager extends EventEmitter {
   private wire(): void {
     if (this.wired) return;
     this.wired = true;
-    autoUpdater.on('checking-for-update', () => this.emit('event', { kind: 'checking' } satisfies UpdateEvent));
+    autoUpdater.on('checking-for-update', () =>
+      this.emit('event', { kind: 'checking' } satisfies UpdateEvent),
+    );
     autoUpdater.on('update-available', (info) =>
       this.emit('event', {
         kind: 'available',

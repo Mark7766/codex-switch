@@ -12,12 +12,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
-  PNPM_VERSION: "9.4.0"
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9.4.0'
 
 jobs:
   lint:
-    name: "🔍 Lint & Format"
+    name: '🔍 Lint & Format'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,19 +31,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Check formatting (Prettier)
-        run: pnpm format -- --check
+        run: pnpm format:check
 
       - name: Lint (ESLint)
         run: pnpm lint
 
   type-check:
-    name: "🔬 Type Check"
+    name: '🔬 Type Check'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -66,7 +66,7 @@ jobs:
         run: pnpm typecheck
 
   test:
-    name: "✅ Unit Tests (${{ matrix.os }})"
+    name: '✅ Unit Tests (${{ matrix.os }})'
     runs-on: ${{ matrix.os }}
     needs: [lint, type-check]
     strategy:
@@ -85,7 +85,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -101,7 +101,7 @@ jobs:
           path: coverage/
 
   build:
-    name: "🏗️ Build & Package (${{ matrix.os }} / ${{ matrix.arch }})"
+    name: '🏗️ Build & Package (${{ matrix.os }} / ${{ matrix.arch }})'
     runs-on: ${{ matrix.os }}
     needs: [test]
     strategy:
@@ -109,10 +109,10 @@ jobs:
       matrix:
         include:
           # macOS 同时产出 Intel 与 Apple Silicon 两个 .dmg
-          - { os: macos-latest,   arch: x64,   target: mac }
-          - { os: macos-latest,   arch: arm64, target: mac }
+          - { os: macos-latest, arch: x64, target: mac }
+          - { os: macos-latest, arch: arm64, target: mac }
           # Windows 同时产出 x64 与 arm64 两个 NSIS .exe 安装包
-          - { os: windows-latest, arch: x64,   target: win }
+          - { os: windows-latest, arch: x64, target: win }
           - { os: windows-latest, arch: arm64, target: win }
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +126,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
+          cache: 'pnpm'
 
       - name: Install dependencies
         # NOTE: pnpm v9 + Node 23 偶发链接阶段挂起；CI 已锁 Node 20 LTS 规避（见 README troubleshooting）。
@@ -141,7 +141,7 @@ jobs:
         shell: bash
         env:
           # 正式发布的签名凭据通过 release workflow 注入；CI 仅做无签名构建验证
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: List release artifacts
         shell: bash

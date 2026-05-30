@@ -1,0 +1,8 @@
+dist/
+release/
+node_modules/
+coverage/
+pnpm-lock.yaml
+CHANGELOG.md
+docs/help/*.json
+.github/agent/memory/

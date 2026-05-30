@@ -98,8 +98,9 @@ export function Dashboard(): JSX.Element {
         <ol className="list-decimal list-inside text-slate-300 space-y-1">
           <li>保持本窗口打开，代理才会一直在线。</li>
           <li>
-            在终端运行 <code className="text-slate-100 bg-slate-900 px-1.5 py-0.5 rounded">codex</code>{' '}
-            或打开 Codex Desktop，即可直接对话。
+            在终端运行{' '}
+            <code className="text-slate-100 bg-slate-900 px-1.5 py-0.5 rounded">codex</code> 或打开
+            Codex Desktop，即可直接对话。
           </li>
           <li>想换模型或更新密钥，去左侧「设置」。</li>
         </ol>

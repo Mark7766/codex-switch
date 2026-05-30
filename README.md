@@ -10,15 +10,16 @@
 
 ## 下载（v0.1.0）
 
-| 平台 | 架构 | 下载文件 |
-|------|------|---------|
-| macOS Apple Silicon (M1/M2/M3/M4) | arm64 | `Codex-Switch-0.1.0-mac-arm64.dmg` |
-| macOS Intel | x64 | `Codex-Switch-0.1.0-mac-x64.dmg` |
-| Windows x86_64 | x64 | `Codex-Switch-Setup-0.1.0-win-x64.exe` |
-| Windows ARM | arm64 | `Codex-Switch-Setup-0.1.0-win-arm64.exe` |
+| 平台                              | 架构  | 下载文件                                 |
+| --------------------------------- | ----- | ---------------------------------------- |
+| macOS Apple Silicon (M1/M2/M3/M4) | arm64 | `Codex-Switch-0.1.0-mac-arm64.dmg`       |
+| macOS Intel                       | x64   | `Codex-Switch-0.1.0-mac-x64.dmg`         |
+| Windows x86_64                    | x64   | `Codex-Switch-Setup-0.1.0-win-x64.exe`   |
+| Windows ARM                       | arm64 | `Codex-Switch-Setup-0.1.0-win-arm64.exe` |
 
 **怎么知道我该下哪个？**
-- **Mac**：左上角  → 关于本机 → 看「芯片」是 Apple 还是 Intel。
+
+- **Mac**：左上角 → 关于本机 → 看「芯片」是 Apple 还是 Intel。
 - **Windows**：设置 → 系统 → 系统信息 → 看「系统类型」。
 
 ---
@@ -52,12 +53,14 @@ pnpm package:win             # 打 Windows NSIS .exe（需在 Windows 上运行�
 
 **根因**：pnpm 9.4.0 在 **Node.js 23.x（非 LTS）** 上偶发死锁。pnpm 的链接阶段大量使用 `worker_threads` 做并行 hardlink；Node 23 的 V8 12.4+ 与 libuv 1.50 在某些场景下与 pnpm 9.4 的线程池调度发生竞态，导致主线程进入事件循环 idle、所有 worker 都退出但 Promise 不 resolve。
 相关上游：
+
 - https://github.com/pnpm/pnpm/issues/8538
 - https://github.com/nodejs/node/issues/55518
 
 **解决方案（按优先级）**：
 
 1. **首选：使用 Node 20 LTS**（项目 CI 已锁 Node 20）：
+
    ```bash
    nvm install 20 && nvm use 20
    rm -rf node_modules pnpm-lock.yaml
@@ -65,11 +68,13 @@ pnpm package:win             # 打 Windows NSIS .exe（需在 Windows 上运行�
    ```
 
 2. **次选：分两步安装**（在 Node 23 上的本地 workaround）：
+
    ```bash
    pnpm install --ignore-scripts
    pnpm rebuild keytar
    pnpm rebuild electron
    ```
+
    这样跳过统一的 postinstall 阶段，把原生依赖的 prebuild 拉取拆成独立步骤，避免触发上述竞态。
 
 3. 升级 pnpm 到 ≥ 9.7（待验证）或回退到 9.0。
@@ -123,6 +128,7 @@ v0.1.0 未做代码签名 + 公证。临时绕过：右键 → 打开 → 在弹
 **根因**：Windows PowerShell 默认的执行策略 (`Execution Policy`) 通常为 `Restricted` 或不支持脚本运行。同时若本地未全局安装 `pnpm`。
 
 **解决**：
+
 1. **解除脚本禁用**：在 PowerShell 终端会话运行以下命令（仅对当前终端进程窗口生效，安全绿色的绕过方式）：
    ```powershell
    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
@@ -139,6 +145,7 @@ v0.1.0 未做代码签名 + 公证。临时绕过：右键 → 打开 → 在弹
 **根因**：Windows 系统出于安全考虑，普通非管理员账号默认没有权限在 NTFS 文件系统上创建符号链接 / 软链接（`symlink`）。而 `winCodeSign.7z` 自带了 macOS/darwin 相关的部分符号链接动态库（`.dylib`）。
 
 **解决**：
+
 - **方案 A（无需管理员，最推荐）**：在 Windows 系统上开启 **开发人员模式**（Developer Mode）。这允许标准用户创建符号链接而无需特权。
   - 打开 Windows **设置** -> **系统** -> **开发者选项**（在 Windows 10 为 **更新与安全** -> **针对开发人员**）。
   - 将 **开发人员模式**（Developer Mode）选项开启。
