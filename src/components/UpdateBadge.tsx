@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac OS X|Macintosh/.test(navigator.userAgent);
+
 export function UpdateBadge(): JSX.Element | null {
   const [evt, setEvt] = useState<UpdateEvent | null>(null);
 
@@ -14,10 +16,24 @@ export function UpdateBadge(): JSX.Element | null {
       <button
         onClick={() => window.codexSwitch.updateDownload()}
         className="text-xs bg-amber-500 hover:bg-amber-400 text-amber-950 font-medium px-3 py-1 rounded"
-        title={`新版本 v${evt.version} 可用，点击下载`}
+        title={
+          IS_MAC
+            ? `新版本 v${evt.version} 可用，点击前往下载页面手动下载 dmg`
+            : `新版本 v${evt.version} 可用，点击下载`
+        }
       >
         ↑ 新版本 v{evt.version}
       </button>
+    );
+  }
+  if (evt.kind === 'manual-download') {
+    return (
+      <span
+        className="text-xs text-amber-300"
+        title="已在浏览器打开 GitHub Releases 页面，请下载 dmg 并拖拽到应用程序文件夹"
+      >
+        已打开下载页
+      </span>
     );
   }
   if (evt.kind === 'download-progress') {

@@ -41,6 +41,8 @@ export function Settings(): JSX.Element {
       if (ev.kind === 'available') setUpdateMsg(`发现新版本 v${ev.version}`);
       else if (ev.kind === 'not-available') setUpdateMsg('已是最新版本');
       else if (ev.kind === 'error') setUpdateMsg(`检查更新失败：${ev.message}`);
+      else if (ev.kind === 'manual-download')
+        setUpdateMsg('已在浏览器打开下载页，请下载 dmg 并拖拽覆盖 /Applications/Codex Switch.app');
       else if (ev.kind === 'downloaded') setUpdateMsg(`v${ev.version} 已下载，可立即安装`);
     });
     return off;

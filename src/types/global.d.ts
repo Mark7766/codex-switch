@@ -1,6 +1,13 @@
 /** preload 暴露到 window.codexSwitch 上的类型声明（仅渲染侧使用） */
 interface UpdateEvent {
-  kind: 'checking' | 'available' | 'not-available' | 'error' | 'download-progress' | 'downloaded';
+  kind:
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'error'
+    | 'download-progress'
+    | 'downloaded'
+    | 'manual-download';
   version?: string;
   notes?: string;
   message?: string;

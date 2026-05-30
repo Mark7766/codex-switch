@@ -3,6 +3,32 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.5] - 2026-05-30
+
+根本性修复 macOS 自动升级 “代码不含资源”错误。
+
+### 原因
+
+electron-updater 在 macOS 上由 Squirrel.Mac 实施升级，它会调用系统 API
+`SecRequirementForLaunchedApp()` 取出当前运行 app 的 designated requirement，
+再用该 requirement 验证 zip 里的新 .app。对于**未使用 Apple Developer ID 证书**
+签名的 app，requirement 会退化为「新版本 CDHash 必须 == 旧版本 CDHash」——
+这在跨版本升级时不可能成立。这是 Apple/Squirrel 的硬性限制，不是可调项。
+v1.0.0..v1.0.4 里所有的 「`identity` / `hardenedRuntime` / `zip target`」 调整都不能绕过这一点。
+
+### 修复
+
+- **macOS 改为“提示 + 手动下载”模式**：检查到新版本后，
+  点击「下载」会在默认浏览器打开 GitHub Releases 页面，
+  用户下载 dmg 后拖拽到 “应用程序” 文件夹覆盖即可。
+- **Windows 不受影响**：NSIS 仍然是完整的一键 auto-update。
+
+### 重要提示
+
+已安装 v1.0.0..v1.0.4 的 macOS 用户点击「检查更新」还会看到上述错误（他们跑的是旧代码）。
+请手动访问 下载页面 一次性升级到 v1.0.5；
+之后从 v1.0.5 开始再点「检查更新」会直接跳转浏览器，不会再报错。
+
 ## [1.0.4] - 2026-05-30
 
 紧急修复 auto-update：v1.0.3 客户端拉到 zip 后 Squirrel.Mac

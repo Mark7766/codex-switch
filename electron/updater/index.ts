@@ -5,13 +5,20 @@
  * - 通过 EventEmitter 把 download-progress / update-downloaded 透出给 UI
  */
 import { EventEmitter } from 'node:events';
-import { app } from 'electron';
+import { app, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 
 import { buildFeedUrl, pickAuto, type MirrorMode } from './mirrors';
 
 export interface UpdateEvent {
-  kind: 'checking' | 'available' | 'not-available' | 'error' | 'download-progress' | 'downloaded';
+  kind:
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'error'
+    | 'download-progress'
+    | 'downloaded'
+    | 'manual-download';
   version?: string;
   notes?: string;
   message?: string;
@@ -85,6 +92,12 @@ export class UpdaterManager extends EventEmitter {
 
   async download(): Promise<void> {
     if (!app.isPackaged) return;
+    // macOS 未签名构建无法走 Squirrel.Mac 原子升级（签名验证必败），改为浏览器下载 dmg + 手动拖拽安装。
+    if (process.platform === 'darwin') {
+      await shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest');
+      this.emit('event', { kind: 'manual-download' } satisfies UpdateEvent);
+      return;
+    }
     this.wire();
     try {
       await autoUpdater.downloadUpdate();
