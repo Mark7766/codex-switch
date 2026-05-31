@@ -3,6 +3,14 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.4] - 2026-06-02
+
+修复 codex CLI 不交事、不停「Reconnecting…」但 proxy 依然连续返 200 的坊间 bug（同一条 WS 上 5 次重发同一个问题，WS 未闭）。
+
+### 修复
+- `response.created` / `response.completed` 现在包含 `created_at`、`error: null`、`incomplete_details: null`、`usage`（上游 DeepSeek 返回的 token 计数映射为 OpenAI 格式，缺省 0/0/0），与 OpenAI Responses API 契约一致。较新版 codex CLI 缺这些字段会判响应不完整并重试，用户看到的是“Reconnecting…”。
+- `handleWs` 加 20s 服务端 ping 心跳（`ws` 库默认不发），WS 关闭日志补充 `reason`。
+
 ## [1.1.3] - 2026-06-02
 
 CI 修复：v1.1.2 发版流水线在下载 `nsis-resources-3.4.1.7z` 时遇 GitHub 镜像 502，导致 Windows 包未产出；format:check 检出 7 个文件未走 prettier。

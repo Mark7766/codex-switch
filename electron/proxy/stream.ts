@@ -84,6 +84,12 @@ export function streamDeepSeek(
     let accReasoning = '';
     let nextOutputIdx = 0;
     const toolCalls: Record<number, ToolCallAcc> = {};
+    let upstreamUsage: {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+    } | null = null;
+    const createdAt = Math.floor(Date.now() / 1000);
 
     const req = https.request(
       {
@@ -117,6 +123,13 @@ export function streamDeepSeek(
             if (payload === '[DONE]') continue;
             try {
               const parsed = JSON.parse(payload);
+              if (parsed.usage) {
+                upstreamUsage = {
+                  input_tokens: parsed.usage.prompt_tokens ?? 0,
+                  output_tokens: parsed.usage.completion_tokens ?? 0,
+                  total_tokens: parsed.usage.total_tokens ?? 0,
+                };
+              }
               const delta = parsed.choices?.[0]?.delta;
               if (!delta) continue;
 
@@ -255,13 +268,24 @@ export function streamDeepSeek(
           }
 
           const finalOutput = outputItems.filter(Boolean) as Array<Record<string, unknown>>;
+          // codex CLI 对 response.completed 的校验比参考工程当年严：缺
+          // usage / created_at / error / incomplete_details 会被认定为响应不完整，
+          // 从而在同一 WS 上不停重发同一个问题。
           onEvent('response.completed', {
             response: {
               id: respId,
               object: 'response',
+              created_at: createdAt,
               status: 'completed',
+              error: null,
+              incomplete_details: null,
               model: chatReq.model,
               output: finalOutput,
+              usage: upstreamUsage ?? {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+              },
             },
           });
           resolve({ outputItems: finalOutput, reasoningContent: accReasoning });

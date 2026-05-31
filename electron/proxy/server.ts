@@ -567,7 +567,10 @@ export class DeepSeekProxy extends EventEmitter {
           response: {
             id: respId,
             object: 'response',
+            created_at: Math.floor(Date.now() / 1000),
             status: 'in_progress',
+            error: null,
+            incomplete_details: null,
             model: chatReq.model,
             output: [],
           },
@@ -672,6 +675,20 @@ export class DeepSeekProxy extends EventEmitter {
     let lastToolCalls: ResponsesItem[] = [];
     this.log({ level: 'info', source: 'ws', message: 'WebSocket 连接建立' });
 
+    // §7-fix: WebSocket 心跳。`ws` 库的服务端不会自动发 ping，长时间无字节
+    // 流时，部分 codex CLI 版本会判定连接死亡并触发"Reconnecting…"，即便业务
+    // 请求其实是成功的（用户报告：proxy 日志全 200，但 codex 端一直重连）。
+    // 每 20s 主动 ping 一次，让客户端的 ping/pong 计时器持续刷新。
+    const heartbeat = setInterval(() => {
+      if (ws.readyState === 1) {
+        try {
+          ws.ping();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 20_000);
+
     ws.on('message', (data) => {
       const reqId = newReqId();
       const startedAt = Date.now();
@@ -739,7 +756,10 @@ export class DeepSeekProxy extends EventEmitter {
         response: {
           id: respId,
           object: 'response',
+          created_at: Math.floor(Date.now() / 1000),
           status: 'in_progress',
+          error: null,
+          incomplete_details: null,
           model: chatReq.model,
           output: [],
         },
@@ -777,9 +797,15 @@ export class DeepSeekProxy extends EventEmitter {
     ws.on('error', (e) =>
       this.log({ level: 'error', source: 'ws', message: `WebSocket 错误：${e.message}` }),
     );
-    ws.on('close', (code) =>
-      this.log({ level: 'info', source: 'ws', message: `WebSocket 关闭 code=${code}` }),
-    );
+    ws.on('close', (code, reason) => {
+      clearInterval(heartbeat);
+      const r = reason && reason.length > 0 ? reason.toString() : '';
+      this.log({
+        level: 'info',
+        source: 'ws',
+        message: `WebSocket 关闭 code=${code}${r ? ` reason=${r}` : ''}`,
+      });
+    });
   }
 
   private recordSuccess(
