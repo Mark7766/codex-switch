@@ -24,6 +24,8 @@ export interface ProxyOptions {
   port: number;
   modelMapping: Record<string, string>;
   defaultModel?: string;
+  /** 拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求，避免一句提问被诱发 N 个后台会话。 */
+  blockBackgroundSuggestions?: boolean;
 }
 
 export type LogPhase = 'start' | 'success' | 'error';
@@ -34,6 +36,8 @@ export interface ProxyLogEntry {
   source: 'http' | 'ws' | 'proxy';
   message: string;
   reqId?: string;
+  /** WebSocket 连接 id，用于把同一个 WS 上的多次请求串起来。 */
+  connId?: string;
   phase?: LogPhase;
   durationMs?: number;
   /** 实际发给 DeepSeek 的模型 */
@@ -45,6 +49,10 @@ export interface ProxyLogEntry {
   errorReason?: string;
   /** 错误对应的"就地修复"建议动作。 */
   errorAction?: ErrorAction;
+  /** 本轮 response.completed 真正发出的 end_turn 字段值，便于诊断 codex agent 自循环。 */
+  endTurn?: boolean;
+  /** 上游 DeepSeek 末次 chunk 的 finish_reason（'stop' / 'tool_calls' / 'length' …）。 */
+  finishReason?: string;
   meta?: Record<string, unknown>;
 }
 
@@ -71,12 +79,45 @@ interface RequestStats {
   lastErrorTs: number;
   /** 最近 5 分钟内 (now-5min, now] 的请求 [ts, success]。 */
   recent: Array<{ ts: number; ok: boolean }>;
-  /** 自上次 getLifetimeDelta 以来的请求增量。 */
+  /** 自上次 consumeLifetimeDelta 以来的请求增量（不含 blocked）。 */
   pendingDelta: number;
+  /** 自上次 consumeLifetimeDelta 以来的输入 token 增量。 */
+  pendingInputTokensDelta: number;
+  /** 自上次 consumeLifetimeDelta 以来的输出 token 增量。 */
+  pendingOutputTokensDelta: number;
 }
 
 function newReqId(): string {
   return 'req_' + randomBytes(3).toString('hex');
+}
+
+/** Codex Desktop 的 "suggestion chips" 提示词指纹（首句即可识别）。 */
+const SUGGESTION_PROMPT_FINGERPRINTS: ReadonlyArray<string> = [
+  '# Overview\nGenerate 0 to 3 hyperpersonalized suggestions',
+  'Generate 0 to 3 hyperpersonalized suggestions',
+];
+
+/** 识别 Codex Desktop 后台 "hyperpersonalized suggestions" 请求。 */
+export function isBackgroundSuggestionRequest(msg: {
+  input?: unknown;
+  instructions?: string;
+}): boolean {
+  const probe = (s: unknown): boolean => {
+    if (typeof s !== 'string' || s.length === 0) return false;
+    return SUGGESTION_PROMPT_FINGERPRINTS.some((fp) => s.includes(fp));
+  };
+  if (probe(msg.instructions)) return true;
+  const arr = Array.isArray(msg.input) ? (msg.input as Array<Record<string, unknown>>) : [];
+  for (const it of arr) {
+    const c = it.content;
+    if (probe(c)) return true;
+    if (Array.isArray(c)) {
+      for (const part of c) {
+        if (probe((part as { text?: unknown }).text)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 export class DeepSeekProxy extends EventEmitter {
@@ -106,6 +147,8 @@ export class DeepSeekProxy extends EventEmitter {
     lastErrorTs: 0,
     recent: [],
     pendingDelta: 0,
+    pendingInputTokensDelta: 0,
+    pendingOutputTokensDelta: 0,
   };
 
   constructor(opts: ProxyOptions) {
@@ -133,10 +176,19 @@ export class DeepSeekProxy extends EventEmitter {
   }
 
   /** 返回自上次调用以来的请求增量并清零，主进程用于持久化 lifetime 统计。 */
-  consumeLifetimeDelta(): { requestsDelta: number; uptimeMs: number } {
+  consumeLifetimeDelta(): {
+    requestsDelta: number;
+    uptimeMs: number;
+    inputTokensDelta: number;
+    outputTokensDelta: number;
+  } {
     const d = this.stats.pendingDelta;
+    const it = this.stats.pendingInputTokensDelta;
+    const ot = this.stats.pendingOutputTokensDelta;
     this.stats.pendingDelta = 0;
-    return { requestsDelta: d, uptimeMs: this.getUptimeMs() };
+    this.stats.pendingInputTokensDelta = 0;
+    this.stats.pendingOutputTokensDelta = 0;
+    return { requestsDelta: d, uptimeMs: this.getUptimeMs(), inputTokensDelta: it, outputTokensDelta: ot };
   }
 
   /** 主面板"近 5 分钟"统计。 */
@@ -582,8 +634,8 @@ export class DeepSeekProxy extends EventEmitter {
           { apiKey: this.opts.apiKey, agent: this.agent },
           this.reasoning,
         )
-          .then(() => {
-            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200);
+          .then(({ usage }) => {
+            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, { usage });
             res.end();
           })
           .catch((e) => {
@@ -673,7 +725,8 @@ export class DeepSeekProxy extends EventEmitter {
 
   private handleWs(ws: WebSocket): void {
     let lastToolCalls: ResponsesItem[] = [];
-    this.log({ level: 'info', source: 'ws', message: 'WebSocket 连接建立' });
+    const connId = `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    this.log({ level: 'info', source: 'ws', message: `WebSocket 连接建立 conn=${connId}`, connId });
 
     // §7-fix: WebSocket 心跳。`ws` 库的服务端不会自动发 ping，长时间无字节
     // 流时，部分 codex CLI 版本会判定连接死亡并触发"Reconnecting…"，即便业务
@@ -729,21 +782,120 @@ export class DeepSeekProxy extends EventEmitter {
       }
       if (msg.type !== 'response.create') return;
 
-      this.stats.total += 1;
-      this.stats.pendingDelta += 1;
       this.emit('request', { source: 'ws', path: '/v1/responses', reqId });
 
       const requestedModel = msg.model;
       const resolvedModel = this.resolveAndWarn(requestedModel, reqId, 'ws');
+
+      // 把 codex 实际发来的内容做摘要，便于诊断"同一个问题是否被重复打"。
+      const inputArr = Array.isArray(msg.input) ? (msg.input as Array<Record<string, unknown>>) : [];
+      const inputCount = inputArr.length;
+      const inputKinds: Record<string, number> = {};
+      for (const it of inputArr) {
+        const t = String(it.type ?? 'unknown');
+        inputKinds[t] = (inputKinds[t] ?? 0) + 1;
+      }
+      // 取最后一条 user/message 的文本前缀。
+      let lastUserPreview = '';
+      for (let i = inputArr.length - 1; i >= 0; i--) {
+        const it = inputArr[i] as { type?: string; role?: string; content?: unknown };
+        if (it && (it.type === 'message' || !it.type) && it.role !== 'assistant') {
+          const c = it.content;
+          if (typeof c === 'string') lastUserPreview = c;
+          else if (Array.isArray(c)) {
+            const part = c.find(
+              (p) => (p as { type?: string }).type === 'input_text' || (p as { text?: unknown }).text,
+            ) as { text?: unknown } | undefined;
+            if (part && typeof part.text === 'string') lastUserPreview = part.text;
+          }
+          if (lastUserPreview) break;
+        }
+      }
+      const toolsCount = Array.isArray(msg.tools) ? msg.tools.length : 0;
+      const inputSummary =
+        `items=${inputCount} ` +
+        `kinds={${Object.entries(inputKinds)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(',')}} ` +
+        `tools=${toolsCount} ` +
+        `lastUser="${lastUserPreview.slice(0, 80).replace(/\s+/g, ' ')}"`;
+
       this.log({
         level: 'info',
         source: 'ws',
         reqId,
         phase: 'start',
-        message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=true`,
+        connId,
+        message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=true ${inputSummary}`,
         requestedModel,
         model: resolvedModel,
       });
+
+      // Codex Desktop 的 "hyperpersonalized suggestions" 后台特性会在用户提问后
+      // 周期性触发 N 个独立 WS，每个又会拉起 4-7 次 tool-use 请求（用户实测一句话
+      // 触发 17+ 次调用，长时间累计上百次）。这些请求与用户当前会话无关，纯属
+      // 浪费 token。识别后直接发空 response.completed，不回源。
+      //
+      // 触发短路有两种：
+      //   1. 显式指纹（`# Overview / Generate 0 to 3 hyperpersonalized suggestions`）
+      //   2. **空 warm-up 请求**：input=[]——Codex Desktop 每次开新 WS 做后台
+      //      建议时第一帧总是这样（`instructions` 字段虽然带系统提示词，但
+      //      `input` 数组里没有任何用户/工具消息，等于"没活要干"）。挡掉这种
+      //      空帧能让整个轮询周期归零成本。codex CLI 的真实提问首帧 input.length≥1，
+      //      所以不会误伤正常使用。
+      const isEmptyWarmup = inputCount === 0;
+      const isSuggestion =
+        this.opts.blockBackgroundSuggestions !== false && isBackgroundSuggestionRequest(msg);
+      if (this.opts.blockBackgroundSuggestions !== false && (isSuggestion || isEmptyWarmup)) {
+        const reason = isSuggestion ? 'blocked-suggestion' : 'blocked-empty-input';
+        const respId = `resp_${Date.now()}`;
+        const created = Math.floor(Date.now() / 1000);
+        const sendBlocked = (type: string, payload: Record<string, unknown>) => {
+          if (ws.readyState === 1) {
+            try {
+              ws.send(JSON.stringify({ type, ...payload }));
+            } catch {
+              /* ignore */
+            }
+          }
+        };
+        sendBlocked('response.created', {
+          response: {
+            id: respId,
+            object: 'response',
+            created_at: created,
+            status: 'in_progress',
+            error: null,
+            incomplete_details: null,
+            model: resolvedModel,
+            output: [],
+          },
+        });
+        sendBlocked('response.completed', {
+          response: {
+            id: respId,
+            object: 'response',
+            created_at: created,
+            status: 'completed',
+            error: null,
+            incomplete_details: null,
+            end_turn: true,
+            model: resolvedModel,
+            output: [],
+            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+          },
+        });
+        this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
+          endTurn: true,
+          finishReason: reason,
+          connId,
+        });
+        return;
+      }
+
+      // 只有真实转发给 DeepSeek 的请求才计入统计（不含被拦截的空转或 suggestion）。
+      this.stats.total += 1;
+      this.stats.pendingDelta += 1;
 
       const fixedInput = fixOrphanedToolResults(
         Array.isArray(msg.input) ? msg.input : [],
@@ -790,11 +942,16 @@ export class DeepSeekProxy extends EventEmitter {
         { apiKey: this.opts.apiKey, agent: this.agent },
         this.reasoning,
       )
-        .then(({ outputItems }) => {
+        .then(({ outputItems, finishReason, endTurn, usage }) => {
           lastToolCalls = outputItems.filter(
             (o) => (o as ResponsesItem).type === 'function_call',
           ) as ResponsesItem[];
-          this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200);
+          this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
+            endTurn,
+            finishReason,
+            connId,
+            usage,
+          });
         })
         .catch((e) => {
           const f = translateStreamError(e as Error);
@@ -813,7 +970,12 @@ export class DeepSeekProxy extends EventEmitter {
     });
 
     ws.on('error', (e) =>
-      this.log({ level: 'error', source: 'ws', message: `WebSocket 错误：${e.message}` }),
+      this.log({
+        level: 'error',
+        source: 'ws',
+        connId,
+        message: `WebSocket 错误：${e.message}`,
+      }),
     );
     ws.on('close', (code, reason) => {
       clearInterval(heartbeat);
@@ -821,7 +983,8 @@ export class DeepSeekProxy extends EventEmitter {
       this.log({
         level: 'info',
         source: 'ws',
-        message: `WebSocket 关闭 code=${code}${r ? ` reason=${r}` : ''}`,
+        connId,
+        message: `WebSocket 关闭 conn=${connId} code=${code}${r ? ` reason=${r}` : ''}`,
       });
     });
   }
@@ -833,21 +996,47 @@ export class DeepSeekProxy extends EventEmitter {
     requestedModel: string | undefined,
     model: string,
     statusCode: number,
+    extras?: {
+      endTurn?: boolean;
+      finishReason?: string | null;
+      connId?: string;
+      usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+    },
   ): void {
     const durationMs = Date.now() - startedAt;
-    this.stats.success += 1;
-    this.stats.totalDurationMs += durationMs;
-    this.stats.recent.push({ ts: Date.now(), ok: true });
+    const isBlocked = (extras?.finishReason ?? '').startsWith('blocked-');
+    if (!isBlocked) {
+      this.stats.success += 1;
+      this.stats.totalDurationMs += durationMs;
+      this.stats.recent.push({ ts: Date.now(), ok: true });
+      if (extras?.usage) {
+        this.stats.pendingInputTokensDelta += extras.usage.inputTokens;
+        this.stats.pendingOutputTokensDelta += extras.usage.outputTokens;
+      }
+    }
+    const turnTag = extras
+      ? ` end_turn=${extras.endTurn} finish=${extras.finishReason ?? 'null'}`
+      : '';
+    const tokenTag =
+      !isBlocked && extras?.usage && extras.usage.totalTokens > 0
+        ? ` ↑${extras.usage.inputTokens}↓${extras.usage.outputTokens}`
+        : '';
     this.log({
       level: 'info',
       source,
       reqId,
       phase: 'success',
-      message: `✓ 请求成功 状态=${statusCode} 耗时=${durationMs}ms model=${model}`,
+      message: `✓ 请求成功 状态=${statusCode} 耗时=${durationMs}ms model=${model}${turnTag}${tokenTag}`,
       durationMs,
       requestedModel,
       model,
       statusCode,
+      ...(extras?.endTurn !== undefined ? { endTurn: extras.endTurn } : {}),
+      ...(extras?.finishReason !== undefined && extras.finishReason !== null
+        ? { finishReason: extras.finishReason }
+        : {}),
+      ...(extras?.connId ? { connId: extras.connId } : {}),
+      ...(extras?.usage && !isBlocked ? { inputTokens: extras.usage.inputTokens, outputTokens: extras.usage.outputTokens } : {}),
     });
   }
 

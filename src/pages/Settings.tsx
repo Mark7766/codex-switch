@@ -23,6 +23,7 @@ export function Settings(): JSX.Element {
   const [mirror, setMirror] = useState<'auto' | 'github' | 'ghproxy' | 'custom'>('auto');
   const [customMirror, setCustomMirror] = useState('');
   const [maxBackups, setMaxBackups] = useState(5);
+  const [blockSuggestions, setBlockSuggestions] = useState(true);
   const [showChangelog, setShowChangelog] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ export function Settings(): JSX.Element {
       setMirror(prefs.updateMirror);
       setCustomMirror(prefs.customMirrorUrl);
       setMaxBackups(prefs.maxBackupsPerFile);
+      setBlockSuggestions(prefs.blockBackgroundSuggestions ?? true);
     })();
     const off = window.codexSwitch.onUpdateEvent((e) => {
       const ev = e as UpdateEvent;
@@ -82,12 +84,20 @@ export function Settings(): JSX.Element {
         updateMirror: mirror,
         customMirrorUrl: customMirror,
         maxBackupsPerFile: maxBackups,
+        blockBackgroundSuggestions: blockSuggestions,
         codexModel: defaultModel,
       });
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
       setBackups(await window.codexSwitch.codexBackups());
       const tail = res.restarted ? '，已重启代理' : res.codexWritten ? '，已同步 ~/.codex' : '';
       pushToast({ kind: 'success', message: '已保存并应用' + tail });
+      if (res.portChanged) {
+        pushToast({
+          kind: 'info',
+          message:
+            '端口已变更，请手动重启 Codex Desktop（退出后重新打开）使新端口生效。',
+        });
+      }
       setMsg(null);
     } catch (e) {
       pushToast({ kind: 'error', message: '保存失败：' + (e as Error).message });
@@ -173,6 +183,20 @@ export function Settings(): JSX.Element {
               type="checkbox"
               checked={autoStart}
               onChange={(e) => setAutoStart(e.target.checked)}
+            />
+          </label>
+          <label className="flex items-start justify-between gap-4">
+            <span className="flex-1">
+              拦截 Codex Desktop 后台 "建议气泡" 请求
+              <span className="block text-xs text-slate-500 mt-1">
+                Codex Desktop 会周期性后台请求 "hyperpersonalized suggestions"，一句提问可触发数十次额外调用。开启后这些后台请求被本地直接返回空建议，不消耗 DeepSeek token。
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={blockSuggestions}
+              onChange={(e) => setBlockSuggestions(e.target.checked)}
+              className="mt-1"
             />
           </label>
           <div className="flex items-center gap-3 pt-2">

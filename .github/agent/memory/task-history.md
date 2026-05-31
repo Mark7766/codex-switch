@@ -21,6 +21,43 @@
 
 ## 任务记录
 
+### [TASK-021] 修复日志 token 数字前多了硬编码 "5"
+- **日期**：2026-06-01
+- **类型**：fix
+- **摘要**：`server.ts` 第 1022 行 log message 模板中有硬编码的 `5`，导致详细日志显示 `↑57367↓220` 而实际 inputTokens 字段值是 7367。Badge 和 lifetime 统计是正确的；只是日志消息字符串多了一个 `5`。
+- **变更文件**：`electron/proxy/server.ts`（移除 tokenTag 模板里的硬编码 `5`）
+
+### [TASK-020] 修复端口变更后 Codex Desktop 仍用旧端口
+- **日期**：2026-06-01
+- **类型**：fix
+- **摘要**：根因是 Codex Desktop 读取 config.toml 是在启动时一次性加载，不动态重载；Codex Switch 写配置无误。修复方向：在 `applyPreferencesTransaction` 返回 `portChanged` 字段，Settings.tsx 端口变更时弹出 info 提示"请手动重启 Codex Desktop 使新端口生效"。
+- **变更文件**：
+  - `electron/main.ts`（函数返回类型新增 `portChanged: boolean`；return 语句补充字段）
+  - `src/types/global.d.ts`（`applyPreferences` 返回类型新增 `portChanged: boolean`）
+  - `src/pages/Settings.tsx`（`savePrefs` 在 `res.portChanged` 为真时追加 info toast）
+- **注意事项**：DMG 已重新构建（v1.2.0 arm64+x64），等待用户验证后再 push+tag。
+
+### [TASK-019] v1.2.0 拦截过滤 + Token 计费
+- **日期**：2026-06-01
+- **类型**：feat
+- **摘要**：两大功能：① 拦截请求不计入统计，日志默认隐藏，可切换显示；② DeepSeek token 消耗追踪（per-request + lifetime 持久化）。
+- **变更文件**：
+  - `electron/proxy/stream.ts`（StreamResult 增 `usage: {inputTokens, outputTokens, totalTokens}`，resolve 时从 upstreamUsage 填充）
+  - `electron/proxy/server.ts`（RequestStats 增 pendingInput/OutputTokensDelta；recordSuccess：isBlocked 时跳过 stats，accumulate token deltas，log entry 带 token 字段；consumeLifetimeDelta 返回 token 增量；handleWs: stats.total/pendingDelta 移至 blocked check 之后才累加；handleResponses/handleWs streamDeepSeek 调用处解构 usage 传递）
+  - `electron/config/store.ts`（UserPreferences + DEFAULTS 增 lifetimeInputTokens / lifetimeOutputTokens / tokenSavingEnabled 预留）
+  - `electron/main.ts`（flushLifetime 消耗 token delta 并写 prefs；proxy:info lifetime 返回 inputTokens + outputTokens）
+  - `src/types/global.d.ts`（LifetimeStats 增 inputTokens / outputTokens；proxyInfo 日志条目类型增 inputTokens / outputTokens）
+  - `src/lib/store.ts`（LogEntry 增 inputTokens / outputTokens；Lifetime 增 inputTokens / outputTokens；初始值补 0）
+  - `src/pages/Logs.tsx`（showBlocked 默认 false；groups 按 showBlocked 过滤；统计条改为"显示/隐藏拦截请求(N)"切换按钮；Group 增 token 字段；groupByReqId 捕获 token；成功行末尾显示 ↑X ↓Y tokens）
+  - `src/pages/Dashboard.tsx`（累计区块条件渲染 输入/输出/总 token 三格；新增 formatTokens helper）
+  - `package.json`（1.1.10 → 1.2.0），`CHANGELOG.md`
+- **验证**：`pnpm typecheck` ✅ / `pnpm test` 78/78 ✅ / DMG 构建 arm64 92M + x64 97M ✅
+- **注意事项**：
+  1. token 数据从 DeepSeek SSE 末尾 usage 字段提取（prompt_tokens/completion_tokens/total_tokens 映射为 input/output/total）
+  2. blocked 请求零 token、不写 stats、不计入 lifetime，但仍写 ndjson 日志文件（可 debug）
+  3. `tokenSavingEnabled` 字段预留给未来付费"节省 token"功能，本期不实现逻辑
+  4. 未推送远程仓库，等用户验证后再 push
+
 ### [TASK-018] v1.1.0 稳定性专项实现（PR1-PR4 一次性合入）
 - **日期**：2026-06-01
 - **类型**：feat / fix

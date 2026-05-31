@@ -64,6 +64,8 @@ interface LifetimeStats {
   requestCount: number;
   uptimeSec: number;
   firstStartAt: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 interface CodexSwitchApi {
@@ -85,11 +87,12 @@ interface CodexSwitchApi {
     lifetimeFirstStartAt: string;
     lastErrorMessage: string;
     lastErrorAt: number;
+    blockBackgroundSuggestions: boolean;
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
   applyPreferences: (
     patch: Record<string, unknown> & { codexModel?: string },
-  ) => Promise<{ prefs: unknown; codexWritten: boolean; restarted: boolean }>;
+  ) => Promise<{ prefs: unknown; codexWritten: boolean; restarted: boolean; portChanged: boolean }>;
   getApiKey: () => Promise<string>;
   setApiKey: (key: string) => Promise<boolean>;
   clearApiKey: () => Promise<boolean>;
@@ -113,6 +116,8 @@ interface CodexSwitchApi {
       statusCode?: number;
       errorReason?: string;
       errorAction?: string;
+      inputTokens?: number;
+      outputTokens?: number;
     }>;
     recentStats: {
       total: number;

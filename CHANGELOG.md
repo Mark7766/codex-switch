@@ -3,6 +3,64 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-06-01
+
+### 新增
+- **拦截请求不计入统计，日志默认过滤。** 被本地拦截的请求（空 warm-up / suggestion）不再累加到"处理请求数"或 lifetime 统计；日志面板默认隐藏拦截条目，可通过"显示拦截请求 (N)"按钮切换显示。统计条仅展示实调 DeepSeek 的请求数量。
+- **Token 计费（持久化）。** 每次实调 DeepSeek 结束后记录 DeepSeek 返回的 `usage`（inputTokens / outputTokens），在日志面板成功行末尾显示 `↑X ↓Y tokens`；主面板「累计」区块新增输入 / 输出 / 总 token 统计，跨重启持久化（每 30s 写入 electron-store）。未来付费「节省 token」功能预留了 `tokenSavingEnabled` 字段钩子。
+
+## [1.1.10] - 2026-06-01
+
+### 修复
+- **v1.1.9 的空 warm-up 拦截条件写错了。** 原条件要求 `instructions` 为空，但 Codex Desktop 的 warm-up 帧虽然 `input=[]`，却带了系统提示词，导致条件始终为 false、warm-up 仍被转发到 DeepSeek（1.5–2.5s/次）。本版只看 `input.length === 0`，不再看 instructions。
+- **日志面板区分 "实调 / 已拦截 / 失败"。** 被本地拦截的请求现在指示为灰色圆点 + `⌫ 本地拦截，未调用 DeepSeek（未消耗 token）`，顶部统计条同时展示 *实调 DeepSeek* / *已拦截* 两个计数，让用户一眼看出哪些请求费了 token、哪些是免费本地返回。
+
+## [1.1.9] - 2026-06-01
+
+v1.1.8 拦住了 "建议气泡" 提示词本身（~1ms），但 Codex Desktop 在打开后台 WS 时还会发一帧 **空 warm-up handshake**（`items=0 instructions=''`），上版仍会转发到 DeepSeek。结果是即使用户不操作，Codex Desktop 仍然每 ~30s 轮询一次，每次费一次真 DeepSeek 调用。
+
+### 修复
+- **同时拦截空 warm-up 请求**：如果一条 `response.create` 的 `input` 是空数组且 `instructions` 为空，本地直接返回空 `response.completed`，不走上游。`finishReason=blocked-empty-input`，耗时 ~1ms。
+- codex CLI 的真实提问首帧 `items ≥ 1`，不会误伤。
+
+### 说明
+- Codex Desktop 的轮询本身是其客户端行为，我们无法从代理侧禁止（关掍 WS 会被立即重连，反而更坏）。本修复使每次轮询的两条请求（warm-up + suggestion）都变为本地短路，累计费用接近零。
+
+## [1.1.8] - 2026-06-01
+
+用户用 Codex Desktop 单句提问产生 17+ 请求、长时间使用累积 500+：复盘日志定位出 Codex Desktop 后台 "hyperpersonalized suggestions" 特性在每个闲置周期会拉起独立 WS，每个 WS 又带动 4-7 次 tool-use 调用。这些请求与当前会话无关、不影响使用、纯耗 token。
+
+### 修复
+- **拦截 Codex Desktop "建议气泡" 后台请求。** 代理以指纹识别（`# Overview / Generate 0 to 3 hyperpersonalized suggestions`）本地返回空建议 + `end_turn=true`，不调用 DeepSeek。后台 finish 标记为 `blocked-suggestion`，日志可查。开启后同一提问的总请求数从可能数十次变为 1–2 次。
+- 设置 → 代理与模型 里新增开关（默认开）：*拦截 Codex Desktop 后台 "建议气泡" 请求*。依赖该特性的用户可手动关闭。
+
+## [1.1.7] - 2026-06-01
+
+基于 v1.1.6 的可观测日志，复盘了用户提供的 ndjson：所谓 "一句话被打 5 次" 实际上是 **两个独立 WS** 上的两件事——一个是用户真实提问（1 次请求即 end_turn），另一个是 Codex IDE 的 "hyperpersonalized suggestions" 后台特性触发的多轮 tool-use 链（warm-up + 提示 + 3 次 function_call_output → 最终 stop）。代理本身行为正确，每次 `tool_calls` 都正确发 `end_turn=false`、最终 `stop` 发 `end_turn=true`。
+
+### 修复
+- **模型映射补全**：`gpt-5.4`、`gpt-5.4-pro` 加入默认映射表，避免 codex CLI 自报 `gpt-5.4` 时落到前缀兜底规则触发 WARN。`CURRENT_MAPPING_VERSION` 升至 3，老用户启动时自动合并新键（已有自定义映射不被覆盖）。
+
+### 说明（不修复）
+- 后台 "suggestions" 多轮 tool-use 链是 codex IDE/CLI 自身的能力，由模型决定是否调工具、调几次。代理只是忠实转发协议，不应也不会拦截。如希望减少这类调用，请在 codex 端关闭对应特性。
+
+## [1.1.6] - 2026-06-03
+
+v1.1.5 的 `end_turn` 修复在 `codex exec` 单次问答里验证有效（1-2 次请求即结束），但用户报告交互式 codex 仍然有连发请求；本版本不再做 "靠猜的修复"，而是把诊断信息 **写进默认日志**，让下一次复现就能看出真因。
+
+### 新增（诊断/可观测）
+- `proxy.ndjson` 现在每条 WS 请求都带 **`connId`**（如 `ws_mptyt2e9_7hrm`），同一个 WS 上的请求一目了然——之前所有日志条目都没有连接 id，导致无法区分 "5 次同 WS 循环" 和 "5 次独立 WS 调用"。
+- 请求开始日志现在包含 **`items=N kinds={message:3,function_call_output:1,...} tools=N lastUser="前 80 字"`**，可以直接看出 codex 是不是在重发同一个问题（lastUser 重复 = bug；items/kinds 增长 = 正常 tool-use 流转）。
+- 请求成功日志现在包含 **`end_turn=true|false finish=stop|tool_calls|...`**，确认本进程实际发出去的 `response.completed.end_turn` 与上游 DeepSeek 的 `finish_reason`。
+- WS 关闭日志多打印 `conn=...` 关联 connId。
+
+### 加固
+- `end_turn` 判定加 `finish_reason !== 'tool_calls'` 双保险：即使 DeepSeek 把空 `tool_calls` 数组带在 deltas 里，只要 `finish_reason: 'stop'` 也会被判为本轮结束。
+- 文档代码审查：`PROXY_DEBUG_WS=1` 仍然保留为打印 WS 原文消息的强力开关，但日常诊断已不再依赖它。
+
+### 仍待验证
+- 本机 `codex exec` 验证为单次问答 2 次调用（1 次 warm-up + 1 次真实回答），无循环——此版本不再做盲目修复，等用户在交互式 codex 上跑一次后，根据新增日志锁定真因。
+
 ## [1.1.5] - 2026-06-03
 
 彻底修复"问一句话被打 5 次"的浪费请求 bug。**这是真正的根因，1.1.4 的字段补全是必要但不充分的前置修复。**

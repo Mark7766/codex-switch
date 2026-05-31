@@ -63,6 +63,12 @@ interface ToolCallAcc {
 export interface StreamResult {
   outputItems: Array<Record<string, unknown>>;
   reasoningContent: string;
+  /** 末次 chunk 携带的 finish_reason（'stop' / 'tool_calls' / 'length' …）。 */
+  finishReason: string | null;
+  /** response.completed 中实际发出的 end_turn 值，便于上层落日志诊断。 */
+  endTurn: boolean;
+  /** DeepSeek 返回的 token 消耗（非流式 / 被拦截时全为 0）。 */
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 /**
@@ -89,6 +95,7 @@ export function streamDeepSeek(
       output_tokens: number;
       total_tokens: number;
     } | null = null;
+    let finishReason: string | null = null;
     const createdAt = Math.floor(Date.now() / 1000);
 
     const req = https.request(
@@ -130,7 +137,9 @@ export function streamDeepSeek(
                   total_tokens: parsed.usage.total_tokens ?? 0,
                 };
               }
-              const delta = parsed.choices?.[0]?.delta;
+              const choice = parsed.choices?.[0];
+              if (choice?.finish_reason) finishReason = choice.finish_reason;
+              const delta = choice?.delta;
               if (!delta) continue;
 
               if (delta.reasoning_content) accReasoning += delta.reasoning_content;
@@ -268,12 +277,15 @@ export function streamDeepSeek(
           }
 
           const finalOutput = outputItems.filter(Boolean) as Array<Record<string, unknown>>;
-          // 没有挂起的 function_call 时把 end_turn 显式置 true，告诉 codex CLI
-          // "这一轮到此为止"。否则 codex 的 agent loop 把 end_turn=None 当成
-          // "对话还没结束"，会立刻在同一 WS 上再发一条 response.create，把同一
-          // 个问题反复打到 DeepSeek，直到撞到客户端重试预算后 1006 断连——这就是
-          // 用户日志里"一句话打 5 次"的根因。
+          // codex CLI v0.135+ 的 agent loop 用 `response.completed.end_turn` 判断是否结束本轮。
+          // 缺该字段会被 serde 解析为 None，codex 误判 "对话还没结束"，立刻在同一 WS 上再发一条
+          // response.create 把同一个问题反复打到 DeepSeek（用户日志里的「一句话被打 5 次」）。
+          // 判定条件双保险：
+          //   1. 没有挂起的 function_call；并且
+          //   2. 上游 finish_reason 不是 'tool_calls'（保护极端边界，例如 tool_calls 数组在 deltas 里
+          //      给空对象但 finish_reason 仍说 stop —— 不是常见情形，但用 finish_reason 兜一下更稳）。
           const hasPendingToolCalls = Object.keys(toolCalls).length > 0;
+          const endTurn = !hasPendingToolCalls && finishReason !== 'tool_calls';
           onEvent('response.completed', {
             response: {
               id: respId,
@@ -282,7 +294,7 @@ export function streamDeepSeek(
               status: 'completed',
               error: null,
               incomplete_details: null,
-              end_turn: !hasPendingToolCalls,
+              end_turn: endTurn,
               model: chatReq.model,
               output: finalOutput,
               usage: upstreamUsage ?? {
@@ -292,7 +304,19 @@ export function streamDeepSeek(
               },
             },
           });
-          resolve({ outputItems: finalOutput, reasoningContent: accReasoning });
+          resolve({
+            outputItems: finalOutput,
+            reasoningContent: accReasoning,
+            finishReason,
+            endTurn,
+            usage: upstreamUsage
+              ? {
+                  inputTokens: upstreamUsage.input_tokens,
+                  outputTokens: upstreamUsage.output_tokens,
+                  totalTokens: upstreamUsage.total_tokens,
+                }
+              : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          });
         });
 
         dsRes.on('error', reject);

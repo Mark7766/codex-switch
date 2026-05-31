@@ -29,14 +29,24 @@ export interface UserPreferences {
   lastErrorMessage: string;
   /** §7 最近一次代理错误的时间戳（ms）。 */
   lastErrorAt: number;
+  /** 是否拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求（默认 true）。 */
+  blockBackgroundSuggestions: boolean;
+  /** 生命周期累计输入 token（不含被拦截请求）。 */
+  lifetimeInputTokens: number;
+  /** 生命周期累计输出 token（不含被拦截请求）。 */
+  lifetimeOutputTokens: number;
+  /** 预留：未来付费"token 节省"Feature 开关（默认 false）。 */
+  tokenSavingEnabled: boolean;
 }
 
-/** v2 默认映射表：覆盖 OpenAI / Codex 已知常用模型。 */
-export const CURRENT_MAPPING_VERSION = 2;
+/** v3 默认映射表：覆盖 OpenAI / Codex 已知常用模型（含 gpt-5.4 系列）。 */
+export const CURRENT_MAPPING_VERSION = 3;
 
 export const DEFAULT_MAPPING: Record<string, string> = {
   'gpt-5-codex': 'deepseek-v4-flash',
+  'gpt-5.4': 'deepseek-v4-flash',
   'gpt-5.4-mini': 'deepseek-v4-flash',
+  'gpt-5.4-pro': 'deepseek-v4-pro',
   'gpt-4o': 'deepseek-v4-flash',
   'gpt-4o-mini': 'deepseek-v4-flash',
   'gpt-4-turbo': 'deepseek-v4-pro',
@@ -66,6 +76,10 @@ const DEFAULTS: UserPreferences = {
   lifetimeFirstStartAt: '',
   lastErrorMessage: '',
   lastErrorAt: 0,
+  blockBackgroundSuggestions: true,
+  lifetimeInputTokens: 0,
+  lifetimeOutputTokens: 0,
+  tokenSavingEnabled: false,
 };
 
 let store: Store<UserPreferences> | null = null;

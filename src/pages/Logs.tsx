@@ -9,6 +9,7 @@ export function Logs(): JSX.Element {
   const pushToast = useAppStore((s) => s.pushToast);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [showBlocked, setShowBlocked] = useState(false);
   const [stats, setStatsBytes] = useState<{ files: number; totalBytes: number } | null>(null);
 
   useEffect(() => {
@@ -42,16 +43,23 @@ export function Logs(): JSX.Element {
     return logs.filter((l) => l.level === filter);
   }, [logs, filter]);
 
-  const groups = useMemo(() => groupByReqId(filtered), [filtered]);
+  const groups = useMemo(() => {
+    const all = groupByReqId(filtered);
+    return showBlocked ? all : all.filter((g) => g.outcome !== 'blocked');
+  }, [filtered, showBlocked]);
+
+  const allGroups = useMemo(() => groupByReqId(filtered), [filtered]);
   const groupStats = useMemo(() => {
     let success = 0;
     let error = 0;
-    for (const g of groups) {
+    let blocked = 0;
+    for (const g of allGroups) {
       if (g.outcome === 'success') success++;
       else if (g.outcome === 'error') error++;
+      else if (g.outcome === 'blocked') blocked++;
     }
-    return { groups: groups.length, success, error };
-  }, [groups]);
+    return { groups: allGroups.filter((g) => g.outcome !== 'blocked').length, success, error, blocked };
+  }, [allGroups]);
 
   return (
     <div className="p-10 max-w-5xl">
@@ -73,7 +81,10 @@ export function Logs(): JSX.Element {
 
       <div className="flex items-center gap-3 mb-4 text-sm">
         <span className="text-slate-400">共 {groupStats.groups} 组请求</span>
-        <span className="text-emerald-400">{groupStats.success} 成功</span>
+        <span className="text-emerald-400">{groupStats.success} 实调 DeepSeek</span>
+        <span className="text-slate-400" title="Codex Desktop 后台轮询 / 空 warm-up被本地拦截，未调用 DeepSeek、未消耗 token">
+          {groupStats.blocked} 已拦截
+        </span>
         <span className="text-red-400">{groupStats.error} 失败</span>
         <div className="flex-1" />
         <button
@@ -134,13 +145,16 @@ interface Group {
   reqId: string | undefined;
   source: string;
   startTs: number;
-  outcome: 'success' | 'error' | 'pending' | 'misc';
+  outcome: 'success' | 'error' | 'pending' | 'misc' | 'blocked';
   durationMs?: number;
   model?: string;
   requestedModel?: string;
   statusCode?: number;
   errorReason?: string;
   errorAction?: string;
+  blockedReason?: string;
+  inputTokens?: number;
+  outputTokens?: number;
   entries: LogEntry[];
 }
 
@@ -174,7 +188,15 @@ function groupByReqId(logs: LogEntry[]): Group[] {
     }
     g.entries.push(l);
     if (l.phase === 'success') {
-      g.outcome = 'success';
+      const fr = l.finishReason ?? '';
+      if (fr.startsWith('blocked-')) {
+        g.outcome = 'blocked';
+        g.blockedReason = fr;
+      } else {
+        g.outcome = 'success';
+        if (l.inputTokens !== undefined) g.inputTokens = l.inputTokens;
+        if (l.outputTokens !== undefined) g.outputTokens = l.outputTokens;
+      }
       g.durationMs = l.durationMs;
       g.model = l.model;
       g.requestedModel = l.requestedModel;
@@ -227,7 +249,9 @@ function GroupRow({
       ? 'bg-emerald-500'
       : group.outcome === 'error'
         ? 'bg-red-500'
-        : 'bg-slate-500';
+        : group.outcome === 'blocked'
+          ? 'bg-slate-400'
+          : 'bg-slate-500';
   return (
     <div className="border-b border-slate-800/60">
       <button
@@ -239,7 +263,16 @@ function GroupRow({
         <span className="text-xs text-slate-500">[{group.source}]</span>
         <span className="text-sm text-slate-200 flex-1 truncate">
           {group.outcome === 'success' &&
-            `✓ ${group.requestedModel ?? ''}→${group.model ?? ''} · ${group.durationMs ?? '?'}ms`}
+            `✓ ${group.requestedModel ?? ''}→${group.model ?? ''} · ${group.durationMs ?? '?'}ms${
+              group.inputTokens !== undefined
+                ? ` · ↑${group.inputTokens} ↓${group.outputTokens ?? 0} tokens`
+                : ''
+            }`}
+          {group.outcome === 'blocked' && (
+            <span className="text-slate-400">
+              ⌫ 本地拦截，未调用 DeepSeek（未消耗 token）· {group.blockedReason}
+            </span>
+          )}
           {group.outcome === 'error' && (
             <span className="text-red-300">
               ✗ {group.errorReason ?? '未知错误'} · {group.durationMs ?? '?'}ms

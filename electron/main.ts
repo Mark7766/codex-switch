@@ -62,6 +62,7 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     port: prefs.proxyPort,
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
+    blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
   });
   proxy.on('status', (status: ProxyStatus) => {
     mainWindow?.webContents.send(IPC.proxyOnStatus, status);
@@ -123,7 +124,7 @@ async function createWindow(): Promise<void> {
 /** §3：事务性应用偏好——store → ~/.codex → 必要时重启代理。任一步失败抛出。 */
 async function applyPreferencesTransaction(
   patch: Partial<UserPreferences> & { codexModel?: string },
-): Promise<{ prefs: UserPreferences; codexWritten: boolean; restarted: boolean }> {
+): Promise<{ prefs: UserPreferences; codexWritten: boolean; restarted: boolean; portChanged: boolean }> {
   const before = getPreferences();
   const { codexModel, ...prefsPatch } = patch;
   const portChanged =
@@ -139,6 +140,7 @@ async function applyPreferencesTransaction(
       port: next.proxyPort,
       modelMapping: next.modelMapping,
       defaultModel: next.defaultModel,
+      blockBackgroundSuggestions: next.blockBackgroundSuggestions,
     });
   }
 
@@ -160,6 +162,7 @@ async function applyPreferencesTransaction(
           port: before.proxyPort,
           modelMapping: before.modelMapping,
           defaultModel: before.defaultModel,
+          blockBackgroundSuggestions: before.blockBackgroundSuggestions,
         });
       }
       throw e;
@@ -173,7 +176,7 @@ async function applyPreferencesTransaction(
     restarted = true;
   }
 
-  return { prefs: next, codexWritten, restarted };
+  return { prefs: next, codexWritten, restarted, portChanged };
 }
 
 function registerIpc(): void {
@@ -185,6 +188,7 @@ function registerIpc(): void {
         port: next.proxyPort,
         modelMapping: next.modelMapping,
         defaultModel: next.defaultModel,
+        blockBackgroundSuggestions: next.blockBackgroundSuggestions,
       });
     }
     return next;
@@ -227,6 +231,8 @@ function registerIpc(): void {
       requestCount: prefs.lifetimeRequestCount,
       uptimeSec: prefs.lifetimeUptimeSec,
       firstStartAt: prefs.lifetimeFirstStartAt,
+      inputTokens: prefs.lifetimeInputTokens,
+      outputTokens: prefs.lifetimeOutputTokens,
     };
     const lastError = prefs.lastErrorMessage
       ? { message: prefs.lastErrorMessage, ts: prefs.lastErrorAt }
@@ -402,7 +408,7 @@ async function flushLifetime(): Promise<void> {
   if (!proxy) return;
   lifetimeFlushing = true;
   try {
-    const { requestsDelta, uptimeMs } = proxy.consumeLifetimeDelta();
+    const { requestsDelta, uptimeMs, inputTokensDelta, outputTokensDelta } = proxy.consumeLifetimeDelta();
     if (requestsDelta === 0 && uptimeMs === 0) return;
     const cur = getPreferences();
     setPreferences({
@@ -410,6 +416,8 @@ async function flushLifetime(): Promise<void> {
       // 仅当代理在跑时累加；uptimeMs 是当前会话累计时长，所以不能直接加
       // 这里用增量：上次 flush 时已经把 uptimeMs 记到 sessionLastUptimeMs
       lifetimeUptimeSec: cur.lifetimeUptimeSec + Math.floor(consumeUptimeDelta(uptimeMs) / 1000),
+      lifetimeInputTokens: cur.lifetimeInputTokens + inputTokensDelta,
+      lifetimeOutputTokens: cur.lifetimeOutputTokens + outputTokensDelta,
     });
   } catch (e) {
     log.warn('flushLifetime 失败：', (e as Error).message);

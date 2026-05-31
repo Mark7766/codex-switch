@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>我熬到凌晨 3 点，做了一个软件，让你妈也能用上 Codex</title>
+    <style>
+      /* 这里的样式只是本地预览用，复制到公众号编辑器后会被自动转成 inline，公众号端会保留视觉效果 */
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        color: #2c2c2c;
+        line-height: 1.85;
+        font-size: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px 16px;
+        background: #fff;
+      }
+      h1 {
+        font-size: 22px;
+        line-height: 1.45;
+        text-align: center;
+        margin: 8px 0 24px;
+      }
+      h2 {
+        font-size: 18px;
+        color: #1a73e8;
+        border-left: 4px solid #1a73e8;
+        padding-left: 10px;
+        margin: 32px 0 14px;
+      }
+      h3 {
+        font-size: 16px;
+        margin: 22px 0 10px;
+      }
+      p {
+        margin: 12px 0;
+      }
+      blockquote {
+        background: #f6f8fa;
+        border-left: 4px solid #d0d7de;
+        padding: 10px 14px;
+        margin: 16px 0;
+        color: #555;
+        font-size: 15px;
+      }
+      strong {
+        color: #d9480f;
+      }
+      .img-placeholder {
+        margin: 18px 0;
+        padding: 28px 12px;
+        text-align: center;
+        background: #fffbe6;
+        border: 1.5px dashed #faad14;
+        border-radius: 8px;
+        color: #ad6800;
+        font-size: 14px;
+      }
+      .step {
+        background: #f0f7ff;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin: 12px 0;
+      }
+      .step b {
+        color: #1a73e8;
+      }
+      .pan {
+        background: #f5f5f5;
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin: 10px 0;
+        font-size: 14px;
+        word-break: break-all;
+      }
+      .pan b {
+        color: #d9480f;
+      }
+      .footer {
+        margin-top: 36px;
+        padding-top: 16px;
+        border-top: 1px solid #eee;
+        font-size: 14px;
+        color: #888;
+        text-align: center;
+      }
+      hr {
+        border: none;
+        border-top: 1px dashed #ddd;
+        margin: 28px 0;
+      }
+      a {
+        color: #1a73e8;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>我熬到凌晨 3 点，做了一个软件<br />让"零基础"的你也能用上 Codex + DeepSeek</h1>
+
+    <p style="text-align: center; color: #888; font-size: 14px">
+      ——一个降低 AI 编程门槛的小工具，写给所有"看见命令行就想关掉"的朋友
+    </p>
+
+    <div class="img-placeholder">📷 [封面图占位：Codex Switch 主界面截图]</div>
+
+    <h2>一、写在前面：我被"装软件"折磨了一个月</h2>
+
+    <p>
+      最近这段时间，我帮挺多朋友装 Codex（OpenAI 官方的 AI 编程工具），让他们能用上又便宜又好的
+      DeepSeek。
+    </p>
+
+    <p>本来我以为这事很简单，毕竟我之前已经写好了一个一键安装脚本：</p>
+
+    <blockquote>
+      🧰 codex-deepseek-installer<br />
+      <a href="https://github.com/Mark7766/codex-deepseek-installer"
+        >https://github.com/Mark7766/codex-deepseek-installer</a
+      >
+    </blockquote>
+
+    <p>但真到带着朋友们一步一步装的时候，我发现——<strong>不是工具不好，是门槛太高了。</strong></p>
+
+    <h3>问题 1：命令行，是真的会"劝退"普通人</h3>
+
+    <p>
+      我以为打开终端、复制一行命令、回车就完了。结果在 Windows
+      朋友那边，光是"在哪里打开命令提示符"就要解释 5
+      分钟，再加一句"右键以管理员身份运行"，对方已经开始
+      <strong>怀疑人生</strong>。
+    </p>
+
+    <p>
+      更不用说，安装脚本之前还有 <strong>三个准备工作</strong>：申请 DeepSeek 账号并充值、创建 API
+      Key、装 Git、装 Node.js……每一步对开发者来说都"so easy"，但对小白朋友来说，每一步都像在过雷区。
+    </p>
+
+    <div class="img-placeholder">📷 [配图占位：朋友发来的命令行报错截图 / 一脸懵的聊天记录]</div>
+
+    <h3>问题 2：装好以后，看到"黑乎乎的窗口"又懵了</h3>
+
+    <p>
+      就算克服了千难万险把 Codex CLI
+      装上了，打开一看——<strong>一个黑黢黢的命令行窗口</strong>，光标"咣咣"在闪。
+    </p>
+
+    <p>很多朋友的第一反应是："这……就是 AI 编程？我是不是装错了？"</p>
+
+    <p>是的，命令行版的 Codex 上手成本对普通用户太高了。</p>
+
+    <hr />
+
+    <h2>二、于是我熬了两个通宵，做了 Codex Switch</h2>
+
+    <p>
+      那干脆就别让大家碰命令行了。<br />
+      <strong>我做一个图形化的桌面 App，</strong>朋友们装好之后只用做一件事：
+    </p>
+
+    <blockquote style="font-size: 16px; text-align: center; color: #d9480f">
+      把 DeepSeek API Key 填进去，点一下"启动"。<br />完事。
+    </blockquote>
+
+    <p>这个 App 叫 <strong>Codex Switch</strong>，定位很简单：</p>
+
+    <ul>
+      <li>给 Codex 桌面版（也就是 Codex 官方的 GUI）<strong>挂上 DeepSeek 的引擎</strong>；</li>
+      <li>不用碰命令行，不用装 Git/Node，不用记任何配置；</li>
+      <li>跨平台：<strong>macOS 和 Windows</strong> 都有安装包，双击就能装；</li>
+      <li>界面对标 Claude Desktop 的简洁风格，干干净净。</li>
+    </ul>
+
+    <div class="img-placeholder">
+      📷 [配图占位：Codex Switch 主面板截图 —— 显示"代理运行中"状态]
+    </div>
+
+    <h2>三、用起来到底有多简单？三步</h2>
+
+    <div class="step">
+      <p><b>第 1 步：装 Codex 桌面版</b></p>
+      <p>双击 dmg / exe 安装包，下一步下一步装完。</p>
+    </div>
+
+    <div class="step">
+      <p><b>第 2 步：装 Codex Switch</b></p>
+      <p>同样双击 dmg / exe，装完打开，里面会引导你填一次 DeepSeek API Key。</p>
+    </div>
+
+    <div class="step">
+      <p><b>第 3 步：点一下"启动代理"</b></p>
+      <p>
+        Codex Switch 会自动帮你写好 Codex 的配置文件，让 Codex 桌面版直接走 DeepSeek。<br />
+        然后你就可以打开 Codex 桌面版，正常用 AI 写代码了。<strong>全程没有一行命令行操作。</strong>
+      </p>
+    </div>
+
+    <div class="img-placeholder">📷 [配图占位：填完 Key、点击启动按钮的动图或连续截图]</div>
+
+    <hr />
+
+    <h2>四、效果图（友友们最关心的）</h2>
+
+    <div class="img-placeholder">📷 [配图占位：Codex 桌面版 + DeepSeek 实际工作的截图]</div>
+
+    <p>
+      整个过程对用户来说，<strong>看不见代理、看不见命令行、看不见配置文件</strong>，只看见一个能干活的
+      AI 编程助手。
+    </p>
+
+    <hr />
+
+    <h2>五、安装包下载（已为国内朋友放百度网盘）</h2>
+
+    <p>
+      考虑到 GitHub
+      下载对部分朋友不太友好，我把所有安装包都同步上传到了百度网盘，先装哪个、再装哪个我都标好了：
+    </p>
+
+    <h3>🍎 macOS 用户</h3>
+
+    <div class="pan">
+      <p><b>① 先装 Codex 桌面版</b></p>
+      <p>文件名：Codex.dmg</p>
+      <p>链接：https://pan.baidu.com/s/1D57fhOT7r2MlDYJyKRc0Cg?pwd=akc8</p>
+      <p>提取码：<b>akc8</b></p>
+    </div>
+
+    <div class="pan">
+      <p><b>② 再装 Codex Switch</b></p>
+      <p>文件名：Codex-Switch-1.0.5-mac-arm64.dmg</p>
+      <p>链接：https://pan.baidu.com/s/17dB-q0m4zHw2Q0Y3ikAWZg?pwd=94wa</p>
+      <p>提取码：<b>94wa</b></p>
+    </div>
+
+    <h3>🪟 Windows 用户</h3>
+
+    <div class="pan">
+      <p><b>① 先装 Codex 桌面版</b></p>
+      <p>文件名：Codex Installer.exe</p>
+      <p>链接：https://pan.baidu.com/s/15hmmt-PjcM_nBWiE7j6rcg?pwd=s52m</p>
+      <p>提取码：<b>s52m</b></p>
+    </div>
+
+    <div class="pan">
+      <p><b>② 再装 Codex Switch</b></p>
+      <p>文件名：Codex-Switch-Setup-1.0.5-win-x64.exe</p>
+      <p>链接：https://pan.baidu.com/s/1I3nw2cIJRNzC6bJQCcrXNA?pwd=xx8f</p>
+      <p>提取码：<b>xx8f</b></p>
+    </div>
+
+    <blockquote>
+      想要其他版本（比如 Mac Intel 版、Windows ARM 版、最新版）的朋友，可以去 GitHub Release
+      页面：<br />
+      <a href="https://github.com/Mark7766/codex-switch/releases"
+        >https://github.com/Mark7766/codex-switch/releases</a
+      >
+    </blockquote>
+
+    <div class="img-placeholder">📷 [配图占位：百度网盘资源截图 / GitHub Release 截图]</div>
+
+    <hr />
+
+    <h2>六、最后一点小话</h2>
+
+    <p>
+      这个软件是我前天晚上肝到凌晨 3 点写出第一个能跑的版本，然后又花了一整天打磨打包、跑通
+      Mac/Windows 双平台、做自动更新……一边写一边想：
+    </p>
+
+    <blockquote>
+      "如果朋友点了'下载'，看到的是一个干干净净的图形界面，<br />
+      而不是黑乎乎的终端窗口，那他大概就不会放弃 AI 编程了吧。"
+    </blockquote>
+
+    <p>
+      工具是开源的，代码就在 GitHub：
+      <a href="https://github.com/Mark7766/codex-switch">https://github.com/Mark7766/codex-switch</a
+      >。如果你觉得有用，欢迎点个 Star，也欢迎转给身边那位"想用 AI 但又怕装软件"的朋友。
+    </p>
+
+    <p>
+      用得过程中有任何问题，<strong>评论区留言或后台私信我，我都会回</strong>。<br />
+      毕竟这个工具的初心，就是想让更多人能轻松迈进 AI 编程这扇门。
+    </p>
+
+    <div class="footer">
+      ❤️ 如果对你有帮助，欢迎点赞 / 在看 / 转发<br />
+      让更多"零基础"的朋友也能用上 Codex
+    </div>
+  </body>
+</html>

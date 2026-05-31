@@ -122,6 +122,16 @@ export function Dashboard(): JSX.Element {
           <Stat label="累计请求数" value={String(lifetime.requestCount)} />
           <Stat label="累计运行时长" value={formatLifetime(lifetime.uptimeSec)} />
         </div>
+        {(lifetime.inputTokens > 0 || lifetime.outputTokens > 0) && (
+          <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+            <Stat label="输入 token" value={formatTokens(lifetime.inputTokens)} />
+            <Stat label="输出 token" value={formatTokens(lifetime.outputTokens)} />
+            <Stat
+              label="总 token"
+              value={formatTokens(lifetime.inputTokens + lifetime.outputTokens)}
+            />
+          </div>
+        )}
         {lifetime.firstStartAt && (
           <div className="mt-2 text-xs text-slate-400">自 {lifetime.firstStartAt} 起累计</div>
         )}
@@ -161,6 +171,12 @@ function formatUptime(ms: number): string {
   if (h) return `${h}小时${m}分`;
   if (m) return `${m}分${sec}秒`;
   return `${sec}秒`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }
 
 function formatLifetime(totalSec: number): string {

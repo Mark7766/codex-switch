@@ -15,6 +15,11 @@ export interface LogEntry {
   statusCode?: number;
   errorReason?: string;
   errorAction?: string;
+  finishReason?: string;
+  endTurn?: boolean;
+  connId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface Toast {
@@ -32,6 +37,8 @@ export interface Lifetime {
   requestCount: number;
   uptimeSec: number;
   firstStartAt: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 interface AppState {
@@ -68,7 +75,7 @@ export const useAppStore = create<AppState>((set) => ({
   logs: [],
   pushLog: (e) => set((s) => ({ logs: [...s.logs.slice(-199), e] })),
   setLogs: (l) => set({ logs: l }),
-  lifetime: { requestCount: 0, uptimeSec: 0, firstStartAt: '' },
+  lifetime: { requestCount: 0, uptimeSec: 0, firstStartAt: '', inputTokens: 0, outputTokens: 0 },
   setLifetime: (l) => set({ lifetime: l }),
   lastError: null,
   setLastError: (m) => set({ lastError: m }),
