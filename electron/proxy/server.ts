@@ -689,7 +689,25 @@ export class DeepSeekProxy extends EventEmitter {
       }
     }, 20_000);
 
+    const debugWs = process.env.PROXY_DEBUG_WS === '1';
+    if (debugWs) {
+      const origSend = ws.send.bind(ws);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws as any).send = (data: unknown, ...rest: unknown[]) => {
+        const s =
+          typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString() : String(data);
+        // eslint-disable-next-line no-console
+        console.log('[ws→]', s.slice(0, 400));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (origSend as any)(data, ...rest);
+      };
+    }
+
     ws.on('message', (data) => {
+      if (debugWs) {
+        // eslint-disable-next-line no-console
+        console.log('[ws←]', data.toString().slice(0, 600));
+      }
       const reqId = newReqId();
       const startedAt = Date.now();
       let msg: {

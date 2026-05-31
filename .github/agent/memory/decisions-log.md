@@ -301,3 +301,29 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 - **决策**：`stopInternal` 在调用 `server.close` / `wss.close` 之前先：① 遍历 `wss.clients` 调 `client.terminate()`；② 对 `http.Server` 立刻调 `closeIdleConnections()` 与 `closeAllConnections()`。这样 close 的回调几乎瞬间触发，3s race 仅作为最坏兜底。
 - **理由**：Codex Switch 是桌面工具，"停止"必须立即失效；不能让 codex CLI 在残留 socket 上继续穿透。优雅排空（graceful drain）适合服务端，不适合桌面控制面板。
 - **影响**：stop() 用时从最长 3s 缩短到 < 200ms；新增回归测试 `stop() forcibly terminates established keep-alive connections`。澄清 `~/.codex/config.toml` 仅做 `base_url` 指向，codex CLI 不会自启动任何进程——本应用是端口 11435 的唯一持有者。
+
+## ADR-017：v1.1.4 — `response.completed` 必须包含完整 OpenAI 字段
+- **日期**：2026-06-02
+- **状态**：✅ 已采纳（必要前置，但单独不足以解决"问一句话被打 5 次"）
+- **决策**：`response.created` / `response.completed` 都补齐 `created_at`、`error: null`、`incomplete_details: null`、`usage`（DeepSeek `prompt_tokens` 等映射为 OpenAI `input_tokens` 等，缺省 0/0/0）。
+- **理由**：codex CLI v0.135 的 SSE/WS 解析期望这些字段；缺失会导致协议层判残，进入重试。
+
+## ADR-018：v1.1.5 — `response.completed` 必须显式声明 `end_turn`
+- **日期**：2026-06-03
+- **状态**：✅ 已采纳（关键 bug 真正根因）
+- **背景**：v1.1.4 把所有可见字段补齐后，用户实测仍然"一句话被打 5 次"。本机 ndjson 日志显示同一 WS 连接里 5 个 `req_xxx → success` 周期，间隔约 70ms，最后 1006 断连——典型 agent 自循环。
+- **诊断**（基于上游源码）：
+  - `codex-rs/codex-api/src/sse/responses.rs` 的 `ResponseCompleted` 把 `end_turn` 解析为 `#[serde(default)] Option<bool>`。
+  - `codex-rs/core/src/client.rs` 的 agent loop 用 `ResponseEvent::Completed { end_turn, .. }` 判断本轮是否结束；`None` 不等同于 `true`。
+  - 我们之前没发 `end_turn` → codex 解析为 `None` → agent loop 误判"未结束"→ 同 WS 自动 `response.create` 同一句话，循环到 backoff 用尽 1006 断连。
+- **决策**：`electron/proxy/stream.ts` 在 `response.completed` 中显式加：`end_turn: !hasPendingToolCalls`。
+  - 没挂起的 function_call → `end_turn: true`，本轮结束。
+  - 有 tool_calls 待执行 → `end_turn: false`，等 codex 回 `function_call_output` 再下一轮。
+- **替代方案**：
+  - "始终 `end_turn: true`" → 否决：tool-use 场景永远拿不到工具结果，会断链。
+  - "用 DeepSeek 的 `finish_reason` 直接映射"（`stop` → true，`tool_calls` → false）→ 等价但实现更复杂；当前用 `toolCalls` 字典是否非空已足够。
+- **影响**：
+  - 修复后单元测试 `tests/unit/stream.endTurn.test.ts` 锁死两个分支。
+  - 真实 codex CLI 验证：`codex exec` 单问题只产生一对 `response.create`/`response.completed`，无 Reconnecting。
+  - 参考工程 `codex-deepseek-installer/proxy/deepseek-proxy.mjs` 同样缺该字段，对 v0.135+ 也是潜在 bug；可考虑反哺 PR。
+- **教训**：v1.1.4 单凭"补齐看起来该有的字段"判断 root cause 是错的。真正的 root cause 必须从协议消费者（codex 源码）反推；没有源码佐证就发版 = 概率事件。下次类似 bug 优先克隆 codex 看 parser，再设计补丁。

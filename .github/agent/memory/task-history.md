@@ -391,3 +391,44 @@
   - `src/pages/Settings.tsx`：savingKey/savingPrefs 双 loading 态；按钮变 spinner + 文案"正在应用…"+ disabled；接入全局 `pushToast` 三色 Toast（info → success/error）；按钮旁加小字说明会写入 `~/.codex/config.toml`。
   - `src/pages/Dashboard.tsx`：启动/停止代理按钮同款待遇 — spinner + "正在启动…/正在停止…" + 全局 Toast；按钮 `min-w-[110px]` 防抖动。
 - **发版**：1.1.1 → 1.1.2；CHANGELOG 1.1.2 段；commit + tag v1.1.2 + push。
+
+## TASK-021：v1.1.3 — CI 修复（Win 重试 + prettier）
+
+- **日期**：2026-06-02
+- **类型**：chore / CI
+- **摘要**：v1.1.2 流水线 Win build 因 GitHub 镜像 502 抓 nsis-resources 失败；format:check 检出 7 个未走 prettier 的文件。给 release.yml 的 Win build 加 3 次重试（与 mac 一致），跑 `pnpm format`，发版 v1.1.3。
+
+## TASK-022：v1.1.4 — response.completed 字段补全（必要但不充分）
+
+- **日期**：2026-06-02
+- **类型**：fix
+- **摘要**：用户反馈 codex CLI 一直 "Reconnecting…" 但 proxy 端全 200。补 `response.created`/`response.completed` 的 `created_at / error / incomplete_details / usage` 字段，并给 ws 加 20s 服务端 ping。**事后证明 root cause 不是这些字段**——见 TASK-023。
+
+## TASK-023：v1.1.5 — 真正修复 codex agent 自循环（end_turn 字段）
+
+- **日期**：2026-06-03
+- **类型**：fix（关键 bug）
+- **触发**：用户反馈 v1.1.4 仍然报错，"问一句话被打 5 次"的 bug 没解决，要求"自己修复、自己测试，保障这次能彻底修复"。
+- **诊断**（基于上游 codex 源码 + 本机日志双重佐证）：
+  1. 拉 `openai/codex` 仓库源码：`codex-rs/codex-api/src/sse/responses.rs` 的 `ResponseCompleted` 把 `end_turn` 解析为 `Option<bool>`；`codex-rs/core/src/client.rs` 的 agent loop 拿 `ResponseEvent::Completed { end_turn, .. }` 决定是否结束本轮。
+  2. 本机 `proxy.ndjson` 显示：单个 WS 连接里出现 5 个连续 `req_xxx → start → success` 周期（间隔仅 ~70ms），最后 1006 断连——典型 agent 自循环。
+  3. v1.1.4 的字段只是让响应"长得像"OpenAI Responses，但 codex 真正用来终止 agent loop 的关键字段 `end_turn` 我们没发，被解析为 `None` 后 codex 误判"对话还没结束"，自动同 WS 再发 response.create。
+- **修复**：`electron/proxy/stream.ts` 的 `response.completed` 中加入 `end_turn: !hasPendingToolCalls`：没挂起 function_call 就 `true`；有 tool_calls 待执行就 `false`，等 codex 回 function_call_output 后再下一轮。
+- **新增**：
+  - `tests/unit/stream.endTurn.test.ts`（2 cases）：vi.mock node:https 后注入伪 SSE，断言纯文本 → `end_turn: true`，含 tool_call → `end_turn: false`。72/72 全绿。
+  - `electron/proxy/server.ts` 加 `PROXY_DEBUG_WS=1` 开关：开启后 stdout 打印每条 WS 入/出消息原文（截断 600 字符），便于线下排查协议层。
+  - `scripts/dev-proxy.cjs`：本地直接跑 dist/electron/proxy/server.js，不用启 Electron 壳，方便用 codex CLI 端到端验证。
+- **端到端验证**（用户明确要求"自己测试"）：
+  - 关掉用户已运行的 Codex Switch.app，从 keychain 读出 DEEPSEEK_API_KEY，编译电源代码到 dist/，跑 `node scripts/dev-proxy.cjs` + `PROXY_DEBUG_WS=1`。
+  - 真实 `codex exec --skip-git-repo-check "Reply with exactly the word PONG..."`，输出仅一句 "PONG"，无 Reconnecting、无重发。
+  - WS 抓包：单个 WS 连接里只出现一对 `response.create`/`response.completed`（外加一次 codex 启动时的 warm-up），`end_turn: true` 字段就位；对比修复前 5 次重发，行为符合预期。
+- **变更文件**：
+  - `electron/proxy/stream.ts`（核心修复，+`end_turn` 字段，+注释解释根因）
+  - `electron/proxy/server.ts`（+`PROXY_DEBUG_WS` 开关）
+  - `tests/unit/stream.endTurn.test.ts`（new）
+  - `scripts/dev-proxy.cjs`（new，dev 工具）
+  - `package.json` 1.1.4 → 1.1.5
+  - `CHANGELOG.md` v1.1.5 段
+- **注意事项**：
+  - 参考工程 `codex-deepseek-installer/proxy/deepseek-proxy.mjs` 同样缺 `end_turn`，对老版 codex CLI（不要求该字段）可能没事，但对 v0.135+ 也是潜在 bug，可考虑反哺 PR。
+  - 1.1.4 的字段补全（usage/created_at 等）是必要前置：缺这些 codex 会更早判残；只补 end_turn 而忽略它们可能仍出问题。两者一起才完整。

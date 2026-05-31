@@ -268,9 +268,12 @@ export function streamDeepSeek(
           }
 
           const finalOutput = outputItems.filter(Boolean) as Array<Record<string, unknown>>;
-          // codex CLI 对 response.completed 的校验比参考工程当年严：缺
-          // usage / created_at / error / incomplete_details 会被认定为响应不完整，
-          // 从而在同一 WS 上不停重发同一个问题。
+          // 没有挂起的 function_call 时把 end_turn 显式置 true，告诉 codex CLI
+          // "这一轮到此为止"。否则 codex 的 agent loop 把 end_turn=None 当成
+          // "对话还没结束"，会立刻在同一 WS 上再发一条 response.create，把同一
+          // 个问题反复打到 DeepSeek，直到撞到客户端重试预算后 1006 断连——这就是
+          // 用户日志里"一句话打 5 次"的根因。
+          const hasPendingToolCalls = Object.keys(toolCalls).length > 0;
           onEvent('response.completed', {
             response: {
               id: respId,
@@ -279,6 +282,7 @@ export function streamDeepSeek(
               status: 'completed',
               error: null,
               incomplete_details: null,
+              end_turn: !hasPendingToolCalls,
               model: chatReq.model,
               output: finalOutput,
               usage: upstreamUsage ?? {

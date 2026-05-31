@@ -3,6 +3,20 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.5] - 2026-06-03
+
+彻底修复"问一句话被打 5 次"的浪费请求 bug。**这是真正的根因，1.1.4 的字段补全是必要但不充分的前置修复。**
+
+### 修复
+- `response.completed` 现在包含 **`end_turn`** 字段：当本轮没有挂起的 `function_call` 时为 `true`，否则为 `false`。
+  - 根因：codex CLI v0.135 的 agent loop（见 `codex-rs/codex-api/src/sse/responses.rs` 的 `ResponseCompleted` / `codex-rs/core/src/client.rs`）以 `Option<bool>` 解析该字段。我们之前没发，codex 解析为 `None`，agent loop 误判"对话还没结束"，自动在同一 WS 上再发 `response.create`，把同一句话反复打到 DeepSeek，直到客户端 backoff 用尽以 1006 断连——用户看到的就是"一句话被打 5 次 + Reconnecting"。
+  - 修复后 codex 拿到 `end_turn=true` 立刻终止本轮，单次问题只产生一次上游请求。
+- 验证：本机用真实 `codex exec --skip-git-repo-check "..."` 跑通，`PROXY_DEBUG_WS=1` 抓 WS 原文确认每个用户提问只对应一对 `response.create`/`response.completed`。
+
+### 新增
+- `PROXY_DEBUG_WS=1` 环境变量：开启后在 stdout 打印每条 WS 入/出消息原文（截断到 600 字符），便于本地排查协议层问题。生产模式默认关闭，无任何性能影响。
+- 仓库内新增 `scripts/dev-proxy.cjs` 与单测 `tests/unit/stream.endTurn.test.ts`，把 `end_turn` 行为锁死。
+
 ## [1.1.4] - 2026-06-02
 
 修复 codex CLI 不交事、不停「Reconnecting…」但 proxy 依然连续返 200 的坊间 bug（同一条 WS 上 5 次重发同一个问题，WS 未闭）。
