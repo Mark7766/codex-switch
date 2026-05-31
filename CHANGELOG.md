@@ -3,6 +3,16 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.1] - 2026-06-XX
+
+紧急修复：用户点击"停止代理"后，已建立的 keep-alive / WebSocket 连接仍存活，导致 Codex CLI 还能继续问答。
+
+### 修复
+- `stop()` 现在会**立即**强制终止所有 WebSocket 客户端（`ws.terminate()`）与 HTTP 已连接 socket（`server.closeAllConnections()` + `closeIdleConnections()`），不再等到 3 秒超时兜底。
+  - 旧实现仅依靠 `server.close()` / `wss.close()`，但二者都只是"停止接受新连接"，对已 `ESTABLISHED` 的 socket 不主动断开；codex CLI 的长连接因此可以在 stop 之后继续穿透。
+  - 新增回归测试 `stop() forcibly terminates established keep-alive connections`，断言 stop 用时 < 1.5s 且端口已不可访问。
+- 说明：`~/.codex/config.toml` 只是把 `base_url` 指向本地代理；codex CLI 不会自启动任何代理进程。Codex Switch 是端口 11435 的唯一持有者。
+
 ## [1.1.0] - 2026-06-XX
 
 稳定性专项：修复"改端口后启动用旧端口"的 P0 bug，并配套上线代理生命周期状态机、端口冲突可视化处置、持久化日志、累计统计、单实例锁、自动恢复（仅运行期 crash）、设置事务化"保存并应用"。详见 `docs/PROPOSAL-v1.1.0-stability.md`。

@@ -359,3 +359,23 @@
   3. 已安装的 v1.0.0 客户端因为 yml/文件名不一致**无法自升级到 v1.0.0/v1.0.1**，但**可以自升级到 v1.0.2**，因为 v1.0.2 的 yml/文件名都对。后续 v1.0.x 的 auto-update 链路稳定。
   4. Release Run 在 commit c6738b4 触发，`build (macos-latest)` 跳过 hdiutil 重试一次成功；TASK-012 加的 retry loop 是有效的兜底。
 
+
+---
+
+## TASK-019：v1.1.1 — 修复 stop() 不真停（已建立连接残留）
+
+- **日期**：2026-06-02
+- **类型**：紧急 bug 修复 + patch 发版
+- **触发**：v1.1.0 发布后用户反馈："我把代理都停止了，可是 codex 依然可以正常问答，端口依然监听"。`lsof -i:11436` 显示无 LISTEN，但有多条 `Codex Switch` ↔ `codex` 之间的 ESTABLISHED TCP socket。
+- **根因**：
+  - `http.Server.close()` 默认 graceful——只停止 accept，新连接进不来，已存在的 keep-alive socket 等客户端主动断；
+  - `WebSocketServer.close()` 同理，不会主动 `terminate()` 已连接的 ws.clients；
+  - 因此 codex CLI 的长连接在 stop 之后还活着；3s 兜底 `closeAllConnections()` 触发太晚且未处理 ws；用户感知是"停止无效"。
+- **修复**（`electron/proxy/server.ts` `stopInternal`）：
+  - 进入 stopping 状态后**立即**：① 遍历 `wss.clients` 调 `client.terminate()`；② 对 server 调 `closeIdleConnections()` 与 `closeAllConnections()`；
+  - 然后再 `Promise.allSettled([wss.close, server.close])` 收尾；3s race 作为最坏兜底；
+  - 最后 `removeAllListeners()` 清理；
+  - 实测 stop() 用时从最长 3s 降到几十毫秒。
+- **测试**：新增 `tests/unit/server.lifecycle.test.ts` 用例 `stop() forcibly terminates established keep-alive connections`：建立 keep-alive 连接 → stop → 断言 `< 1500ms` + 端口不可访问。`pnpm vitest run` 8 文件 70/70 全绿。
+- **澄清用户疑问**：`~/.codex/config.toml` 只是把 `base_url` 指向 `127.0.0.1:11435`；codex CLI 自身不会启动任何代理进程。lsof 中的 `Codex\x20` PID 即 Codex Switch 主进程本身——它是端口的唯一持有者。
+- **发版**：bump 1.1.0 → 1.1.1；CHANGELOG 1.1.1 段；ADR-016；commit + tag v1.1.1 + push 触发 release CI。

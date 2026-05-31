@@ -342,6 +342,39 @@ export class DeepSeekProxy extends EventEmitter {
     this.setStatus('stopping');
     const server = this.server;
     const wss = this.wss;
+
+    // ① 立即强制断开所有 WebSocket 客户端（wss.close 不会主动断已连接的客户端，
+    // 否则 Codex CLI 的长连接会让 stop() 一直挂起，端口虽然 LISTEN 关了但已有
+    // ESTABLISHED 连接继续在这个进程里跑——本次修复的核心）。
+    if (wss) {
+      try {
+        for (const client of wss.clients) {
+          try {
+            client.terminate();
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // ② 立即销毁所有 HTTP 连接（含 keep-alive、SSE 流），让 server.close 能立刻回调。
+    const closeAll = (server as unknown as { closeAllConnections?: () => void })
+      .closeAllConnections;
+    const closeIdle = (server as unknown as { closeIdleConnections?: () => void })
+      .closeIdleConnections;
+    try {
+      closeIdle?.call(server);
+    } catch {
+      /* ignore */
+    }
+    try {
+      closeAll?.call(server);
+    } catch {
+      /* ignore */
+    }
+
     await new Promise<void>((resolve) => {
       let done = false;
       const finish = (): void => {
@@ -350,14 +383,13 @@ export class DeepSeekProxy extends EventEmitter {
         resolve();
       };
       const t = setTimeout(() => {
-        // 超时强制断开所有保持中的连接（SSE / keep-alive），让 close() 尽快回调。
+        // 极端兜底：再次销毁连接并直接 finish。
         try {
-          (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+          closeAll?.call(server);
         } catch {
           /* ignore */
         }
-        // 再给 close() 100ms 完成回调；超时仍未回调直接 finish。
-        setTimeout(finish, 100);
+        finish();
       }, DeepSeekProxy.STOP_TIMEOUT_MS);
       Promise.allSettled([
         new Promise<void>((r) => (wss ? wss.close(() => r()) : r())),
@@ -367,12 +399,15 @@ export class DeepSeekProxy extends EventEmitter {
         finish();
       });
     });
-    // 显式销毁兜底，确保端口立即释放。
+
+    // 收尾：再次 closeAllConnections 兜底（极少数 socket 此时才被 accept）。
     try {
-      (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+      closeAll?.call(server);
     } catch {
       /* ignore */
     }
+    server.removeAllListeners();
+    if (wss) wss.removeAllListeners();
     this.server = null;
     this.wss = null;
     this.actualPort = 0;

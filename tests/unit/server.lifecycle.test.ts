@@ -97,4 +97,52 @@ describe('DeepSeekProxy lifecycle (§7)', () => {
     const elapsed = Date.now() - t0;
     expect(elapsed).toBeLessThan(2500);
   });
+
+  it('stop() forcibly terminates established keep-alive connections', async () => {
+    // 复现用户报告的 bug：客户端建立 keep-alive 长连接后调用 stop()，
+    // 旧实现 server.close() 不会断开已 ESTABLISHED 的 socket，导致 codex
+    // 还能继续在残留连接上收发。修复后这些 socket 必须被立即终止。
+    const proxy = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    const port = await proxy.start();
+
+    // 建立一个 keep-alive 连接并完成一次 healthz 请求；socket 不主动关闭。
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request(
+        { host: '127.0.0.1', port, path: '/healthz', method: 'GET', agent },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve());
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    const t0 = Date.now();
+    await proxy.stop();
+    const elapsed = Date.now() - t0;
+    // 应快速返回（远小于 STOP_TIMEOUT 3s），证明没有挂在 close() 等 keep-alive。
+    expect(elapsed).toBeLessThan(1500);
+    expect(proxy.getStatus()).toBe('stopped');
+
+    // 再用同一 agent 发请求应失败（端口未监听 + socket 已 destroy）。
+    const failed = await new Promise<boolean>((resolve) => {
+      const req = http.request(
+        { host: '127.0.0.1', port, path: '/healthz', method: 'GET', agent, timeout: 800 },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve(false));
+        },
+      );
+      req.on('error', () => resolve(true));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(true);
+      });
+      req.end();
+    });
+    expect(failed).toBe(true);
+    agent.destroy();
+  });
 });

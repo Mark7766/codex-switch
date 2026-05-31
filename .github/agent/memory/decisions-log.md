@@ -293,3 +293,11 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
 - **决策**：渲染层不再让用户分别决定"保存偏好"和"重新写入 ~/.codex"；点击"保存并应用"后由主进程 `prefs:apply` IPC 在一次 handler 中：① `setPreferences` ② 用最新 prefs 写 `~/.codex/config.toml` + `auth.json` ③ 若 `proxyPort` 改变且代理在跑则 `proxy.restart()`。任一步失败 → 回滚 store 到调用前快照，向渲染层抛错。
 - **理由**：用户报告的端口不一致 bug 中，"prefs 写了但没写 codex" 是核心环节之一。让前端做两次按钮调用永远存在"只点一次"的人为漏配。事务化的另一好处是 `~/.codex` 与 store 严格同步。
 - **影响**：删掉 Settings 页的 "重新写入 ~/.codex" 二级按钮；如需单独写 codex（极少场景），仍可通过 IPC `codex:write` 调用，但 UI 不再暴露。
+
+## ADR-016：v1.1.1 — stop() 必须主动 terminate 已建立的连接
+- **日期**：2026-06-02
+- **状态**：✅ 已采纳
+- **背景**：v1.1.0 用户反馈"点了停止代理，codex 还能正常问答；lsof 看端口仍然 ESTABLISHED"。复现：`server.close()` 与 `wss.close()` 都只是停止接受新连接，对已存在的 keep-alive HTTP / WebSocket 客户端默认**不主动断开**——它们要等客户端自己关。Codex CLI 的代理客户端会维持长连接，所以 stop 之后这些连接照样在 Codex Switch 进程里继续工作；3 秒兜底 `closeAllConnections()` 虽然存在，但触发太晚且未 `terminate()` WebSocket clients。
+- **决策**：`stopInternal` 在调用 `server.close` / `wss.close` 之前先：① 遍历 `wss.clients` 调 `client.terminate()`；② 对 `http.Server` 立刻调 `closeIdleConnections()` 与 `closeAllConnections()`。这样 close 的回调几乎瞬间触发，3s race 仅作为最坏兜底。
+- **理由**：Codex Switch 是桌面工具，"停止"必须立即失效；不能让 codex CLI 在残留 socket 上继续穿透。优雅排空（graceful drain）适合服务端，不适合桌面控制面板。
+- **影响**：stop() 用时从最长 3s 缩短到 < 200ms；新增回归测试 `stop() forcibly terminates established keep-alive connections`。澄清 `~/.codex/config.toml` 仅做 `base_url` 指向，codex CLI 不会自启动任何进程——本应用是端口 11435 的唯一持有者。
