@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ChangelogModal } from '../components/ChangelogModal';
+import { useAppStore } from '@/lib/store';
 
 export function Settings(): JSX.Element {
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [savingKey, setSavingKey] = useState(false);
+  const [savingPrefs, setSavingPrefs] = useState(false);
   const [maskedKey, setMaskedKey] = useState('');
   const [newKey, setNewKey] = useState('');
   const [port, setPort] = useState(11435);
@@ -50,16 +54,25 @@ export function Settings(): JSX.Element {
 
   async function saveKey(): Promise<void> {
     if (!newKey.trim().startsWith('sk-')) {
-      setMsg('Key 通常以 sk- 开头');
+      pushToast({ kind: 'error', message: 'Key 通常以 sk- 开头' });
       return;
     }
-    await window.codexSwitch.setApiKey(newKey.trim());
-    setMaskedKey(await window.codexSwitch.getApiKey());
-    setNewKey('');
-    setMsg('已更新 API Key');
+    setSavingKey(true);
+    try {
+      await window.codexSwitch.setApiKey(newKey.trim());
+      setMaskedKey(await window.codexSwitch.getApiKey());
+      setNewKey('');
+      pushToast({ kind: 'success', message: '已更新 API Key' });
+    } catch (e) {
+      pushToast({ kind: 'error', message: '保存 Key 失败：' + (e as Error).message });
+    } finally {
+      setSavingKey(false);
+    }
   }
 
   async function savePrefs(): Promise<void> {
+    setSavingPrefs(true);
+    pushToast({ kind: 'info', message: '正在保存并应用…' });
     try {
       const res = await window.codexSwitch.applyPreferences({
         proxyPort: port,
@@ -74,13 +87,16 @@ export function Settings(): JSX.Element {
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
       setBackups(await window.codexSwitch.codexBackups());
       const tail = res.restarted
-        ? '；已重启代理'
+        ? '，已重启代理'
         : res.codexWritten
-          ? '；已同步 ~/.codex'
+          ? '，已同步 ~/.codex'
           : '';
-      setMsg('已保存并应用' + tail);
+      pushToast({ kind: 'success', message: '已保存并应用' + tail });
+      setMsg(null);
     } catch (e) {
-      setMsg('保存失败：' + (e as Error).message);
+      pushToast({ kind: 'error', message: '保存失败：' + (e as Error).message });
+    } finally {
+      setSavingPrefs(false);
     }
   }
 
@@ -123,9 +139,10 @@ export function Settings(): JSX.Element {
           />
           <button
             onClick={saveKey}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm"
+            disabled={savingKey || !newKey.trim()}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md text-sm min-w-[80px]"
           >
-            保存
+            {savingKey ? '保存中…' : '保存'}
           </button>
         </div>
       </Section>
@@ -162,13 +179,20 @@ export function Settings(): JSX.Element {
               onChange={(e) => setAutoStart(e.target.checked)}
             />
           </label>
-          <div className="flex gap-2 pt-2">
+          <div className="flex items-center gap-3 pt-2">
             <button
               onClick={savePrefs}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md"
+              disabled={savingPrefs}
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md inline-flex items-center gap-2 min-w-[120px] justify-center"
             >
-              保存并应用
+              {savingPrefs && (
+                <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              )}
+              {savingPrefs ? '正在应用…' : '保存并应用'}
             </button>
+            <span className="text-xs text-slate-500">
+              将写入 ~/.codex/config.toml；端口变化会自动重启代理
+            </span>
           </div>
         </div>
       </Section>

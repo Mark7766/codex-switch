@@ -379,3 +379,15 @@
 - **测试**：新增 `tests/unit/server.lifecycle.test.ts` 用例 `stop() forcibly terminates established keep-alive connections`：建立 keep-alive 连接 → stop → 断言 `< 1500ms` + 端口不可访问。`pnpm vitest run` 8 文件 70/70 全绿。
 - **澄清用户疑问**：`~/.codex/config.toml` 只是把 `base_url` 指向 `127.0.0.1:11435`；codex CLI 自身不会启动任何代理进程。lsof 中的 `Codex\x20` PID 即 Codex Switch 主进程本身——它是端口的唯一持有者。
 - **发版**：bump 1.1.0 → 1.1.1；CHANGELOG 1.1.1 段；ADR-016；commit + tag v1.1.1 + push 触发 release CI。
+
+---
+
+## TASK-020：v1.1.2 — UX 反馈补丁（保存按钮点了没反应）
+
+- **日期**：2026-06-02
+- **类型**：UX 优化 + patch 发版
+- **触发**：用户反馈"保存并应用，点击一点反应都没有"。Settings 页 savePrefs 只把结果写到页面底部一行小字 `msg`，而且按钮没有 loading 态，用户感知是"点了没反应"。
+- **修复**：
+  - `src/pages/Settings.tsx`：savingKey/savingPrefs 双 loading 态；按钮变 spinner + 文案"正在应用…"+ disabled；接入全局 `pushToast` 三色 Toast（info → success/error）；按钮旁加小字说明会写入 `~/.codex/config.toml`。
+  - `src/pages/Dashboard.tsx`：启动/停止代理按钮同款待遇 — spinner + "正在启动…/正在停止…" + 全局 Toast；按钮 `min-w-[110px]` 防抖动。
+- **发版**：1.1.1 → 1.1.2；CHANGELOG 1.1.2 段；commit + tag v1.1.2 + push。

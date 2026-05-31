@@ -2,7 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+## [1.1.2] - 2026-06-02
 
+UX 补丁：为关键操作补上「点了之后有反应」的可见反馈。
+
+### 优化
+- 设置页「保存并应用」、「保存 API Key」：点击后按钮即时变 spinner + 「正在应用…」并 disabled；右上角 Toast 依次弹「正在保存并应用…」→「已保存并应用」（成功/错误/变更重启代理都会提示）。
+- 主面板「启动/停止代理」同样使用 spinner + 文案切换（「正在启动…/正在停止…」）+ 全局 Toast，按钮最小宽防抖动。
+- 统一反馈风格：info → success/error 三色 Toast 2 秒自动消失，可点击关闭。
 ## [1.1.1] - 2026-06-XX
 
 紧急修复：用户点击"停止代理"后，已建立的 keep-alive / WebSocket 连接仍存活，导致 Codex CLI 还能继续问答。

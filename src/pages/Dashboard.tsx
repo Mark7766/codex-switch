@@ -7,6 +7,7 @@ export function Dashboard(): JSX.Element {
   const setPort = useAppStore((s) => s.setPort);
   const lifetime = useAppStore((s) => s.lifetime);
   const setLifetime = useAppStore((s) => s.setLifetime);
+  const pushToast = useAppStore((s) => s.pushToast);
   const [busy, setBusy] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
   const [uptime, setUptime] = useState(0);
@@ -31,13 +32,26 @@ export function Dashboard(): JSX.Element {
   }, [port, setPort, setLifetime]);
 
   async function toggle(): Promise<void> {
+    if (busy) return;
     setBusy(true);
+    const stopping = status === 'running';
+    pushToast({
+      kind: 'info',
+      message: stopping ? '正在停止代理…' : '正在启动代理…',
+    });
     try {
-      if (status === 'running') {
+      if (stopping) {
         await window.codexSwitch.proxyStop();
+        pushToast({ kind: 'success', message: '代理已停止' });
       } else {
         await window.codexSwitch.proxyStart();
+        pushToast({ kind: 'success', message: '代理已启动' });
       }
+    } catch (e) {
+      pushToast({
+        kind: 'error',
+        message: (stopping ? '停止失败：' : '启动失败：') + (e as Error).message,
+      });
     } finally {
       setBusy(false);
     }
@@ -64,11 +78,20 @@ export function Dashboard(): JSX.Element {
           <button
             onClick={toggle}
             disabled={busy}
-            className={`px-5 py-2 rounded-md text-sm font-medium transition ${
+            className={`px-5 py-2 rounded-md text-sm font-medium transition inline-flex items-center gap-2 min-w-[110px] justify-center ${
               running ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'
-            } disabled:bg-slate-700`}
+            } disabled:bg-slate-700 disabled:cursor-not-allowed`}
           >
-            {busy ? '…' : running ? '停止代理' : '启动代理'}
+            {busy && (
+              <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            )}
+            {busy
+              ? running
+                ? '正在停止…'
+                : '正在启动…'
+              : running
+                ? '停止代理'
+                : '启动代理'}
           </button>
         </div>
 
