@@ -86,11 +86,7 @@ export function Settings(): JSX.Element {
       });
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
       setBackups(await window.codexSwitch.codexBackups());
-      const tail = res.restarted
-        ? '，已重启代理'
-        : res.codexWritten
-          ? '，已同步 ~/.codex'
-          : '';
+      const tail = res.restarted ? '，已重启代理' : res.codexWritten ? '，已同步 ~/.codex' : '';
       pushToast({ kind: 'success', message: '已保存并应用' + tail });
       setMsg(null);
     } catch (e) {

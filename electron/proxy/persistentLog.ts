@@ -48,9 +48,7 @@ export class PersistentLog {
 
   /** 追加一条；失败静默吞掉，不能阻塞代理。 */
   append(entry: ProxyLogEntry): void {
-    this.writing = this.writing
-      .then(() => this.appendInternal(entry))
-      .catch(() => undefined);
+    this.writing = this.writing.then(() => this.appendInternal(entry)).catch(() => undefined);
   }
 
   private async appendInternal(entry: ProxyLogEntry): Promise<void> {

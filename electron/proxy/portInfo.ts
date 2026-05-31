@@ -37,12 +37,7 @@ export async function lookupPortHolder(port: number): Promise<PortHolder | null>
 
 async function lookupUnix(port: number): Promise<PortHolder | null> {
   try {
-    const { stdout } = await exec('lsof', [
-      '-nP',
-      '-iTCP:' + port,
-      '-sTCP:LISTEN',
-      '-Fpcun',
-    ]);
+    const { stdout } = await exec('lsof', ['-nP', '-iTCP:' + port, '-sTCP:LISTEN', '-Fpcun']);
     const lines = stdout.split(/\r?\n/).filter(Boolean);
     let pid = 0;
     let command = '';

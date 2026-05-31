@@ -85,13 +85,7 @@ export function Dashboard(): JSX.Element {
             {busy && (
               <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
             )}
-            {busy
-              ? running
-                ? '正在停止…'
-                : '正在启动…'
-              : running
-                ? '停止代理'
-                : '启动代理'}
+            {busy ? (running ? '正在停止…' : '正在启动…') : running ? '停止代理' : '启动代理'}
           </button>
         </div>
 

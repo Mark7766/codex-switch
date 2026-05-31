@@ -73,10 +73,8 @@ export const useAppStore = create<AppState>((set) => ({
   lastError: null,
   setLastError: (m) => set({ lastError: m }),
   toasts: [],
-  pushToast: (t) =>
-    set((s) => ({ toasts: [...s.toasts, { ...t, id: ++toastSeq }] })),
+  pushToast: (t) => set((s) => ({ toasts: [...s.toasts, { ...t, id: ++toastSeq }] })),
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   portConflict: null,
   setPortConflict: (c) => set({ portConflict: c }),
 }));
-

@@ -15,10 +15,7 @@ const execFileMock = _execFile as unknown as ReturnType<typeof vi.fn>;
  */
 function programNext(stdout: string | null, errMsg?: string): void {
   execFileMock.mockImplementationOnce(((..._args: unknown[]) => {
-    const cb = _args[_args.length - 1] as (
-      err: Error | null,
-      out?: { stdout: string },
-    ) => void;
+    const cb = _args[_args.length - 1] as (err: Error | null, out?: { stdout: string }) => void;
     if (errMsg) cb(new Error(errMsg));
     else cb(null, { stdout: stdout ?? '' });
   }) as unknown as typeof _execFile);
@@ -61,8 +58,7 @@ describe('portInfo.lookupPortHolder', () => {
 
   it('parses netstat + tasklist on win32', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
-    const netstatOut =
-      '\r\n  TCP    127.0.0.1:11435    0.0.0.0:0    LISTENING       9999\r\n';
+    const netstatOut = '\r\n  TCP    127.0.0.1:11435    0.0.0.0:0    LISTENING       9999\r\n';
     programNext(netstatOut); // netstat
     programNext('"node.exe","9999","Console","1","12,345 K"\r\n'); // tasklist
     const { lookupPortHolder } = await import('../../electron/proxy/portInfo');

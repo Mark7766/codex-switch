@@ -2,6 +2,15 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [1.1.3] - 2026-06-02
+
+CI 修复：v1.1.2 发版流水线在下载 `nsis-resources-3.4.1.7z` 时遇 GitHub 镜像 502，导致 Windows 包未产出；format:check 检出 7 个文件未走 prettier。
+
+### 修复
+- 为 `release.yml` 的 Windows build 加 3 次重试（与 mac 一致），避免偶发 502 直接失败。
+- `pnpm format` 走一遍，全库 prettier 清洁。
+
 ## [1.1.2] - 2026-06-02
 
 UX 补丁：为关键操作补上「点了之后有反应」的可见反馈。

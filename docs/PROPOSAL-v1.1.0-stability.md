@@ -10,14 +10,14 @@
 
 v1.0.x 在真实用户那边暴露 6 个稳定性问题，全部指向同一个核心：**Codex Switch 的"代理状态"必须可信、可控、可恢复**。
 
-| # | 现象 | 用户感知 | 严重度 |
-|---|------|----------|--------|
-| 1 | 端口被占自动 11435→11436→…，但 `~/.codex` 仍写 11435 | "代理是绿的，但 Codex 用不了" | 🔴 阻塞 |
-| 2 | 设置页两个按钮 `保存偏好` / `重新写入 ~/.codex`，常忘点第二个 | 改完端口 Codex 仍连旧端口 | 🔴 阻塞 |
-| 3 | 日志只在内存（500 条），重启即丢 | 出问题想回看，"昨天那条错没了" | 🟡 体验 |
-| 4 | 双击图标可同时打开多个 Codex Switch | 后启动者绑 11436+，撞 #1 | 🔴 阻塞 |
-| 5 | **主面板请求数 / 运行时长 / 近 5 分钟统计每次重启清零** | "我用了一周，怎么显示 0 次？" | 🟡 体验 |
-| 6 | **`启动代理` / `停止代理` 按钮"控制不好使"**——按钮显示停止但端口仍在 / 显示运行但请求 502 | "点了没反应"、"显示绿色但 Codex 连不上" | 🔴 阻塞 |
+| #   | 现象                                                                                      | 用户感知                                | 严重度  |
+| --- | ----------------------------------------------------------------------------------------- | --------------------------------------- | ------- |
+| 1   | 端口被占自动 11435→11436→…，但 `~/.codex` 仍写 11435                                      | "代理是绿的，但 Codex 用不了"           | 🔴 阻塞 |
+| 2   | 设置页两个按钮 `保存偏好` / `重新写入 ~/.codex`，常忘点第二个                             | 改完端口 Codex 仍连旧端口               | 🔴 阻塞 |
+| 3   | 日志只在内存（500 条），重启即丢                                                          | 出问题想回看，"昨天那条错没了"          | 🟡 体验 |
+| 4   | 双击图标可同时打开多个 Codex Switch                                                       | 后启动者绑 11436+，撞 #1                | 🔴 阻塞 |
+| 5   | **主面板请求数 / 运行时长 / 近 5 分钟统计每次重启清零**                                   | "我用了一周，怎么显示 0 次？"           | 🟡 体验 |
+| 6   | **`启动代理` / `停止代理` 按钮"控制不好使"**——按钮显示停止但端口仍在 / 显示运行但请求 502 | "点了没反应"、"显示绿色但 Codex 连不上" | 🔴 阻塞 |
 
 本提案围绕以上 6 点，给出最小改动、零新运行时依赖的稳定性方案。
 
@@ -59,13 +59,13 @@ private listenWithRetry(startPort: number): Promise<number> {
 
 ### 2.3 改动
 
-| 模块 | 改动 |
-|------|------|
-| `electron/proxy/server.ts` | 删 `listenWithRetry` 重试循环，改名 `listenStrict(port)`，EADDRINUSE 直接 reject 带 `code` |
-| `electron/proxy/portInfo.ts`（新建） | 跨平台占用进程探测：mac/linux 用 `lsof -nP -iTCP:<port> -sTCP:LISTEN`；win 用 `netstat -ano \| findstr :<port>` + `tasklist /FI "PID eq <pid>"`。**只读**，`execFile` + 数组参数 |
-| `electron/main.ts` | `IPC.proxyStart` 捕获 EADDRINUSE → 调 `portInfo.lookup` → 把 `{ error, occupant }` 返回给渲染层 |
-| `electron/main.ts` | 新增 `IPC.proxyKillPort({ pid })` |
-| `src/components/PortConflictModal.tsx`（新建） | 弹窗 UI |
+| 模块                                           | 改动                                                                                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `electron/proxy/server.ts`                     | 删 `listenWithRetry` 重试循环，改名 `listenStrict(port)`，EADDRINUSE 直接 reject 带 `code`                                                                                       |
+| `electron/proxy/portInfo.ts`（新建）           | 跨平台占用进程探测：mac/linux 用 `lsof -nP -iTCP:<port> -sTCP:LISTEN`；win 用 `netstat -ano \| findstr :<port>` + `tasklist /FI "PID eq <pid>"`。**只读**，`execFile` + 数组参数 |
+| `electron/main.ts`                             | `IPC.proxyStart` 捕获 EADDRINUSE → 调 `portInfo.lookup` → 把 `{ error, occupant }` 返回给渲染层                                                                                  |
+| `electron/main.ts`                             | 新增 `IPC.proxyKillPort({ pid })`                                                                                                                                                |
+| `src/components/PortConflictModal.tsx`（新建） | 弹窗 UI                                                                                                                                                                          |
 
 ### 2.4 安全约束
 
@@ -109,11 +109,11 @@ private listenWithRetry(startPort: number): Promise<number> {
 
 ### 3.3 改动
 
-| 模块 | 改动 |
-|------|------|
-| `src/pages/Settings.tsx` | `savePrefs` + `rewriteCodex` → `saveAndApply()`，删第二个按钮 |
-| `electron/main.ts` | 新增 `IPC.prefsApply`：store → `~/.codex` → 必要时 restart proxy → 返回新状态 |
-| `electron/proxy/server.ts` | 新增 `restart(port)` 内部 `stop()` + `start()`（依赖 §6 强化版） |
+| 模块                       | 改动                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `src/pages/Settings.tsx`   | `savePrefs` + `rewriteCodex` → `saveAndApply()`，删第二个按钮                 |
+| `electron/main.ts`         | 新增 `IPC.prefsApply`：store → `~/.codex` → 必要时 restart proxy → 返回新状态 |
+| `electron/proxy/server.ts` | 新增 `restart(port)` 内部 `stop()` + `start()`（依赖 §6 强化版）              |
 
 ### 3.4 失败回滚
 
@@ -151,11 +151,11 @@ private listenWithRetry(startPort: number): Promise<number> {
 
 ### 4.3 改动
 
-| 模块 | 改动 |
-|------|------|
-| `electron/proxy/persistentLog.ts`（新建） | 单例：`appendLog` / `loadTail` / `clearAll` / `getStats` / `exportZip` |
-| `electron/main.ts` | `proxy.on('log')` 追加一行；启动时 `logBuffer.push(...await loadTail(500))` |
-| `electron/ipc/channels.ts` / `preload.ts` / `src/types/global.d.ts` | 同步新通道 |
+| 模块                                                                | 改动                                                                        |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `electron/proxy/persistentLog.ts`（新建）                           | 单例：`appendLog` / `loadTail` / `clearAll` / `getStats` / `exportZip`      |
+| `electron/main.ts`                                                  | `proxy.on('log')` 追加一行；启动时 `logBuffer.push(...await loadTail(500))` |
+| `electron/ipc/channels.ts` / `preload.ts` / `src/types/global.d.ts` | 同步新通道                                                                  |
 
 ### 4.4 降级
 
@@ -174,7 +174,10 @@ private listenWithRetry(startPort: number): Promise<number> {
 
 ```ts
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) { app.quit(); process.exit(0); }
+if (!gotLock) {
+  app.quit();
+  process.exit(0);
+}
 
 app.on('second-instance', () => {
   if (mainWindow) {
@@ -204,12 +207,12 @@ app.on('second-instance', () => {
 
 [src/pages/Dashboard.tsx](../src/pages/Dashboard.tsx) 显示三组数据，**全部活在 `DeepSeekProxy` 实例的内存里**：
 
-| 数据 | 出处 | 持久化情况 |
-|------|------|------------|
-| 处理请求数（累计） | `this.stats.total` | ❌ 进程退出即清零 |
-| 运行时长 | `Date.now() - this.startedAt` | ❌ 每次 start 重置 |
-| 近 5 分钟成功率 / 平均耗时 | `this.stats.recent[]` 滑动窗口 | ❌ 进程退出即清零 |
-| 最近一次错误 | `this.stats.lastError` | ❌ 进程退出即清零 |
+| 数据                       | 出处                           | 持久化情况         |
+| -------------------------- | ------------------------------ | ------------------ |
+| 处理请求数（累计）         | `this.stats.total`             | ❌ 进程退出即清零  |
+| 运行时长                   | `Date.now() - this.startedAt`  | ❌ 每次 start 重置 |
+| 近 5 分钟成功率 / 平均耗时 | `this.stats.recent[]` 滑动窗口 | ❌ 进程退出即清零  |
+| 最近一次错误               | `this.stats.lastError`         | ❌ 进程退出即清零  |
 
 用户感受："明明用了一周，每天都在看主面板，怎么数字老是从 0 开始？这软件没在工作？"
 
@@ -219,20 +222,20 @@ app.on('second-instance', () => {
 
 把"统计数据"拆为三类，分别处理：
 
-| 类别 | 含义 | 是否持久化 |
-|------|------|------------|
-| **生命周期累计** | 自首次安装以来的累计请求数、累计运行时长（小时） | ✅ 持久化到 `electron-store`，跨重启累加 |
-| **本次会话** | 本次进程启动以来的请求数、本次运行时长 | ❌ 内存即可（语义上就是"这次") |
-| **近 5 分钟滑窗** | 近 5 分钟请求数 / 成功率 / 平均耗时 / 最近错误 | ❌ 内存即可（短窗口语义） |
+| 类别              | 含义                                             | 是否持久化                               |
+| ----------------- | ------------------------------------------------ | ---------------------------------------- |
+| **生命周期累计**  | 自首次安装以来的累计请求数、累计运行时长（小时） | ✅ 持久化到 `electron-store`，跨重启累加 |
+| **本次会话**      | 本次进程启动以来的请求数、本次运行时长           | ❌ 内存即可（语义上就是"这次")           |
+| **近 5 分钟滑窗** | 近 5 分钟请求数 / 成功率 / 平均耗时 / 最近错误   | ❌ 内存即可（短窗口语义）                |
 
 #### 6.2.2 持久化策略
 
 - 字段加到 [electron/config/store.ts](../electron/config/store.ts) 的 `UserPreferences`：
   ```ts
-  lifetimeRequestCount: number;     // 累计请求数
-  lifetimeUptimeSec: number;        // 累计运行时长（秒）
-  lifetimeFirstStartAt: number;     // 首次启动时间戳
-  lastSessionEndedAt: number;       // 上次正常关闭时间戳
+  lifetimeRequestCount: number; // 累计请求数
+  lifetimeUptimeSec: number; // 累计运行时长（秒）
+  lifetimeFirstStartAt: number; // 首次启动时间戳
+  lastSessionEndedAt: number; // 上次正常关闭时间戳
   ```
 - **写入时机**：节流到 **30 秒一次**（避免每条请求都写盘）：proxy 内部一个 30s 定时器把 `delta` flush 到 store；`stop()` 与 `before-quit` 触发立即 flush。
 - **运行时长累加**：`uptimeAccum += Date.now() - lastFlushAt`，避免长会话单次落盘超量。
@@ -263,13 +266,13 @@ app.on('second-instance', () => {
 
 ### 6.3 改动
 
-| 模块 | 改动 |
-|------|------|
-| `electron/config/store.ts` | 新增 4 个字段 + migration |
-| `electron/proxy/server.ts` | `stats` 结构拆分 lifetime / session / recent；新增 `lifetimeFlush()` 30s 定时器 |
-| `electron/main.ts` | `before-quit` 调用 `proxy.lifetimeFlush()`；`proxyInfo` 返回新增 lifetime 字段 |
-| `electron/ipc/channels.ts` / `preload.ts` / `src/types/global.d.ts` | `ProxyInfo` 类型扩展 |
-| `src/pages/Dashboard.tsx` | 新增"累计"区块；标签从单一统计改为三层结构 |
+| 模块                                                                | 改动                                                                            |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `electron/config/store.ts`                                          | 新增 4 个字段 + migration                                                       |
+| `electron/proxy/server.ts`                                          | `stats` 结构拆分 lifetime / session / recent；新增 `lifetimeFlush()` 30s 定时器 |
+| `electron/main.ts`                                                  | `before-quit` 调用 `proxy.lifetimeFlush()`；`proxyInfo` 返回新增 lifetime 字段  |
+| `electron/ipc/channels.ts` / `preload.ts` / `src/types/global.d.ts` | `ProxyInfo` 类型扩展                                                            |
+| `src/pages/Dashboard.tsx`                                           | 新增"累计"区块；标签从单一统计改为三层结构                                      |
 
 ---
 
@@ -294,16 +297,16 @@ app.on('second-instance', () => {
 
 ### 7.2 经过仔细审查，发现 8 处真实缺陷
 
-| # | 缺陷 | 用户实际感受 |
-|---|------|--------------|
-| **C1** | `stop()` 在 `await close` **之前**就把 `this.server` / `this.wss` 置 null。如果 close 回调因长连接（SSE / WebSocket）阻塞 60 秒以上，UI 已收到 status=stopped 但 OS 端口仍被占用。下次 start 撞 EADDRINUSE → 私自换号 11436。 | "我点了停止，代理灯灭了，但 11435 还能响应" |
-| **C2** | `start()` 的 early-return：`if (status==='running'\|\|'starting') return this.actualPort`。但若上一次 start 在 listen 阶段 reject（status 变 'error'），再点启动时 status='error' 不命中 early-return —— **新建** 第二个 server 去 listen，而**前一次失败留下的引用**（理论上没 listen 成功不持有句柄，但若 wss 已挂了 connection listener 会泄漏）会累积事件监听器。 | "反复点启动后内存升高 / 偶发崩溃" |
-| **C3** | `server.once('error', ...)` 只在 listen 之前监听一次。**listen 成功后就没有运行期错误监听**：socket 层 ECONNRESET 风暴、EMFILE（文件句柄耗尽）等会让 server 崩溃但 status 仍是 'running'，UI 显示绿灯，实际请求 502。 | "显示运行中但 Codex 报错连不上" |
-| **C4** | 没有"端口实际监听"的健康自检。UI 红绿灯只看 `status` 字段，不看 `server.listening`。 | 同 C3 |
-| **C5** | `stop()` 没有超时。SSE 流可以挂一两分钟；用户点了停止，但代理"还活着"。 | "点停止按钮没反应" |
-| **C6** | `before-quit` 处理器：若 `await proxy.stop()` 抛错，`app.quit()` 不会被调用 → 主窗口已隐藏，进程僵死。 | "右上角点关闭按钮，App 看似消失但 Activity Monitor 里还在" |
-| **C7** | UI 端 `toggle()` 失败默默吞错。`proxyStart` 抛异常 → `finally setBusy(false)` 复位按钮，但用户不知道**为什么失败**。 | "点启动按钮闪一下又恢复了，啥都没变" |
-| **C8** | UI 用 1.5 秒轮询 `proxyInfo()` 取状态，期间真实状态可能已经变了 → 红绿灯抖动；启动失败的窗口期内 UI 还显示"正在启动"。 | "状态灯一闪一闪" |
+| #      | 缺陷                                                                                                                                                                                                                                                                                                                                                                  | 用户实际感受                                               |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **C1** | `stop()` 在 `await close` **之前**就把 `this.server` / `this.wss` 置 null。如果 close 回调因长连接（SSE / WebSocket）阻塞 60 秒以上，UI 已收到 status=stopped 但 OS 端口仍被占用。下次 start 撞 EADDRINUSE → 私自换号 11436。                                                                                                                                         | "我点了停止，代理灯灭了，但 11435 还能响应"                |
+| **C2** | `start()` 的 early-return：`if (status==='running'\|\|'starting') return this.actualPort`。但若上一次 start 在 listen 阶段 reject（status 变 'error'），再点启动时 status='error' 不命中 early-return —— **新建** 第二个 server 去 listen，而**前一次失败留下的引用**（理论上没 listen 成功不持有句柄，但若 wss 已挂了 connection listener 会泄漏）会累积事件监听器。 | "反复点启动后内存升高 / 偶发崩溃"                          |
+| **C3** | `server.once('error', ...)` 只在 listen 之前监听一次。**listen 成功后就没有运行期错误监听**：socket 层 ECONNRESET 风暴、EMFILE（文件句柄耗尽）等会让 server 崩溃但 status 仍是 'running'，UI 显示绿灯，实际请求 502。                                                                                                                                                 | "显示运行中但 Codex 报错连不上"                            |
+| **C4** | 没有"端口实际监听"的健康自检。UI 红绿灯只看 `status` 字段，不看 `server.listening`。                                                                                                                                                                                                                                                                                  | 同 C3                                                      |
+| **C5** | `stop()` 没有超时。SSE 流可以挂一两分钟；用户点了停止，但代理"还活着"。                                                                                                                                                                                                                                                                                               | "点停止按钮没反应"                                         |
+| **C6** | `before-quit` 处理器：若 `await proxy.stop()` 抛错，`app.quit()` 不会被调用 → 主窗口已隐藏，进程僵死。                                                                                                                                                                                                                                                                | "右上角点关闭按钮，App 看似消失但 Activity Monitor 里还在" |
+| **C7** | UI 端 `toggle()` 失败默默吞错。`proxyStart` 抛异常 → `finally setBusy(false)` 复位按钮，但用户不知道**为什么失败**。                                                                                                                                                                                                                                                  | "点启动按钮闪一下又恢复了，啥都没变"                       |
+| **C8** | UI 用 1.5 秒轮询 `proxyInfo()` 取状态，期间真实状态可能已经变了 → 红绿灯抖动；启动失败的窗口期内 UI 还显示"正在启动"。                                                                                                                                                                                                                                                | "状态灯一闪一闪"                                           |
 
 ### 7.3 新设计：把"端口实际在监听"作为唯一真相
 
@@ -436,13 +439,13 @@ app.on('before-quit', async (e) => {
 
 ### 7.4 改动清单
 
-| 模块 | 改动 |
-|------|------|
-| `electron/proxy/server.ts` | 串行队列、`stop` 超时、`destroyAllSockets`、运行期 error / clientError、健康检查、自动恢复 |
-| `electron/main.ts` | `before-quit` 加 race + `app.exit(0)`；`proxyStart` / `proxyStop` IPC 错误传到渲染层；新增 `proxyOnError` push |
-| `electron/ipc/channels.ts` / `preload.ts` | 新增 `proxy:on-error` |
-| `src/pages/Dashboard.tsx` | 红绿灯逻辑改为 `serverListening` + status 双因子；订阅 `proxyOnError` 显示 toast |
-| `src/components/Toast.tsx`（新建） | 通用 toast 组件 |
+| 模块                                      | 改动                                                                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `electron/proxy/server.ts`                | 串行队列、`stop` 超时、`destroyAllSockets`、运行期 error / clientError、健康检查、自动恢复                     |
+| `electron/main.ts`                        | `before-quit` 加 race + `app.exit(0)`；`proxyStart` / `proxyStop` IPC 错误传到渲染层；新增 `proxyOnError` push |
+| `electron/ipc/channels.ts` / `preload.ts` | 新增 `proxy:on-error`                                                                                          |
+| `src/pages/Dashboard.tsx`                 | 红绿灯逻辑改为 `serverListening` + status 双因子；订阅 `proxyOnError` 显示 toast                               |
+| `src/components/Toast.tsx`（新建）        | 通用 toast 组件                                                                                                |
 
 ### 7.5 单测要点
 
@@ -458,40 +461,40 @@ app.on('before-quit', async (e) => {
 
 ### 8.1 文件（预估 LOC，无新运行时依赖）
 
-| 文件 | 状态 | 主题 | LOC |
-|------|------|------|-----|
-| `electron/main.ts` | 改 | §2 §3 §5 §7 | +160 / -40 |
-| `electron/proxy/server.ts` | 改 | §2 §6 §7 | +180 / -50（新状态机 + 健康检查 + 自动恢复 + lifetime 统计） |
-| `electron/proxy/portInfo.ts` | 新建 | §2 | +90 |
-| `electron/proxy/persistentLog.ts` | 新建 | §4 | +160 |
-| `electron/config/store.ts` | 改 | §6 | +30 |
-| `electron/ipc/channels.ts` | 改 | §2 §3 §4 §5 §7 | +14 |
-| `electron/preload.ts` | 改 | 同上 | +30 |
-| `src/types/global.d.ts` | 改 | 同上 | +20 |
-| `src/pages/Settings.tsx` | 改 | §3 §4 | +50 / -25 |
-| `src/pages/Dashboard.tsx` | 改 | §6 §7 | +70 / -10 |
-| `src/pages/Logs.tsx` | 改 | §4 | +50 |
-| `src/components/PortConflictModal.tsx` | 新建 | §2 | +90 |
-| `src/components/Toast.tsx` | 新建 | §5 §7 | +60 |
-| `tests/unit/portInfo.test.ts` | 新建 | §2 | +80 |
-| `tests/unit/persistentLog.test.ts` | 新建 | §4 | +120 |
-| `tests/unit/server.lifecycle.test.ts` | 新建 | §7 | +180（串行化 / stop 超时 / health check / auto-recover） |
+| 文件                                   | 状态 | 主题           | LOC                                                          |
+| -------------------------------------- | ---- | -------------- | ------------------------------------------------------------ |
+| `electron/main.ts`                     | 改   | §2 §3 §5 §7    | +160 / -40                                                   |
+| `electron/proxy/server.ts`             | 改   | §2 §6 §7       | +180 / -50（新状态机 + 健康检查 + 自动恢复 + lifetime 统计） |
+| `electron/proxy/portInfo.ts`           | 新建 | §2             | +90                                                          |
+| `electron/proxy/persistentLog.ts`      | 新建 | §4             | +160                                                         |
+| `electron/config/store.ts`             | 改   | §6             | +30                                                          |
+| `electron/ipc/channels.ts`             | 改   | §2 §3 §4 §5 §7 | +14                                                          |
+| `electron/preload.ts`                  | 改   | 同上           | +30                                                          |
+| `src/types/global.d.ts`                | 改   | 同上           | +20                                                          |
+| `src/pages/Settings.tsx`               | 改   | §3 §4          | +50 / -25                                                    |
+| `src/pages/Dashboard.tsx`              | 改   | §6 §7          | +70 / -10                                                    |
+| `src/pages/Logs.tsx`                   | 改   | §4             | +50                                                          |
+| `src/components/PortConflictModal.tsx` | 新建 | §2             | +90                                                          |
+| `src/components/Toast.tsx`             | 新建 | §5 §7          | +60                                                          |
+| `tests/unit/portInfo.test.ts`          | 新建 | §2             | +80                                                          |
+| `tests/unit/persistentLog.test.ts`     | 新建 | §4             | +120                                                         |
+| `tests/unit/server.lifecycle.test.ts`  | 新建 | §7             | +180（串行化 / stop 超时 / health check / auto-recover）     |
 
 合计 **~+1500 / -125 LOC**，无新运行时依赖。
 
 ### 8.2 新 IPC 通道
 
-| 通道 | 方向 | 主题 |
-|------|------|------|
-| `proxy:lookupPort` | renderer → main | §2 |
-| `proxy:killPort` | renderer → main | §2 |
-| `proxy:on-error` | main → renderer | §7 |
-| `prefs:apply` | renderer → main | §3 |
-| `logs:exportZip` | renderer → main | §4 |
-| `logs:clearPersisted` | renderer → main | §4 |
-| `logs:openDir` | renderer → main | §4 |
-| `logs:getStats` | renderer → main | §4 |
-| `app:on-second-instance` | main → renderer | §5 |
+| 通道                     | 方向            | 主题 |
+| ------------------------ | --------------- | ---- |
+| `proxy:lookupPort`       | renderer → main | §2   |
+| `proxy:killPort`         | renderer → main | §2   |
+| `proxy:on-error`         | main → renderer | §7   |
+| `prefs:apply`            | renderer → main | §3   |
+| `logs:exportZip`         | renderer → main | §4   |
+| `logs:clearPersisted`    | renderer → main | §4   |
+| `logs:openDir`           | renderer → main | §4   |
+| `logs:getStats`          | renderer → main | §4   |
+| `app:on-second-instance` | main → renderer | §5   |
 
 ### 8.3 `UserPreferences` 新增字段
 
@@ -509,12 +512,12 @@ lastErrorAt: number;
 
 ## 9. 兼容性与迁移
 
-| 项 | 影响 |
-|----|------|
+| 项              | 影响                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | v1.0.x → v1.1.0 | store 自动 migrate 新字段（默认值）；用户首次进入 Dashboard 看到累计=0 是正常的，从此开始统计；`lifetimeFirstStartAt` 设为 v1.1.0 首次启动当天，文案显示 `自 YYYY-MM-DD 起累计` |
-| `~/.codex` | 格式不变，仅写入时机变 |
-| 端口偏好 | 不动，默认仍 11435 |
-| auto-update | 不动 ADR-013，darwin 仍走浏览器手动下载 |
+| `~/.codex`      | 格式不变，仅写入时机变                                                                                                                                                          |
+| 端口偏好        | 不动，默认仍 11435                                                                                                                                                              |
+| auto-update     | 不动 ADR-013，darwin 仍走浏览器手动下载                                                                                                                                         |
 
 ---
 
@@ -561,26 +564,26 @@ lastErrorAt: number;
 
 ## 12. 上线节奏
 
-| 步骤 | 产出 |
-|------|------|
-| 1. PR1：代理控制可靠性（§7）+ 单实例（§5） | v1.1.0-rc.1，**最高优先级**，直接堵稳定性大坑 |
-| 2. PR2：端口冲突弹窗（§2） | 依赖 PR1 的新状态机 |
-| 3. PR3：保存合并按钮（§3）+ 主面板累计（§6） | 用户体验类 |
-| 4. PR4：日志持久化（§4） | 独立 |
-| 5. 合并发 v1.1.0 | CHANGELOG 写明 6 项稳定性 / 体验改进 |
+| 步骤                                         | 产出                                          |
+| -------------------------------------------- | --------------------------------------------- |
+| 1. PR1：代理控制可靠性（§7）+ 单实例（§5）   | v1.1.0-rc.1，**最高优先级**，直接堵稳定性大坑 |
+| 2. PR2：端口冲突弹窗（§2）                   | 依赖 PR1 的新状态机                           |
+| 3. PR3：保存合并按钮（§3）+ 主面板累计（§6） | 用户体验类                                    |
+| 4. PR4：日志持久化（§4）                     | 独立                                          |
+| 5. 合并发 v1.1.0                             | CHANGELOG 写明 6 项稳定性 / 体验改进          |
 
 ---
 
 ## 13. 风险与回滚
 
-| 风险 | 缓解 |
-|------|------|
-| §7 自动恢复打架（与 §2 的 EADDRINUSE 弹窗）| 自动恢复仅在**已经成功 listen 过、运行期 crash** 的情况下触发；EADDRINUSE 一律走弹窗，不进入自动恢复 |
-| `kill` 误杀别人的进程 | §2.4 强 PID 验证 + 黑名单 + uid 检查；最坏情况影响一次会话 |
-| ndjson 大文件读尾部边界处理不对 | 单测覆盖；坏行 skip 不阻塞 |
-| 50 MB 日志拖慢启动加载 | `loadTail` 只读尾部 1 MB，与总量无关；启动 I/O 可控 |
-| `electron-store` 字段 migration 错误 | 单测覆盖；新字段加默认值，老字段不动 |
-| 30s 节流的 lifetime 数据写盘和 setPreferences 并发 | 用一个 mutex 把写盘和读全量 prefs 串行化 |
+| 风险                                               | 缓解                                                                                                 |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| §7 自动恢复打架（与 §2 的 EADDRINUSE 弹窗）        | 自动恢复仅在**已经成功 listen 过、运行期 crash** 的情况下触发；EADDRINUSE 一律走弹窗，不进入自动恢复 |
+| `kill` 误杀别人的进程                              | §2.4 强 PID 验证 + 黑名单 + uid 检查；最坏情况影响一次会话                                           |
+| ndjson 大文件读尾部边界处理不对                    | 单测覆盖；坏行 skip 不阻塞                                                                           |
+| 50 MB 日志拖慢启动加载                             | `loadTail` 只读尾部 1 MB，与总量无关；启动 I/O 可控                                                  |
+| `electron-store` 字段 migration 错误               | 单测覆盖；新字段加默认值，老字段不动                                                                 |
+| 30s 节流的 lifetime 数据写盘和 setPreferences 并发 | 用一个 mutex 把写盘和读全量 prefs 串行化                                                             |
 
 ---
 
@@ -588,14 +591,14 @@ lastErrorAt: number;
 
 用户已对所有开放问题给出明确答复，本节作为方案的最终边界条件存档：
 
-| # | 议题 | 决议 |
-|---|------|------|
-| 1 | §2.5 弹窗按钮顺序 | **`关闭进程并重试` 放第一位**（省事；破坏性已被 §2.4 的 PID 验证 + 黑名单 + uid 校验充分约束） |
-| 2 | §4.2 日志保留量 | **总上限 50 MB**：单文件 10 MB × 5（1 当前 + 4 历史）。不在设置页做滑杆，硬编码即可，足够用 |
-| 3 | §5.2 toast 时长 | 2 秒，按现案保留 |
-| 4 | §3.2 是否保留 "危险按钮 ▸ 单独重写 ~/.codex" | **不保留**。保存即应用，单一入口，不留二级菜单 |
-| 5 | §6.2 累计起算时间 | 设为 v1.1.0 首次启动当天，UI 文案 `自 YYYY-MM-DD 起累计`，不回填估算值 |
-| 6 | §7.3.4 自动恢复策略 | 3 次 / 1s-3s-9s 退避维持。**不给用户开关**——失败后明确 toast 提示已足够，开关只会增加困惑 |
-| 7 | §8 安装量统计 | **整个章节移除**：本期不做 telemetry，不预埋客户端上报代码，不部署服务端。后续如要做需单独立项 + 隐私评审 |
+| #   | 议题                                         | 决议                                                                                                      |
+| --- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | §2.5 弹窗按钮顺序                            | **`关闭进程并重试` 放第一位**（省事；破坏性已被 §2.4 的 PID 验证 + 黑名单 + uid 校验充分约束）            |
+| 2   | §4.2 日志保留量                              | **总上限 50 MB**：单文件 10 MB × 5（1 当前 + 4 历史）。不在设置页做滑杆，硬编码即可，足够用               |
+| 3   | §5.2 toast 时长                              | 2 秒，按现案保留                                                                                          |
+| 4   | §3.2 是否保留 "危险按钮 ▸ 单独重写 ~/.codex" | **不保留**。保存即应用，单一入口，不留二级菜单                                                            |
+| 5   | §6.2 累计起算时间                            | 设为 v1.1.0 首次启动当天，UI 文案 `自 YYYY-MM-DD 起累计`，不回填估算值                                    |
+| 6   | §7.3.4 自动恢复策略                          | 3 次 / 1s-3s-9s 退避维持。**不给用户开关**——失败后明确 toast 提示已足够，开关只会增加困惑                 |
+| 7   | §8 安装量统计                                | **整个章节移除**：本期不做 telemetry，不预埋客户端上报代码，不部署服务端。后续如要做需单独立项 + 隐私评审 |
 
 Review 已通过，可按 §12 顺序开 PR。
