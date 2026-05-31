@@ -4,6 +4,9 @@ import { useAppStore } from '../lib/store';
 export function Dashboard(): JSX.Element {
   const status = useAppStore((s) => s.proxyStatus);
   const port = useAppStore((s) => s.port);
+  const setPort = useAppStore((s) => s.setPort);
+  const lifetime = useAppStore((s) => s.lifetime);
+  const setLifetime = useAppStore((s) => s.setLifetime);
   const [busy, setBusy] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
   const [uptime, setUptime] = useState(0);
@@ -20,9 +23,12 @@ export function Dashboard(): JSX.Element {
       setRequestCount(info.requestCount);
       setUptime(info.uptimeMs);
       setRecent(info.recentStats);
+      // §7：以主进程返回的真实 port 为准（修复改端口后重启不一致 bug）
+      if (info.port && info.port !== port) setPort(info.port);
+      if (info.lifetime) setLifetime(info.lifetime);
     }, 1500);
     return () => clearInterval(t);
-  }, []);
+  }, [port, setPort, setLifetime]);
 
   async function toggle(): Promise<void> {
     setBusy(true);
@@ -93,6 +99,17 @@ export function Dashboard(): JSX.Element {
         )}
       </div>
 
+      <div className="bg-slate-800/30 rounded-xl p-6 mb-6">
+        <div className="text-sm font-medium mb-3">累计</div>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <Stat label="累计请求数" value={String(lifetime.requestCount)} />
+          <Stat label="累计运行时长" value={formatLifetime(lifetime.uptimeSec)} />
+        </div>
+        {lifetime.firstStartAt && (
+          <div className="mt-2 text-xs text-slate-400">自 {lifetime.firstStartAt} 起累计</div>
+        )}
+      </div>
+
       <div className="bg-slate-800/30 rounded-xl p-6 text-sm leading-relaxed">
         <div className="font-medium mb-2">使用方式</div>
         <ol className="list-decimal list-inside text-slate-300 space-y-1">
@@ -127,4 +144,14 @@ function formatUptime(ms: number): string {
   if (h) return `${h}小时${m}分`;
   if (m) return `${m}分${sec}秒`;
   return `${sec}秒`;
+}
+
+function formatLifetime(totalSec: number): string {
+  if (!totalSec) return '—';
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (d) return `${d}天${h}小时`;
+  if (h) return `${h}小时${m}分`;
+  return `${m}分`;
 }

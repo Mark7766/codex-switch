@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import log from 'electron-log';
@@ -6,7 +6,12 @@ import log from 'electron-log';
 import { IPC } from './ipc/channels';
 import { getPreferences, setPreferences, type UserPreferences } from './config/store';
 import { clearApiKey, getApiKey, setApiKey } from './config/secrets';
-import { DeepSeekProxy, type ProxyLogEntry, type ProxyStatus } from './proxy/server';
+import {
+  DeepSeekProxy,
+  type ProxyLogEntry,
+  type ProxyStatus,
+  type ProxyErrorInfo,
+} from './proxy/server';
 import {
   listBackups,
   restoreCodexConfig,
@@ -16,6 +21,8 @@ import {
 } from './codex/writer';
 import { UpdaterManager, type UpdateEvent } from './updater';
 import { redactSensitive } from './proxy/errors';
+import { PersistentLog } from './proxy/persistentLog';
+import { lookupPortHolder, killPid } from './proxy/portInfo';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
@@ -27,6 +34,23 @@ const LOG_BUFFER_MAX = 500;
 const updater = new UpdaterManager();
 updater.on('event', (e: UpdateEvent) => {
   mainWindow?.webContents.send(IPC.updateOnEvent, e);
+});
+
+let persistentLog: PersistentLog | null = null;
+let lifetimeFlushTimer: NodeJS.Timeout | null = null;
+let lifetimeFlushing = false;
+
+// §5 单实例锁：第二实例直接退出，主实例聚焦窗口并广播 toast。
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  mainWindow.webContents.send(IPC.appOnSecondInstance);
 });
 
 async function ensureProxy(): Promise<DeepSeekProxy> {
@@ -46,7 +70,16 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     logBuffer.push(entry);
     if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
     mainWindow?.webContents.send(IPC.proxyOnLog, entry);
+    persistentLog?.append(entry);
     log.info(`[${entry.source}] ${entry.message}`);
+  });
+  proxy.on('proxy-error', (info: ProxyErrorInfo) => {
+    mainWindow?.webContents.send(IPC.proxyOnError, info);
+    try {
+      setPreferences({ lastErrorMessage: info.message, lastErrorAt: Date.now() });
+    } catch (e) {
+      log.warn('记录 lastError 失败：', (e as Error).message);
+    }
   });
   return proxy;
 }
@@ -56,7 +89,6 @@ function isDev(): boolean {
 }
 
 async function createWindow(): Promise<void> {
-  // packaged 时 preload 从 asar 解包目录加载，避免 asar 内 preload 加载静默失败
   const preloadPath = app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'electron', 'preload.js')
     : path.join(__dirname, 'preload.js');
@@ -88,6 +120,62 @@ async function createWindow(): Promise<void> {
   }
 }
 
+/** §3：事务性应用偏好——store → ~/.codex → 必要时重启代理。任一步失败抛出。 */
+async function applyPreferencesTransaction(
+  patch: Partial<UserPreferences> & { codexModel?: string },
+): Promise<{ prefs: UserPreferences; codexWritten: boolean; restarted: boolean }> {
+  const before = getPreferences();
+  const { codexModel, ...prefsPatch } = patch;
+  const portChanged =
+    prefsPatch.proxyPort !== undefined && prefsPatch.proxyPort !== before.proxyPort;
+  const apiKey = await getApiKey();
+
+  // 1) 写偏好
+  const next = setPreferences(prefsPatch);
+
+  // 2) 同步代理选项（不重启）
+  if (proxy) {
+    proxy.updateOptions({
+      port: next.proxyPort,
+      modelMapping: next.modelMapping,
+      defaultModel: next.defaultModel,
+    });
+  }
+
+  // 3) 写 ~/.codex（必须有 apiKey）
+  let codexWritten = false;
+  if (apiKey) {
+    try {
+      await writeCodexConfig({
+        proxyPort: next.proxyPort,
+        model: codexModel || next.defaultModel,
+        apiKey,
+      });
+      codexWritten = true;
+    } catch (e) {
+      // 回滚 store
+      setPreferences(before);
+      if (proxy) {
+        proxy.updateOptions({
+          port: before.proxyPort,
+          modelMapping: before.modelMapping,
+          defaultModel: before.defaultModel,
+        });
+      }
+      throw e;
+    }
+  }
+
+  // 4) 端口变了且代理在跑则重启
+  let restarted = false;
+  if (portChanged && proxy && proxy.getStatus() === 'running') {
+    await proxy.restart();
+    restarted = true;
+  }
+
+  return { prefs: next, codexWritten, restarted };
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.prefsGet, () => getPreferences());
   ipcMain.handle(IPC.prefsSet, (_e, patch: Partial<UserPreferences>) => {
@@ -101,6 +189,12 @@ function registerIpc(): void {
     }
     return next;
   });
+  ipcMain.handle(
+    IPC.prefsApply,
+    async (_e, patch: Partial<UserPreferences> & { codexModel?: string }) => {
+      return applyPreferencesTransaction(patch ?? {});
+    },
+  );
 
   ipcMain.handle(IPC.keyGet, async () => {
     const v = await getApiKey();
@@ -128,15 +222,27 @@ function registerIpc(): void {
     return { status: proxy.getStatus() };
   });
   ipcMain.handle(IPC.proxyInfo, async () => {
-    if (!proxy)
+    const prefs = getPreferences();
+    const lifetime = {
+      requestCount: prefs.lifetimeRequestCount,
+      uptimeSec: prefs.lifetimeUptimeSec,
+      firstStartAt: prefs.lifetimeFirstStartAt,
+    };
+    const lastError = prefs.lastErrorMessage
+      ? { message: prefs.lastErrorMessage, ts: prefs.lastErrorAt }
+      : null;
+    if (!proxy) {
       return {
         status: 'stopped' as const,
-        port: 0,
+        port: prefs.proxyPort,
         uptimeMs: 0,
         requestCount: 0,
         logs: [],
         recentStats: { total: 0, successRate: 1, avgDurationMs: 0, lastError: null },
+        lifetime,
+        lastError,
       };
+    }
     return {
       status: proxy.getStatus(),
       port: proxy.getPort(),
@@ -144,7 +250,18 @@ function registerIpc(): void {
       requestCount: proxy.getRequestCount(),
       logs: logBuffer.slice(-200),
       recentStats: proxy.getRecentStats(),
+      lifetime,
+      lastError,
     };
+  });
+  ipcMain.handle(IPC.proxyLookupPort, async (_e, port: number) => {
+    return lookupPortHolder(port);
+  });
+  ipcMain.handle(IPC.proxyKillPort, async (_e, port: number) => {
+    const holder = await lookupPortHolder(port);
+    if (!holder) return { ok: false, reason: 'no-holder' as const };
+    const out = await killPid(holder.pid, holder.command);
+    return { ...out, holder };
   });
 
   ipcMain.handle(IPC.codexWrite, async (_e, payload: { model: string }) => {
@@ -208,7 +325,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.helpGetDiagnostics, () => {
     const prefs = getPreferences();
     const safePrefs: Record<string, unknown> = { ...prefs };
-    delete (safePrefs as Record<string, unknown>).modelMapping; // 数据可能很长
+    delete (safePrefs as Record<string, unknown>).modelMapping;
     const recent = logBuffer.slice(-100).map((l) => ({
       ...l,
       message: redactSensitive(l.message),
@@ -244,6 +361,24 @@ function registerIpc(): void {
   ipcMain.handle(IPC.codexBackupDelete, async (_e, p: string) => ({
     deleted: await deleteBackup(p),
   }));
+
+  // ─── 持久化日志 ───────────────────────────────────────────────────────
+  ipcMain.handle(IPC.logsLoadPersisted, async (_e, limit?: number) => {
+    if (!persistentLog) return [];
+    return persistentLog.loadTail(typeof limit === 'number' && limit > 0 ? limit : 500);
+  });
+  ipcMain.handle(IPC.logsClearPersisted, async () => {
+    if (persistentLog) await persistentLog.clearAll();
+    logBuffer.length = 0;
+    return true;
+  });
+  ipcMain.handle(IPC.logsOpenDir, () => {
+    if (persistentLog) shell.showItemInFolder(persistentLog.getFilePath());
+  });
+  ipcMain.handle(IPC.logsGetStats, async () => {
+    if (!persistentLog) return { files: 0, totalBytes: 0 };
+    return persistentLog.getStats();
+  });
 }
 
 async function readHelpJson(name: string): Promise<unknown> {
@@ -261,7 +396,49 @@ async function readHelpJson(name: string): Promise<unknown> {
   return [];
 }
 
+/** §6：每 30s 把 proxy 累计的请求增量与运行时长合并到 prefs。 */
+async function flushLifetime(): Promise<void> {
+  if (lifetimeFlushing) return;
+  if (!proxy) return;
+  lifetimeFlushing = true;
+  try {
+    const { requestsDelta, uptimeMs } = proxy.consumeLifetimeDelta();
+    if (requestsDelta === 0 && uptimeMs === 0) return;
+    const cur = getPreferences();
+    setPreferences({
+      lifetimeRequestCount: cur.lifetimeRequestCount + requestsDelta,
+      // 仅当代理在跑时累加；uptimeMs 是当前会话累计时长，所以不能直接加
+      // 这里用增量：上次 flush 时已经把 uptimeMs 记到 sessionLastUptimeMs
+      lifetimeUptimeSec: cur.lifetimeUptimeSec + Math.floor(consumeUptimeDelta(uptimeMs) / 1000),
+    });
+  } catch (e) {
+    log.warn('flushLifetime 失败：', (e as Error).message);
+  } finally {
+    lifetimeFlushing = false;
+  }
+}
+
+let sessionLastUptimeMs = 0;
+function consumeUptimeDelta(currentUptimeMs: number): number {
+  // currentUptimeMs 为 0 表示代理已停；把 baseline 重置。
+  if (currentUptimeMs === 0) {
+    sessionLastUptimeMs = 0;
+    return 0;
+  }
+  const delta = currentUptimeMs - sessionLastUptimeMs;
+  sessionLastUptimeMs = currentUptimeMs;
+  return delta > 0 ? delta : 0;
+}
+
 app.whenReady().then(async () => {
+  // 启动持久化日志
+  try {
+    persistentLog = new PersistentLog({ dir: path.join(app.getPath('userData'), 'logs') });
+    await persistentLog.prune();
+  } catch (e) {
+    log.warn('持久化日志初始化失败：', (e as Error).message);
+  }
+
   registerIpc();
   await createWindow();
 
@@ -286,6 +463,10 @@ app.whenReady().then(async () => {
     }
   }
 
+  lifetimeFlushTimer = setInterval(() => {
+    flushLifetime().catch(() => undefined);
+  }, 30_000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -295,10 +476,34 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', async (e) => {
-  if (proxy && proxy.getStatus() === 'running') {
+let quitInProgress = false;
+app.on('before-quit', (e) => {
+  if (quitInProgress) return;
+  if (proxy && proxy.getStatus() !== 'stopped') {
     e.preventDefault();
-    await proxy.stop();
-    app.quit();
+    quitInProgress = true;
+    if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
+    flushLifetime().catch(() => undefined);
+    const hardTimer = setTimeout(() => {
+      log.warn('代理 stop 超时，强制退出');
+      app.exit(0);
+    }, 3000);
+    proxy
+      .stop()
+      .catch(() => undefined)
+      .finally(async () => {
+        clearTimeout(hardTimer);
+        try {
+          await persistentLog?.close();
+        } catch {
+          /* ignore */
+        }
+        app.quit();
+      });
+  } else {
+    if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
   }
 });
+
+// 引用以避免 dialog 未使用警告（dialog 预留给后续 logs:exportZip 等）
+void dialog;

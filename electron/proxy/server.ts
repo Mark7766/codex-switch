@@ -48,7 +48,17 @@ export interface ProxyLogEntry {
   meta?: Record<string, unknown>;
 }
 
-export type ProxyStatus = 'stopped' | 'starting' | 'running' | 'error';
+export type ProxyStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+
+export type ProxyErrorKind = 'port-conflict' | 'runtime' | 'auto-recover-failed';
+
+export interface ProxyErrorInfo {
+  kind: ProxyErrorKind;
+  port: number;
+  message: string;
+  /** true 表示后续可由 auto-recover 或用户重试解决；false 表示需要用户介入（如端口冲突）。 */
+  recoverable: boolean;
+}
 
 interface RequestStats {
   total: number;
@@ -61,6 +71,8 @@ interface RequestStats {
   lastErrorTs: number;
   /** 最近 5 分钟内 (now-5min, now] 的请求 [ts, success]。 */
   recent: Array<{ ts: number; ok: boolean }>;
+  /** 自上次 getLifetimeDelta 以来的请求增量。 */
+  pendingDelta: number;
 }
 
 function newReqId(): string {
@@ -76,6 +88,15 @@ export class DeepSeekProxy extends EventEmitter {
   private readonly reasoning = new ReasoningStore();
   private readonly agent = new https.Agent({ rejectUnauthorized: true });
   private startedAt = 0;
+  /** 串行化 start / stop / restart 调用，避免并发竞态（§7 C2/C5）。 */
+  private taskQueue: Promise<unknown> = Promise.resolve();
+  /** 当前 server 是否被显式 stop（区分主动停止与运行期 crash）。 */
+  private intentionalStop = false;
+  /** 已成功 listen 过、运行期 crash 后才会触发自动恢复。 */
+  private autoRecoverAttempts = 0;
+  private recoverTimer: NodeJS.Timeout | null = null;
+  private static readonly RECOVER_BACKOFFS_MS = [1000, 3000, 9000];
+  private static readonly STOP_TIMEOUT_MS = 3000;
   private readonly stats: RequestStats = {
     total: 0,
     success: 0,
@@ -84,6 +105,7 @@ export class DeepSeekProxy extends EventEmitter {
     lastError: null,
     lastErrorTs: 0,
     recent: [],
+    pendingDelta: 0,
   };
 
   constructor(opts: ProxyOptions) {
@@ -92,11 +114,14 @@ export class DeepSeekProxy extends EventEmitter {
   }
 
   getStatus(): ProxyStatus {
+    // §7：以 server.listening 为最终真相，避免 status 字段与实际监听状态错位。
+    if (this.server && this.server.listening && this.status === 'running') return 'running';
     return this.status;
   }
 
   getPort(): number {
-    return this.actualPort || this.opts.port;
+    if (this.server && this.server.listening) return this.actualPort;
+    return this.opts.port;
   }
 
   getUptimeMs(): number {
@@ -105,6 +130,13 @@ export class DeepSeekProxy extends EventEmitter {
 
   getRequestCount(): number {
     return this.stats.total;
+  }
+
+  /** 返回自上次调用以来的请求增量并清零，主进程用于持久化 lifetime 统计。 */
+  consumeLifetimeDelta(): { requestsDelta: number; uptimeMs: number } {
+    const d = this.stats.pendingDelta;
+    this.stats.pendingDelta = 0;
+    return { requestsDelta: d, uptimeMs: this.getUptimeMs() };
   }
 
   /** 主面板"近 5 分钟"统计。 */
@@ -130,81 +162,231 @@ export class DeepSeekProxy extends EventEmitter {
     this.opts = { ...this.opts, ...patch };
   }
 
-  async start(): Promise<number> {
-    if (this.status === 'running' || this.status === 'starting') return this.actualPort;
-    this.status = 'starting';
-    this.emit('status', this.status);
-
-    const port = await this.listenWithRetry(this.opts.port);
-    this.actualPort = port;
-    this.status = 'running';
-    this.startedAt = Date.now();
-    this.emit('status', this.status);
-    this.log({ level: 'info', source: 'proxy', message: `代理已启动 http://127.0.0.1:${port}` });
-    return port;
+  /** 串行化外部生命周期调用，确保 start/stop/restart 不并发。 */
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.taskQueue.then(fn, fn);
+    this.taskQueue = next.catch(() => undefined);
+    return next;
   }
 
-  async stop(): Promise<void> {
-    if (!this.server) {
-      this.status = 'stopped';
-      this.emit('status', this.status);
-      return;
+  private setStatus(s: ProxyStatus): void {
+    if (this.status === s) return;
+    this.status = s;
+    this.emit('status', s);
+  }
+
+  start(): Promise<number> {
+    return this.enqueue(() => this.startInternal());
+  }
+
+  stop(): Promise<void> {
+    return this.enqueue(() => this.stopInternal(true));
+  }
+
+  /** 用最新的 opts 重启：先 stop 再 start，整体串行化。 */
+  restart(): Promise<number> {
+    return this.enqueue(async () => {
+      await this.stopInternal(true);
+      return this.startInternal();
+    });
+  }
+
+  private async startInternal(): Promise<number> {
+    if (this.server && this.server.listening) return this.actualPort;
+    this.intentionalStop = false;
+    this.setStatus('starting');
+    const port = this.opts.port;
+    try {
+      const bound = await this.listenOnce(port);
+      this.actualPort = bound;
+      this.startedAt = Date.now();
+      this.setStatus('running');
+      this.attachRuntimeMonitor();
+      this.log({
+        level: 'info',
+        source: 'proxy',
+        message: `代理已启动 http://127.0.0.1:${bound}`,
+      });
+      return bound;
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      const kind: ProxyErrorKind = err.code === 'EADDRINUSE' ? 'port-conflict' : 'runtime';
+      const info: ProxyErrorInfo = {
+        kind,
+        port,
+        message: err.message,
+        recoverable: kind !== 'port-conflict',
+      };
+      this.setStatus('error');
+      this.log({
+        level: 'error',
+        source: 'proxy',
+        message:
+          kind === 'port-conflict'
+            ? `端口 ${port} 被占用，请通过弹窗处理（不再自动 +1）`
+            : `代理启动失败：${err.message}`,
+      });
+      this.emit('proxy-error', info);
+      throw err;
     }
+  }
+
+  /** 单次 listen 尝试；EADDRINUSE 直接 reject，**不再自动 +1**。 */
+  private listenOnce(port: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const server = http.createServer((req, res) => this.handleHttp(req, res));
+      const wss = new WebSocketServer({ noServer: true });
+      wss.on('connection', (ws) => this.handleWs(ws));
+      server.on('upgrade', (req, socket, head) => {
+        const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
+        if (url.pathname === '/v1/responses') {
+          wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+        } else {
+          socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+          socket.destroy();
+        }
+      });
+      const onListenError = (err: NodeJS.ErrnoException): void => {
+        try {
+          wss.close();
+        } catch {
+          /* ignore */
+        }
+        reject(err);
+      };
+      server.once('error', onListenError);
+      server.listen(port, '127.0.0.1', () => {
+        server.off('error', onListenError);
+        const addr = server.address();
+        const boundPort = typeof addr === 'object' && addr ? addr.port : port;
+        this.server = server;
+        this.wss = wss;
+        resolve(boundPort);
+      });
+    });
+  }
+
+  /** listen 成功后挂载运行期错误/异常关闭监听，触发自动恢复。 */
+  private attachRuntimeMonitor(): void {
+    if (!this.server) return;
     const server = this.server;
-    const wss = this.wss;
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (this.intentionalStop) return;
+      this.handleRuntimeFailure(`代理 server 错误：${err.message}`);
+    });
+    server.once('close', () => {
+      if (this.intentionalStop) return;
+      // server 在没有显式 stop 的情况下被关闭 → 视为 crash。
+      this.handleRuntimeFailure('代理 server 意外关闭');
+    });
+  }
+
+  private handleRuntimeFailure(message: string): void {
+    this.log({ level: 'error', source: 'proxy', message });
     this.server = null;
     this.wss = null;
-    await new Promise<void>((resolve) => {
-      wss?.close(() => resolve());
-    });
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    });
-    this.status = 'stopped';
+    this.actualPort = 0;
     this.startedAt = 0;
-    this.emit('status', this.status);
+    this.setStatus('error');
+    const info: ProxyErrorInfo = {
+      kind: 'runtime',
+      port: this.opts.port,
+      message,
+      recoverable: this.autoRecoverAttempts < DeepSeekProxy.RECOVER_BACKOFFS_MS.length,
+    };
+    this.emit('proxy-error', info);
+    this.scheduleAutoRecover();
+  }
+
+  private scheduleAutoRecover(): void {
+    const max = DeepSeekProxy.RECOVER_BACKOFFS_MS.length;
+    if (this.autoRecoverAttempts >= max) {
+      this.log({
+        level: 'error',
+        source: 'proxy',
+        message: `自动恢复 ${max} 次仍失败，已放弃，请手动启动代理`,
+      });
+      this.emit('proxy-error', {
+        kind: 'auto-recover-failed',
+        port: this.opts.port,
+        message: '自动恢复失败',
+        recoverable: false,
+      } satisfies ProxyErrorInfo);
+      return;
+    }
+    const delay = DeepSeekProxy.RECOVER_BACKOFFS_MS[this.autoRecoverAttempts]!;
+    this.autoRecoverAttempts += 1;
+    this.log({
+      level: 'warn',
+      source: 'proxy',
+      message: `将在 ${delay}ms 后尝试自动恢复（第 ${this.autoRecoverAttempts}/${max} 次）`,
+    });
+    this.recoverTimer = setTimeout(() => {
+      this.recoverTimer = null;
+      this.start().catch(() => undefined);
+    }, delay);
+  }
+
+  /** @param userInitiated 是否由外部 stop() 触发；若是则取消自动恢复并清零计数。 */
+  private async stopInternal(userInitiated: boolean): Promise<void> {
+    if (userInitiated) {
+      this.cancelAutoRecover();
+    }
+    this.intentionalStop = true;
+    if (!this.server) {
+      this.actualPort = 0;
+      this.startedAt = 0;
+      this.setStatus('stopped');
+      return;
+    }
+    this.setStatus('stopping');
+    const server = this.server;
+    const wss = this.wss;
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = (): void => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      const t = setTimeout(() => {
+        // 超时强制断开所有保持中的连接（SSE / keep-alive），让 close() 尽快回调。
+        try {
+          (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+        } catch {
+          /* ignore */
+        }
+        // 再给 close() 100ms 完成回调；超时仍未回调直接 finish。
+        setTimeout(finish, 100);
+      }, DeepSeekProxy.STOP_TIMEOUT_MS);
+      Promise.allSettled([
+        new Promise<void>((r) => (wss ? wss.close(() => r()) : r())),
+        new Promise<void>((r) => server.close(() => r())),
+      ]).then(() => {
+        clearTimeout(t);
+        finish();
+      });
+    });
+    // 显式销毁兜底，确保端口立即释放。
+    try {
+      (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+    } catch {
+      /* ignore */
+    }
+    this.server = null;
+    this.wss = null;
+    this.actualPort = 0;
+    this.startedAt = 0;
+    this.setStatus('stopped');
     this.log({ level: 'info', source: 'proxy', message: '代理已停止' });
   }
 
-  private listenWithRetry(startPort: number): Promise<number> {
-    return new Promise((resolve, reject) => {
-      const tryPort = (port: number, attempts: number): void => {
-        const server = http.createServer((req, res) => this.handleHttp(req, res));
-        const wss = new WebSocketServer({ noServer: true });
-        wss.on('connection', (ws) => this.handleWs(ws));
-        server.on('upgrade', (req, socket, head) => {
-          const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
-          if (url.pathname === '/v1/responses') {
-            wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-          } else {
-            socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-            socket.destroy();
-          }
-        });
-        server.once('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'EADDRINUSE' && attempts > 0) {
-            this.log({
-              level: 'warn',
-              source: 'proxy',
-              message: `端口 ${port} 被占用，尝试 ${port + 1}`,
-            });
-            tryPort(port + 1, attempts - 1);
-          } else {
-            this.status = 'error';
-            this.emit('status', this.status);
-            reject(err);
-          }
-        });
-        server.listen(port, '127.0.0.1', () => {
-          this.server = server;
-          this.wss = wss;
-          const addr = server.address();
-          const boundPort = typeof addr === 'object' && addr ? addr.port : port;
-          resolve(boundPort);
-        });
-      };
-      tryPort(startPort, 10);
-    });
+  private cancelAutoRecover(): void {
+    if (this.recoverTimer) {
+      clearTimeout(this.recoverTimer);
+      this.recoverTimer = null;
+    }
+    this.autoRecoverAttempts = 0;
   }
 
   private resolveAndWarn(
@@ -288,6 +470,7 @@ export class DeepSeekProxy extends EventEmitter {
     const reqId = newReqId();
     const startedAt = Date.now();
     this.stats.total += 1;
+    this.stats.pendingDelta += 1;
     this.emit('request', { source: 'http', path: '/v1/responses', reqId });
 
     let body = '';
@@ -477,6 +660,7 @@ export class DeepSeekProxy extends EventEmitter {
       if (msg.type !== 'response.create') return;
 
       this.stats.total += 1;
+      this.stats.pendingDelta += 1;
       this.emit('request', { source: 'ws', path: '/v1/responses', reqId });
 
       const requestedModel = msg.model;

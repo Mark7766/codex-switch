@@ -1,12 +1,41 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore, type LogEntry } from '../lib/store';
 
 type Filter = 'all' | 'error' | 'warn';
 
 export function Logs(): JSX.Element {
   const logs = useAppStore((s) => s.logs);
+  const setLogs = useAppStore((s) => s.setLogs);
+  const pushToast = useAppStore((s) => s.pushToast);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [stats, setStatsBytes] = useState<{ files: number; totalBytes: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const persisted = (await window.codexSwitch.loadPersistedLogs(500)) as LogEntry[];
+        if (persisted && persisted.length > 0) {
+          // 合并：把持久化的旧日志放在内存日志之前
+          setLogs([...persisted, ...useAppStore.getState().logs]);
+        }
+        setStatsBytes(await window.codexSwitch.getLogsStats());
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [setLogs]);
+
+  const onClear = async (): Promise<void> => {
+    await window.codexSwitch.clearPersistedLogs();
+    setLogs([]);
+    setStatsBytes(await window.codexSwitch.getLogsStats());
+    pushToast({ kind: 'success', message: '已清空日志' });
+  };
+
+  const onOpenDir = async (): Promise<void> => {
+    await window.codexSwitch.openLogsFolder();
+  };
 
   const filtered = useMemo(() => {
     if (filter === 'all') return logs;
@@ -14,7 +43,7 @@ export function Logs(): JSX.Element {
   }, [logs, filter]);
 
   const groups = useMemo(() => groupByReqId(filtered), [filtered]);
-  const stats = useMemo(() => {
+  const groupStats = useMemo(() => {
     let success = 0;
     let error = 0;
     for (const g of groups) {
@@ -27,16 +56,38 @@ export function Logs(): JSX.Element {
   return (
     <div className="p-10 max-w-5xl">
       <h1 className="text-2xl font-semibold mb-2">日志</h1>
-      <p className="text-sm text-slate-400 mb-5">
+      <p className="text-sm text-slate-400 mb-3">
         每次请求按 <code className="bg-slate-900 px-1 rounded">req_xxxxx</code> 编号分组，
         点击展开看完整时间线。日志中的 API Key 已自动脱敏。
       </p>
+      {stats && (
+        <p className="text-xs text-slate-500 mb-3">
+          已持久化 {stats.files} 个日志文件，共{' '}
+          {stats.totalBytes < 1024
+            ? `${stats.totalBytes} B`
+            : stats.totalBytes < 1024 * 1024
+              ? `${(stats.totalBytes / 1024).toFixed(1)} KB`
+              : `${(stats.totalBytes / 1024 / 1024).toFixed(1)} MB`}
+        </p>
+      )}
 
       <div className="flex items-center gap-3 mb-4 text-sm">
-        <span className="text-slate-400">共 {stats.groups} 组请求</span>
-        <span className="text-emerald-400">{stats.success} 成功</span>
-        <span className="text-red-400">{stats.error} 失败</span>
+        <span className="text-slate-400">共 {groupStats.groups} 组请求</span>
+        <span className="text-emerald-400">{groupStats.success} 成功</span>
+        <span className="text-red-400">{groupStats.error} 失败</span>
         <div className="flex-1" />
+        <button
+          onClick={onOpenDir}
+          className="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+        >
+          打开日志目录
+        </button>
+        <button
+          onClick={onClear}
+          className="text-xs px-2.5 py-1 rounded bg-red-700 text-white hover:bg-red-600"
+        >
+          清空
+        </button>
         <FilterBtn cur={filter} val="all" onClick={setFilter} label="全部" />
         <FilterBtn cur={filter} val="warn" onClick={setFilter} label="警告" />
         <FilterBtn cur={filter} val="error" onClick={setFilter} label="错误" />

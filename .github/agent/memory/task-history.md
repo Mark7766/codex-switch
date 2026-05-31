@@ -21,6 +21,56 @@
 
 ## 任务记录
 
+### [TASK-018] v1.1.0 稳定性专项实现（PR1-PR4 一次性合入）
+- **日期**：2026-06-01
+- **类型**：feat / fix
+- **摘要**：按 `docs/PROPOSAL-v1.1.0-stability.md` §12 顺序一次性实现全部 6 大稳定性主题。**P0 bug 修复**：设置端口 → 停用 → 启动后端口与设置不一致——根因是 ① `start()` 在 EADDRINUSE 时静默 +1 ② `stop()` 没重置 `actualPort` ③ Dashboard 未跟随 polling 更新 port ④ 改 prefs 没同步写 `~/.codex`。修复方式：server 状态机化（串行任务队列、`server.listening` 为真相、3s 硬 stop+`closeAllConnections`、不再自动 +1）+ `prefs:apply` 事务化 IPC（store→`~/.codex`→必要时 restart）+ Dashboard 跟随 `info.port` 实时更新。
+- **新增模块**：
+  - `electron/proxy/portInfo.ts`（lsof/netstat+tasklist 查询占用 + 安全 kill：黑名单 launchd/svchost.exe、拒绝 pid<=1/self、SIGTERM→5s→SIGKILL）
+  - `electron/proxy/persistentLog.ts`（10MB×5 文件 ndjson 滚动、50MB prune、loadTail 反向读、坏行 skip）
+  - `src/components/Toast.tsx`（2s 自动消失）
+  - `src/components/PortConflictModal.tsx`（按钮顺序：关闭进程并重试 PORT / 打开设置改端口… / 取消）
+  - 测试：`tests/unit/portInfo.test.ts`(7) `persistentLog.test.ts`(6) `server.lifecycle.test.ts`(5) — 全部通过
+- **变更文件**：
+  - `electron/proxy/server.ts`（增 ProxyErrorKind/Info、taskQueue、autoRecover 3×退避、consumeLifetimeDelta、stop 3s 硬超时）
+  - `electron/config/store.ts`（+5 字段：lifetime{RequestCount,UptimeSec,FirstStartAt} / lastError{Message,At}；migrate 在首次 v1.1.0 启动写入 firstStartAt=今天）
+  - `electron/ipc/channels.ts`（+10 新通道：proxyLookupPort/KillPort/OnError、prefsApply、logsLoadPersisted/Clear/OpenDir/GetStats、appOnSecondInstance）
+  - `electron/preload.ts`（镜像 +10 通道、新 api：applyPreferences / proxyLookupPort / proxyKillPort / onProxyError / onSecondInstance / loadPersistedLogs / clearPersistedLogs / openLogsFolder / getLogsStats）
+  - `electron/main.ts`（单实例锁 + second-instance toast、PersistentLog 实例 + prune、事务化 prefsApply handler、proxy:on-error → setPreferences(lastError)、30s lifetime flush、before-quit 3s 硬超时 + app.exit(0) 兜底；总 LOC=509，**超过 400 行约束**，TODO 后续拆分到 `electron/ipc/handlers.ts`）
+  - `src/types/global.d.ts`（PortHolder / ProxyErrorInfo / LifetimeStats 类型 + 新 api 方法）
+  - `src/lib/store.ts`（lifetime / lastError / toasts / portConflict）
+  - `src/App.tsx`（订阅 onProxyError → port-conflict 时 lookupPort 后开 PortConflictModal；onSecondInstance toast）
+  - `src/pages/Dashboard.tsx`（polling 更新 port、累计区块、firstStartAt 文案）
+  - `src/pages/Settings.tsx`（移除 "保存偏好/重新写入 ~/.codex" 双按钮，合并为 "保存并应用" 调 applyPreferences）
+  - `src/pages/Logs.tsx`（mount loadPersistedLogs(500)、显示文件总量、清空/打开目录按钮）
+  - `package.json` → 1.1.0；`CHANGELOG.md` 写入 1.1.0 条目
+- **验证**：`pnpm typecheck` ✅、`pnpm test` 69/69 ✅（其中 §7 lifecycle 测试覆盖串行启动/端口冲突不 +1/stop 重置 port/idle stop 幂等）、`pnpm lint` 仅 1 个预存在 warning。
+- **遗留事项**：
+  1. `electron/main.ts` 509 行超过项目 400 行硬约束，下一个 PR 拆 IPC handlers 出去。
+  2. 未实现 `logs:exportZip`（zip 导出），决议中也未提及；现仅有"打开目录"+"清空"。
+  3. 自动恢复路径只有单元覆盖到 schedule，没做完整 e2e 模拟"运行中 crash → 重启成功"。
+  4. lifetime flush 用 baseline diff (sessionLastUptimeMs)，代理重启会清零 baseline，正确；但需注意应用整个生命周期内每 30s 累加，长会话下精度足够。
+
+### [TASK-017] v1.1.0 稳定性优化方案（仅文档，Review 通过）
+- **日期**：2026-05-31
+- **类型**：docs
+- **摘要**：编写并完成 review `docs/PROPOSAL-v1.1.0-stability.md`，最终覆盖 6 大稳定性主题：①端口冲突弹窗+kill 占用进程（不再私自换号）②设置页 `保存并应用` 单按钮事务化（**不保留**单独重写 `~/.codex` 的二级菜单）③日志 ndjson 持久化（**10 MB × 5 文件 = 50 MB 上限**，硬编码不给滑杆）④单实例锁（toast 2 秒）⑤主面板累计统计持久化到 electron-store（lifetime 字段+30s 节流，文案"自 v1.1.0 升级日起累计"）⑥代理控制可靠性深审：8 处真实缺陷 → 串行队列状态机+健康检查+3 次/1s-3s-9s 退避自动恢复+`app.exit(0)` 硬退出兜底，**不给用户"出错时不自动重启"开关**。**telemetry/安装量统计章节整体移除**（不开发服务端、不预埋客户端上报代码，后续如要做需单独立项+隐私评审）。本任务**未写代码**，Review 已通过，可按方案 §12 顺序开 PR。
+- **变更文件**：
+  - `docs/PROPOSAL-v1.1.0-stability.md`（v2 终版：移除 §8 telemetry 整章及所有下游引用；§9-§14 重新编号；§14 改为"Review 决议（已确认）"含 7 行决议表）
+- **最终决议（用户 2026-05-31 拍板）**：
+  - 端口冲突弹窗按钮顺序：`关闭进程并重试 11435` 放第一位（PID 验证+黑名单+uid 校验已充分约束破坏性）
+  - 日志保留 50 MB（10 MB×5 滚动），硬编码不出滑杆
+  - 单实例 toast 2 秒
+  - 设置页 `保存并应用` 单按钮事务化，不保留"单独重写 ~/.codex"入口
+  - 累计统计起算时间 = v1.1.0 升级当天，UI 文案 `自 YYYY-MM-DD 起累计`
+  - 自动恢复 3 次 / 1s-3s-9s 退避，**不**给用户"禁用自动重启"开关
+  - **不做 telemetry**：本期不开发服务端，不预埋客户端上报代码
+- **PR 顺序**：PR1=§7 控制可靠性+§5 单实例（最高优先级）→ PR2=§2 端口弹窗 → PR3=§3 保存合并+§6 主面板累计 → PR4=§4 日志持久化 → 合并发 v1.1.0
+- **注意事项**：
+  1. 实现时 §7 自动恢复仅在"已成功 listen 过、运行期 crash"时触发；EADDRINUSE 一律走 §2 弹窗
+  2. lifetime 写盘 + setPreferences 并发需 mutex 串行化
+  3. 50 MB ndjson 启动时 `loadTail` 只读尾部 1 MB，不全量加载
+
 ### [TASK-001] 安装 ai-coding-ok 并完成 Codex Switch 项目初始化
 - **日期**：2026-05-30
 - **类型**：chore

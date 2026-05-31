@@ -268,3 +268,28 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
   - `electron/updater/index.ts`、`src/types/global.d.ts`、`src/components/UpdateBadge.tsx`、`src/pages/Settings.tsx` 都新增 `manual-download` 事件分支。
   - v1.0.0..v1.0.4 已安装的 mac 客户端跑的是旧代码，无法享受此 fallback；这批用户必须**手动**升级到 v1.0.5 一次。
   - 长期方案：若获取 Apple Developer ID 证书，移除 `darwin` 分支即可恢复原子自动升级。
+
+## ADR-014：v1.1.0 — 代理生命周期状态机化 + 端口冲突显式化 + 运行期 crash 自动恢复
+- **日期**：2026-06-01
+- **状态**：✅ 已采纳（随 v1.1.0 上线）
+- **决策**：
+  1. 把 `DeepSeekProxy` 的 start/stop/restart 串行化到一个 `taskQueue: Promise` 上，状态以 `server.listening` 为最终真相，对外暴露 `stopped/starting/running/stopping/error` 5 态。
+  2. **取消** EADDRINUSE 时静默 `port+1` 行为；端口冲突直接 reject + `emit('proxy-error', {kind:'port-conflict', recoverable:false})`，让用户在弹窗里选择"关闭进程并重试 / 改端口 / 取消"。
+  3. `stop()` 增加 3 秒硬超时与 `closeAllConnections()` 兜底，挂起 SSE/WS 不再阻塞退出；并在 stop 完成后 `actualPort = 0`，确保下次 start 重新读取最新 `opts.port`。
+  4. 运行期 crash（已成功 listen 后断开）触发 3 次退避自动恢复（1s / 3s / 9s），仍失败则停留 `error` 态并 emit `auto-recover-failed`。**不**给用户 "禁用自动恢复" 开关——简单可靠优先于可配置。
+  5. `app.before-quit` 中 `proxy.stop()` 上加 3 秒硬超时，超时直接 `app.exit(0)` 防止进程僵死。
+- **理由**：用户实测 P0 bug "改端口 → 停 → 启，端口不一致" 表层是 Dashboard 没刷 port，深层是 server 自动 +1 + stop 不清 port + prefs 不写 codex 三处叠加。一次性按状态机重写比修补三处更可靠，并彻底消除 "实际端口与设置不一致" 这类整类问题。
+- **影响**：
+  - `electron/proxy/server.ts`（核心逻辑）；新增 `tests/unit/server.lifecycle.test.ts` 5 用例。
+  - 行为差异：以前同端口被占会自动 +1 启动，现在直接报错——**用户需主动处理冲突**，但端口可控。
+  - 前端：必须订阅 `proxy:on-error` 并在 `port-conflict` 时弹 `PortConflictModal`。
+- **替代方案**：
+  - "保留 +1 自动让步" → 否决：是当前 bug 的源头，且让 Codex 配置文件失去与运行时端口一致性的保证。
+  - "由用户决定是否自动恢复" → 否决：增加配置面、教育成本，1.1.0 优先减少决策点。
+
+## ADR-015：v1.1.0 — Settings 页合并为 "保存并应用" 单按钮（事务化）
+- **日期**：2026-06-01
+- **状态**：✅ 已采纳
+- **决策**：渲染层不再让用户分别决定"保存偏好"和"重新写入 ~/.codex"；点击"保存并应用"后由主进程 `prefs:apply` IPC 在一次 handler 中：① `setPreferences` ② 用最新 prefs 写 `~/.codex/config.toml` + `auth.json` ③ 若 `proxyPort` 改变且代理在跑则 `proxy.restart()`。任一步失败 → 回滚 store 到调用前快照，向渲染层抛错。
+- **理由**：用户报告的端口不一致 bug 中，"prefs 写了但没写 codex" 是核心环节之一。让前端做两次按钮调用永远存在"只点一次"的人为漏配。事务化的另一好处是 `~/.codex` 与 store 严格同步。
+- **影响**：删掉 Settings 页的 "重新写入 ~/.codex" 二级按钮；如需单独写 codex（极少场景），仍可通过 IPC `codex:write` 调用，但 UI 不再暴露。

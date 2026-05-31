@@ -19,6 +19,16 @@ export interface UserPreferences {
   customMirrorUrl: string;
   /** 是否完成 Codex 入门向导。 */
   hasSeenOnboarding: boolean;
+  /** §6 主面板"累计请求数"持久化（跨重启）。 */
+  lifetimeRequestCount: number;
+  /** §6 主面板"累计运行时长（秒）"持久化（跨重启）。 */
+  lifetimeUptimeSec: number;
+  /** §6 累计统计起算时间（YYYY-MM-DD），首次升级到 v1.1.0 当天写入。 */
+  lifetimeFirstStartAt: string;
+  /** §7 最近一次代理错误的友好原因。 */
+  lastErrorMessage: string;
+  /** §7 最近一次代理错误的时间戳（ms）。 */
+  lastErrorAt: number;
 }
 
 /** v2 默认映射表：覆盖 OpenAI / Codex 已知常用模型。 */
@@ -51,6 +61,11 @@ const DEFAULTS: UserPreferences = {
   updateMirror: 'auto',
   customMirrorUrl: '',
   hasSeenOnboarding: false,
+  lifetimeRequestCount: 0,
+  lifetimeUptimeSec: 0,
+  lifetimeFirstStartAt: '',
+  lastErrorMessage: '',
+  lastErrorAt: 0,
 };
 
 let store: Store<UserPreferences> | null = null;
@@ -69,11 +84,17 @@ function getStore(): Store<UserPreferences> {
 /** 启动时迁移：合并新增的 default mapping key（保留用户自定义同名 key）。 */
 export function migrateIfNeeded(s: Store<UserPreferences>): void {
   const saved = (s.get('modelMappingVersion') as number) ?? 0;
-  if (saved >= CURRENT_MAPPING_VERSION) return;
-  const userMapping = (s.get('modelMapping') as Record<string, string>) ?? {};
-  const merged: Record<string, string> = { ...DEFAULT_MAPPING, ...userMapping };
-  s.set('modelMapping', merged);
-  s.set('modelMappingVersion', CURRENT_MAPPING_VERSION);
+  if (saved < CURRENT_MAPPING_VERSION) {
+    const userMapping = (s.get('modelMapping') as Record<string, string>) ?? {};
+    const merged: Record<string, string> = { ...DEFAULT_MAPPING, ...userMapping };
+    s.set('modelMapping', merged);
+    s.set('modelMappingVersion', CURRENT_MAPPING_VERSION);
+  }
+  // §6: 首次进入 v1.1.0 时记录累计统计的起算日期
+  if (!s.get('lifetimeFirstStartAt')) {
+    const today = new Date().toISOString().slice(0, 10);
+    s.set('lifetimeFirstStartAt', today);
+  }
 }
 
 export function getPreferences(): UserPreferences {

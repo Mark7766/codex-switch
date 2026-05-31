@@ -17,6 +17,23 @@ export interface LogEntry {
   errorAction?: string;
 }
 
+export interface Toast {
+  id: number;
+  kind: 'info' | 'success' | 'error';
+  message: string;
+}
+
+export interface PortConflict {
+  port: number;
+  holder: { pid: number; command: string } | null;
+}
+
+export interface Lifetime {
+  requestCount: number;
+  uptimeSec: number;
+  firstStartAt: string;
+}
+
 interface AppState {
   page: Page;
   setPage: (p: Page) => void;
@@ -27,7 +44,19 @@ interface AppState {
   logs: LogEntry[];
   pushLog: (e: LogEntry) => void;
   setLogs: (l: LogEntry[]) => void;
+  // §4 / §6 / §7 新增
+  lifetime: Lifetime;
+  setLifetime: (l: Lifetime) => void;
+  lastError: string | null;
+  setLastError: (m: string | null) => void;
+  toasts: Toast[];
+  pushToast: (t: Omit<Toast, 'id'>) => void;
+  dismissToast: (id: number) => void;
+  portConflict: PortConflict | null;
+  setPortConflict: (c: PortConflict | null) => void;
 }
+
+let toastSeq = 0;
 
 export const useAppStore = create<AppState>((set) => ({
   page: 'setup',
@@ -39,4 +68,15 @@ export const useAppStore = create<AppState>((set) => ({
   logs: [],
   pushLog: (e) => set((s) => ({ logs: [...s.logs.slice(-199), e] })),
   setLogs: (l) => set({ logs: l }),
+  lifetime: { requestCount: 0, uptimeSec: 0, firstStartAt: '' },
+  setLifetime: (l) => set({ lifetime: l }),
+  lastError: null,
+  setLastError: (m) => set({ lastError: m }),
+  toasts: [],
+  pushToast: (t) =>
+    set((s) => ({ toasts: [...s.toasts, { ...t, id: ++toastSeq }] })),
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+  portConflict: null,
+  setPortConflict: (c) => set({ portConflict: c }),
 }));
+

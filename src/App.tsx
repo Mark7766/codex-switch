@@ -6,16 +6,32 @@ import { Settings } from './pages/Settings';
 import { Logs } from './pages/Logs';
 import { ChangelogModal } from './components/ChangelogModal';
 import { HeaderBar } from './components/HeaderBar';
+import { ToastStack } from './components/Toast';
+import { PortConflictModal } from './components/PortConflictModal';
 import { useAppStore } from './lib/store';
 
 export default function App(): JSX.Element {
-  const { page, setPage, proxyStatus, setProxyStatus, setPort, pushLog, setLogs } = useAppStore();
+  const {
+    page,
+    setPage,
+    proxyStatus,
+    setProxyStatus,
+    setPort,
+    pushLog,
+    setLogs,
+    setLifetime,
+    setLastError,
+    pushToast,
+    setPortConflict,
+  } = useAppStore();
   const [version, setVersion] = useState('');
   const [showChangelog, setShowChangelog] = useState(false);
 
   useEffect(() => {
     let unsubStatus: (() => void) | undefined;
     let unsubLog: (() => void) | undefined;
+    let unsubError: (() => void) | undefined;
+    let unsubSecond: (() => void) | undefined;
 
     (async () => {
       const prefs = await window.codexSwitch.getPreferences();
@@ -32,16 +48,42 @@ export default function App(): JSX.Element {
       setProxyStatus(info.status);
       setLogs(info.logs);
       if (info.port) setPort(info.port);
+      if (info.lifetime) setLifetime(info.lifetime);
+      if (info.lastError) setLastError(info.lastError.message);
 
       unsubStatus = window.codexSwitch.onProxyStatus((s) => setProxyStatus(s));
       unsubLog = window.codexSwitch.onProxyLog((entry) => pushLog(entry as never));
+      unsubError = window.codexSwitch.onProxyError(async (errInfo) => {
+        setLastError(errInfo.message);
+        if (errInfo.kind === 'port-conflict') {
+          const holder = await window.codexSwitch.proxyLookupPort(errInfo.port);
+          setPortConflict({ port: errInfo.port, holder });
+        } else {
+          pushToast({ kind: 'error', message: errInfo.message });
+        }
+      });
+      unsubSecond = window.codexSwitch.onSecondInstance(() => {
+        pushToast({ kind: 'info', message: 'Codex Switch 已经在运行' });
+      });
     })();
 
     return () => {
       unsubStatus?.();
       unsubLog?.();
+      unsubError?.();
+      unsubSecond?.();
     };
-  }, [setPage, setPort, setProxyStatus, pushLog, setLogs]);
+  }, [
+    setPage,
+    setPort,
+    setProxyStatus,
+    pushLog,
+    setLogs,
+    setLifetime,
+    setLastError,
+    pushToast,
+    setPortConflict,
+  ]);
 
   const closeChangelog = async (): Promise<void> => {
     setShowChangelog(false);
@@ -61,6 +103,8 @@ export default function App(): JSX.Element {
         </div>
       </main>
       <ChangelogModal open={showChangelog} onClose={closeChangelog} version={version} />
+      <ToastStack />
+      <PortConflictModal />
     </div>
   );
 }

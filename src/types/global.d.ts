@@ -48,6 +48,24 @@ interface OnboardingStep {
   copy?: string;
 }
 
+interface PortHolder {
+  pid: number;
+  command: string;
+}
+
+interface ProxyErrorInfo {
+  kind: 'port-conflict' | 'runtime' | 'auto-recover-failed';
+  port: number;
+  message: string;
+  recoverable: boolean;
+}
+
+interface LifetimeStats {
+  requestCount: number;
+  uptimeSec: number;
+  firstStartAt: string;
+}
+
 interface CodexSwitchApi {
   getPreferences: () => Promise<{
     proxyPort: number;
@@ -62,8 +80,16 @@ interface CodexSwitchApi {
     updateMirror: 'auto' | 'github' | 'ghproxy' | 'custom';
     customMirrorUrl: string;
     hasSeenOnboarding: boolean;
+    lifetimeRequestCount: number;
+    lifetimeUptimeSec: number;
+    lifetimeFirstStartAt: string;
+    lastErrorMessage: string;
+    lastErrorAt: number;
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
+  applyPreferences: (
+    patch: Record<string, unknown> & { codexModel?: string },
+  ) => Promise<{ prefs: unknown; codexWritten: boolean; restarted: boolean }>;
   getApiKey: () => Promise<string>;
   setApiKey: (key: string) => Promise<boolean>;
   clearApiKey: () => Promise<boolean>;
@@ -94,9 +120,20 @@ interface CodexSwitchApi {
       avgDurationMs: number;
       lastError: string | null;
     };
+    lifetime: LifetimeStats;
+    lastError: { message: string; ts: number } | null;
+  }>;
+  proxyLookupPort: (port: number) => Promise<PortHolder | null>;
+  proxyKillPort: (port: number) => Promise<{
+    ok: boolean;
+    reason?: string;
+    holder?: PortHolder;
+    method?: string;
   }>;
   onProxyStatus: (cb: (status: string) => void) => () => void;
   onProxyLog: (cb: (entry: unknown) => void) => () => void;
+  onProxyError: (cb: (info: ProxyErrorInfo) => void) => () => void;
+  onSecondInstance: (cb: () => void) => () => void;
   codexWrite: (payload: { model: string }) => Promise<{
     configBackup: string | null;
     authBackup: string | null;
@@ -128,6 +165,11 @@ interface CodexSwitchApi {
     custom?: string,
   ) => Promise<void>;
   onUpdateEvent: (cb: (e: UpdateEvent) => void) => () => void;
+  // 持久化日志
+  loadPersistedLogs: (limit?: number) => Promise<unknown[]>;
+  clearPersistedLogs: () => Promise<boolean>;
+  openLogsFolder: () => Promise<void>;
+  getLogsStats: () => Promise<{ files: number; totalBytes: number }>;
 }
 
 interface Window {

@@ -60,17 +60,28 @@ export function Settings(): JSX.Element {
   }
 
   async function savePrefs(): Promise<void> {
-    await window.codexSwitch.setPreferences({
-      proxyPort: port,
-      defaultModel,
-      autoStartProxy: autoStart,
-      autoCheckUpdate,
-      updateMirror: mirror,
-      customMirrorUrl: customMirror,
-      maxBackupsPerFile: maxBackups,
-    });
-    await window.codexSwitch.updateSetMirror(mirror, customMirror);
-    setMsg('已保存偏好');
+    try {
+      const res = await window.codexSwitch.applyPreferences({
+        proxyPort: port,
+        defaultModel,
+        autoStartProxy: autoStart,
+        autoCheckUpdate,
+        updateMirror: mirror,
+        customMirrorUrl: customMirror,
+        maxBackupsPerFile: maxBackups,
+        codexModel: defaultModel,
+      });
+      await window.codexSwitch.updateSetMirror(mirror, customMirror);
+      setBackups(await window.codexSwitch.codexBackups());
+      const tail = res.restarted
+        ? '；已重启代理'
+        : res.codexWritten
+          ? '；已同步 ~/.codex'
+          : '';
+      setMsg('已保存并应用' + tail);
+    } catch (e) {
+      setMsg('保存失败：' + (e as Error).message);
+    }
   }
 
   async function checkUpdate(): Promise<void> {
@@ -87,16 +98,6 @@ export function Settings(): JSX.Element {
     await window.codexSwitch.codexBackupClean();
     setBackups(await window.codexSwitch.codexBackups());
     setMsg('已清空所有备份');
-  }
-
-  async function rewriteCodex(): Promise<void> {
-    try {
-      await window.codexSwitch.codexWrite({ model: defaultModel });
-      setBackups(await window.codexSwitch.codexBackups());
-      setMsg('Codex 配置已更新');
-    } catch (e) {
-      setMsg((e as Error).message);
-    }
   }
 
   async function restore(p: string): Promise<void> {
@@ -166,13 +167,7 @@ export function Settings(): JSX.Element {
               onClick={savePrefs}
               className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md"
             >
-              保存偏好
-            </button>
-            <button
-              onClick={rewriteCodex}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-md"
-            >
-              重新写入 ~/.codex
+              保存并应用
             </button>
           </div>
         </div>

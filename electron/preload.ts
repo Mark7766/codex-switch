@@ -8,8 +8,12 @@ const IPC = {
   proxyInfo: 'proxy:info',
   proxyOnStatus: 'proxy:on-status',
   proxyOnLog: 'proxy:on-log',
+  proxyOnError: 'proxy:on-error',
+  proxyLookupPort: 'proxy:lookup-port',
+  proxyKillPort: 'proxy:kill-port',
   prefsGet: 'prefs:get',
   prefsSet: 'prefs:set',
+  prefsApply: 'prefs:apply',
   keyGet: 'key:get',
   keySet: 'key:set',
   keyClear: 'key:clear',
@@ -20,6 +24,7 @@ const IPC = {
   codexBackupDelete: 'codex:backup-delete',
   appGetVersion: 'app:get-version',
   appGetChangelog: 'app:get-changelog',
+  appOnSecondInstance: 'app:on-second-instance',
   helpGetFaq: 'help:get-faq',
   helpGetOnboarding: 'help:get-onboarding',
   helpGetQaImage: 'help:get-qa-image',
@@ -31,12 +36,17 @@ const IPC = {
   updateInstall: 'update:install',
   updateSetMirror: 'update:set-mirror',
   updateOnEvent: 'update:on-event',
+  logsLoadPersisted: 'logs:load-persisted',
+  logsClearPersisted: 'logs:clear-persisted',
+  logsOpenDir: 'logs:open-dir',
+  logsGetStats: 'logs:get-stats',
 } as const;
 
 const api = {
   // 偏好
   getPreferences: () => ipcRenderer.invoke(IPC.prefsGet),
   setPreferences: (patch: unknown) => ipcRenderer.invoke(IPC.prefsSet, patch),
+  applyPreferences: (patch: unknown) => ipcRenderer.invoke(IPC.prefsApply, patch),
   // 密钥
   getApiKey: () => ipcRenderer.invoke(IPC.keyGet),
   setApiKey: (key: string) => ipcRenderer.invoke(IPC.keySet, key),
@@ -45,6 +55,8 @@ const api = {
   proxyStart: () => ipcRenderer.invoke(IPC.proxyStart),
   proxyStop: () => ipcRenderer.invoke(IPC.proxyStop),
   proxyInfo: () => ipcRenderer.invoke(IPC.proxyInfo),
+  proxyLookupPort: (port: number) => ipcRenderer.invoke(IPC.proxyLookupPort, port),
+  proxyKillPort: (port: number) => ipcRenderer.invoke(IPC.proxyKillPort, port),
   onProxyStatus: (cb: (status: string) => void) => {
     const handler = (_: unknown, status: string) => cb(status);
     ipcRenderer.on(IPC.proxyOnStatus, handler);
@@ -54,6 +66,16 @@ const api = {
     const handler = (_: unknown, entry: unknown) => cb(entry);
     ipcRenderer.on(IPC.proxyOnLog, handler);
     return () => ipcRenderer.removeListener(IPC.proxyOnLog, handler);
+  },
+  onProxyError: (cb: (info: unknown) => void) => {
+    const handler = (_: unknown, info: unknown) => cb(info);
+    ipcRenderer.on(IPC.proxyOnError, handler);
+    return () => ipcRenderer.removeListener(IPC.proxyOnError, handler);
+  },
+  onSecondInstance: (cb: () => void) => {
+    const handler = (): void => cb();
+    ipcRenderer.on(IPC.appOnSecondInstance, handler);
+    return () => ipcRenderer.removeListener(IPC.appOnSecondInstance, handler);
   },
   // Codex
   codexWrite: (payload: unknown) => ipcRenderer.invoke(IPC.codexWrite, payload),
@@ -82,6 +104,11 @@ const api = {
     ipcRenderer.on(IPC.updateOnEvent, handler);
     return () => ipcRenderer.removeListener(IPC.updateOnEvent, handler);
   },
+  // 持久化日志
+  loadPersistedLogs: (limit?: number) => ipcRenderer.invoke(IPC.logsLoadPersisted, limit),
+  clearPersistedLogs: () => ipcRenderer.invoke(IPC.logsClearPersisted),
+  openLogsFolder: () => ipcRenderer.invoke(IPC.logsOpenDir),
+  getLogsStats: () => ipcRenderer.invoke(IPC.logsGetStats),
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);
