@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.2] - 2026-06-01
+
+### 修复
+- **多工具调用（multi-tool use）400 报错修复。** 当 Codex 在同一轮次里发出多个 `function_call`（如同时调 `shell`、`read_file`、`write_file`），之前每个调用被翻译为独立的 assistant 消息，导致 DeepSeek 返回 400 错误："An assistant message with tool_calls must be followed by tool messages"。现已修复：同一轮次所有 function_call 合并进一条 assistant 消息的 `tool_calls` 数组。
+
 ## [1.2.1] - 2026-06-01
 
 ### 修复
