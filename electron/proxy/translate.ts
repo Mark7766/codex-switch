@@ -64,11 +64,16 @@ export function itemsToMessages(
   const messages: ChatMessage[] = [];
   if (!Array.isArray(input)) return messages;
 
-  for (const raw of input) {
+  let i = 0;
+  while (i < input.length) {
+    const raw = input[i];
+
     if (typeof raw === 'string') {
       messages.push({ role: 'user', content: raw });
+      i++;
       continue;
     }
+
     const item = raw as ResponsesItem;
 
     if (item.type === 'function_call_output') {
@@ -77,30 +82,35 @@ export function itemsToMessages(
         tool_call_id: item.call_id ?? '',
         content: typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? ''),
       });
+      i++;
       continue;
     }
 
     if (item.type === 'function_call') {
-      const callId = item.call_id || item.id || `call_${Date.now()}`;
-      const msg: ChatMessage = {
-        role: 'assistant',
-        content: null,
-        tool_calls: [
-          {
-            id: callId,
-            type: 'function',
-            function: {
-              name: item.name || '',
-              arguments:
-                typeof item.arguments === 'string'
-                  ? item.arguments
-                  : JSON.stringify(item.arguments ?? {}),
-            },
+      // DeepSeek requires ALL tool_calls from the same assistant turn to live in ONE
+      // assistant message. Consume all consecutive function_call items together.
+      const toolCalls: NonNullable<ChatMessage['tool_calls']> = [];
+      let reasoning: string | undefined;
+      while (i < input.length && (input[i] as ResponsesItem).type === 'function_call') {
+        const fc = input[i] as ResponsesItem;
+        const callId = fc.call_id || fc.id || `call_${Date.now()}`;
+        toolCalls.push({
+          id: callId,
+          type: 'function',
+          function: {
+            name: fc.name || '',
+            arguments:
+              typeof fc.arguments === 'string'
+                ? fc.arguments
+                : JSON.stringify(fc.arguments ?? {}),
           },
-        ],
-      };
-      const rc = reasoningMap.get(callId);
-      if (rc) msg.reasoning_content = rc;
+        });
+        const rc = reasoningMap.get(callId);
+        if (rc && !reasoning) reasoning = rc;
+        i++;
+      }
+      const msg: ChatMessage = { role: 'assistant', content: null, tool_calls: toolCalls };
+      if (reasoning) msg.reasoning_content = reasoning;
       messages.push(msg);
       continue;
     }
@@ -123,6 +133,7 @@ export function itemsToMessages(
         .join('\n');
     }
     if (content) messages.push({ role, content });
+    i++;
   }
 
   return messages;

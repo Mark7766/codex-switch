@@ -43,6 +43,47 @@ describe('itemsToMessages', () => {
     expect(out[0]?.reasoning_content).toBe('thinking...');
     expect(out[0]?.content).toBeNull();
   });
+  it('groups consecutive function_calls into ONE assistant message', () => {
+    // DeepSeek requires all tool_calls in one turn to be in a single assistant message
+    const out = itemsToMessages([
+      { type: 'function_call', call_id: 'c1', name: 'sh', arguments: '{"cmd":"ls"}' },
+      { type: 'function_call', call_id: 'c2', name: 'read', arguments: '{"path":"x"}' },
+      { type: 'function_call', call_id: 'c3', name: 'write', arguments: '{"path":"y"}' },
+      { type: 'function_call_output', call_id: 'c1', output: 'result1' },
+      { type: 'function_call_output', call_id: 'c2', output: 'result2' },
+      { type: 'function_call_output', call_id: 'c3', output: 'result3' },
+    ]);
+    // Must produce: 1 assistant message + 3 tool messages (not 3 assistant messages)
+    expect(out).toHaveLength(4);
+    expect(out[0]?.role).toBe('assistant');
+    expect(out[0]?.tool_calls).toHaveLength(3);
+    expect(out[0]?.tool_calls?.[0]?.id).toBe('c1');
+    expect(out[0]?.tool_calls?.[1]?.id).toBe('c2');
+    expect(out[0]?.tool_calls?.[2]?.id).toBe('c3');
+    expect(out[1]?.role).toBe('tool');
+    expect(out[2]?.role).toBe('tool');
+    expect(out[3]?.role).toBe('tool');
+  });
+  it('handles multi-turn with separate function_call groups', () => {
+    const out = itemsToMessages([
+      { role: 'user', content: 'hello' },
+      { type: 'function_call', call_id: 'a1', name: 'sh', arguments: '{}' },
+      { type: 'function_call', call_id: 'a2', name: 'read', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'a1', output: 'r1' },
+      { type: 'function_call_output', call_id: 'a2', output: 'r2' },
+      { role: 'user', content: 'next' },
+      { type: 'function_call', call_id: 'b1', name: 'write', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'b1', output: 'r3' },
+    ]);
+    // user + assistant(2 tools) + tool + tool + user + assistant(1 tool) + tool = 7
+    expect(out).toHaveLength(7);
+    // First group: 2 tool_calls in 1 assistant message
+    expect(out[1]?.role).toBe('assistant');
+    expect(out[1]?.tool_calls).toHaveLength(2);
+    // Second group: 1 tool_call in 1 assistant message
+    expect(out[5]?.role).toBe('assistant');
+    expect(out[5]?.tool_calls).toHaveLength(1);
+  });
   it('flattens content array', () => {
     const out = itemsToMessages([{ role: 'user', content: [{ text: 'a' }, 'b', { text: 'c' }] }]);
     expect(out).toEqual([{ role: 'user', content: 'a\nb\nc' }]);

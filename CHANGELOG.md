@@ -7,6 +7,7 @@
 
 ### 修复
 - **Windows 自动升级/退出可靠性修复。** 解决 Windows 用户在下载完更新点「立即升级」时报错"原版本程序未关闭"的问题。优化：在调用升级安装前主动停止代理并刷新统计数据，避免 `before-quit` 事件锁死进程；退出逻辑由 `app.quit()` 改为 `app.exit(0)`，确保进程彻底销毁。
+- **多工具调用（multi-tool use）400 报错修复。** 当 Codex 在同一轮次里发出多个 `function_call`（如同时调 `sh`、`read_file`、`write_file`），之前每个调用被单独翻译成一条 `assistant` 消息，导致 DeepSeek 报 400："An assistant message with 'tool_calls' must be followed by tool messages"。现在将同一轮次的所有 `function_call` 合并进一条 `assistant` 消息的 `tool_calls` 数组，符合 Chat Completions 协议规范。
 
 ## [1.2.0] - 2026-06-01
 
