@@ -21,16 +21,16 @@
 
 ## 任务记录
 
-### [TASK-023] 修复多工具调用导致 DeepSeek 400 错误
+### [TASK-023] 修复多工具调用导致 DeepSeek 400 错误（v1.2.2）
 - **日期**：2026-06-01
 - **类型**：fix
-- **摘要**：`itemsToMessages` 将每个 `function_call` 翻译成独立的 assistant 消息，当同一轮次有多个工具调用时 DeepSeek 报 400："An assistant message with tool_calls must be followed by tool messages"。改用 while 循环将连续 `function_call` 合并为一条 `assistant` 消息的 `tool_calls` 数组；新增两个测试用例验证分组逻辑。
+- **摘要**：`itemsToMessages` 将每个 `function_call` 翻译成独立的 assistant 消息，当同一轮次有多个工具调用时 DeepSeek 报 400："An assistant message with tool_calls must be followed by tool messages"。改用 while 循环将连续 `function_call` 合并为一条 `assistant` 消息的 `tool_calls` 数组；新增两个测试用例验证分组逻辑。用户本地测试通过后发布为 v1.2.2（v1.2.1 已被 Windows 升级修复占用）。
 - **变更文件**：
   - `electron/proxy/translate.ts`（`itemsToMessages` 从 for-of 改为 while 循环分组）
   - `tests/unit/translate.test.ts`（新增 2 个分组测试；修正断言：multi-turn 应为 7 条消息而非 6 条）
-  - `CHANGELOG.md`（追加至 v1.2.1）
-- **发布**：v1.2.1 tag force-pushed；GitHub Release 更新说明
-- **注意事项**：CI 会重新构建 v1.2.1 DMG 和 exe；安装包会替换旧 v1.2.1 资产
+  - `package.json`（v1.2.1 → v1.2.2）
+  - `CHANGELOG.md`（新增 v1.2.2 条目）
+- **发布**：v1.2.2 tag 推送；GitHub Release 已创建 https://github.com/Mark7766/codex-switch/releases/tag/v1.2.2
 
 ### [TASK-022] 修复 Windows 升级程序被锁定导致失败
 - **日期**：2026-06-01
