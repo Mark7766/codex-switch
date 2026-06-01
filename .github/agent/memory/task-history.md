@@ -21,6 +21,15 @@
 
 ## 任务记录
 
+### [TASK-022] 修复 Windows 升级程序被锁定导致失败
+- **日期**：2026-06-01
+- **类型**：fix
+- **摘要**：针对 Windows 升级时 "Codex Switch.exe was not closed" 报错，优化了退出与升级流程。① 新增 `isInstallingUpdate` 状态；② `IPC.updateInstall` 异步清理资源后再调用 `quitAndInstall`；③ `before-quit` 触发后最终调用 `app.exit(0)` 而非 `app.quit()` 以确保进程物理终止。
+- **变更文件**：
+  - `electron/main.ts`（增加 `isInstallingUpdate`，重写 `updateInstall` handler 增加 cleanup，重写 `before-quit` 使用 `app.exit(0)`）
+  - `package.json`（v1.2.0 → v1.2.1）
+  - `CHANGELOG.md`（新增 v1.2.1 记录）
+
 ### [TASK-021] 修复日志 token 数字前多了硬编码 "5"
 - **日期**：2026-06-01
 - **类型**：fix

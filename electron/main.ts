@@ -39,6 +39,7 @@ updater.on('event', (e: UpdateEvent) => {
 let persistentLog: PersistentLog | null = null;
 let lifetimeFlushTimer: NodeJS.Timeout | null = null;
 let lifetimeFlushing = false;
+let isInstallingUpdate = false;
 
 // §5 单实例锁：第二实例直接退出，主实例聚焦窗口并广播 toast。
 const gotLock = app.requestSingleInstanceLock();
@@ -353,7 +354,30 @@ function registerIpc(): void {
   ipcMain.handle(IPC.updateDownload, async () => {
     await updater.download();
   });
-  ipcMain.handle(IPC.updateInstall, () => updater.install());
+  ipcMain.handle(IPC.updateInstall, async () => {
+    log.info('用户点击升级，准备清理资源并重启安装…');
+    isInstallingUpdate = true;
+    try {
+      if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
+      if (proxy) {
+        await Promise.race([
+          flushLifetime(),
+          new Promise((resolve) => setTimeout(resolve, 1500)), // 限时 1.5s
+        ]);
+        await Promise.race([
+          proxy.stop(),
+          new Promise((resolve) => setTimeout(resolve, 2000)), // 限时 2s
+        ]);
+      }
+      await Promise.race([
+        persistentLog?.close(),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+    } catch (e) {
+      log.warn('清理资源准备更新失败：', (e as Error).message);
+    }
+    updater.install();
+  });
   ipcMain.handle(
     IPC.updateSetMirror,
     async (_e, mirror: 'auto' | 'github' | 'ghproxy' | 'custom', custom?: string) => {
@@ -486,6 +510,10 @@ app.on('window-all-closed', () => {
 
 let quitInProgress = false;
 app.on('before-quit', (e) => {
+  if (isInstallingUpdate) {
+    // 升级安装时已在 IPC.updateInstall 中做过异步清理，此处直接放行。
+    return;
+  }
   if (quitInProgress) return;
   if (proxy && proxy.getStatus() !== 'stopped') {
     e.preventDefault();
@@ -506,7 +534,8 @@ app.on('before-quit', (e) => {
         } catch {
           /* ignore */
         }
-        app.quit();
+        // 使用 exit(0) 确保进程彻底退出，避免 app.quit() 被某些残留窗口事件挂起（§13 稳定性修复）
+        app.exit(0);
       });
   } else {
     if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
