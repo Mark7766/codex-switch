@@ -21,6 +21,16 @@
 
 ## 任务记录
 
+### [TASK-024] 修复 Codex 对话失忆（previous_response_id 未处理）
+- **日期**：2026-06-02
+- **类型**：fix
+- **摘要**：Codex 通过 `previous_response_id` 引用上轮响应，代理忽略该字段导致每轮请求都只含当前新消息，模型完全失忆。修复：`DeepSeekProxy` 新增 `conversationStore: Map<string, ChatMessage[]>`，每轮响应后保存完整对话；下轮收到 `previous_response_id` 时查找并恢复历史上下文，再与新消息拼接发给 DeepSeek。
+- **变更文件**：
+  - `electron/proxy/server.ts`（新增 `conversationStore`、`CONV_STORE_MAX`；更新 msg 类型含 `previous_response_id`；修改 message 构建逻辑；响应后存储历史）
+  - `package.json`（v1.2.2 → v1.2.3）
+  - `CHANGELOG.md`（新增 v1.2.3 条目）
+- **发布**：v1.2.3 tag 推送；GitHub Release 已创建 https://github.com/Mark7766/codex-switch/releases/tag/v1.2.3
+
 ### [TASK-023] 修复多工具调用导致 DeepSeek 400 错误（v1.2.2）
 - **日期**：2026-06-01
 - **类型**：fix
