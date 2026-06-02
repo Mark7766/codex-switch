@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.3] - 2026-06-02
+
+### 修复
+- **对话失忆修复。** 使用 Codex Switch 代理后，Codex 每轮回复都不记得上一轮说了什么。根因：OpenAI Responses API 是有状态的，Codex 客户端每轮只发当前新消息并附带 `previous_response_id`，历史上下文本应由服务器维护；代理完全忽略了该字段，导致每次请求都只含当轮消息、模型完全失忆。修复：代理新增 `conversationStore`，每轮请求结束后将完整对话保存为对应 `responseId` 的记录，下轮收到 `previous_response_id` 时自动查找并拼接历史，再发给 DeepSeek，最多缓存 200 轮（按连接生命周期自动 GC）。
+
 ## [1.2.2] - 2026-06-01
 
 ### 修复

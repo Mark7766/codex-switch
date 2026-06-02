@@ -1,6 +1,6 @@
 {
   "name": "codex-switch",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Cross-platform desktop GUI proxy that lets Codex CLI / Desktop talk to DeepSeek.",
   "author": "Codex Switch Contributors",
   "license": "MIT",

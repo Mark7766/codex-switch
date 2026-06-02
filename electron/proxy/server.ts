@@ -9,6 +9,7 @@ import {
   fixOrphanedToolResults,
   itemsToMessages,
   resolveModel,
+  type ChatMessage,
   type ChatRequest,
   type ResponsesItem,
 } from './translate';
@@ -127,6 +128,14 @@ export class DeepSeekProxy extends EventEmitter {
   private status: ProxyStatus = 'stopped';
   private actualPort = 0;
   private readonly reasoning = new ReasoningStore();
+  /**
+   * responseId → 完整对话 messages（发给 DeepSeek 的输入 + assistant 输出）。
+   * 解决 Codex 通过 `previous_response_id` 链式对话时代理丢失历史的"失忆"问题：
+   * Codex Responses API 客户端每轮只发当前新消息并附带 previous_response_id，
+   * 服务端（即本代理）需要自行维护历史并在下轮时恢复完整上下文。
+   */
+  private readonly conversationStore = new Map<string, ChatMessage[]>();
+  private static readonly CONV_STORE_MAX = 200;
   private readonly agent = new https.Agent({ rejectUnauthorized: true });
   private startedAt = 0;
   /** 串行化 start / stop / restart 调用，避免并发竞态（§7 C2/C5）。 */
@@ -769,6 +778,8 @@ export class DeepSeekProxy extends EventEmitter {
         instructions?: string;
         model?: string;
         tools?: unknown;
+        /** Codex 通过此字段引用上一轮响应，实现链式对话（Responses API 状态管理）。 */
+        previous_response_id?: string;
       };
       try {
         msg = JSON.parse(data.toString());
@@ -897,12 +908,29 @@ export class DeepSeekProxy extends EventEmitter {
       this.stats.total += 1;
       this.stats.pendingDelta += 1;
 
-      const fixedInput = fixOrphanedToolResults(
-        Array.isArray(msg.input) ? msg.input : [],
-        lastToolCalls,
-      );
-      const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
-      const fullMessages = [...sysMsg, ...itemsToMessages(fixedInput, this.reasoning.asMap())];
+      // OpenAI Responses API 是有状态的：Codex 每轮只发当前新消息，通过
+      // previous_response_id 引用上轮结果，由服务端维护完整历史。
+      // 代理必须查找并恢复历史，否则每轮只看到一条新消息，导致模型完全失忆。
+      const prevRespId = msg.previous_response_id;
+      const storedHistory = prevRespId ? (this.conversationStore.get(prevRespId) ?? null) : null;
+
+      let fullMessages: ChatMessage[];
+      if (storedHistory !== null) {
+        // 链式模式：从 store 恢复历史 + 追加当轮新消息
+        const newMessages = itemsToMessages(
+          Array.isArray(msg.input) ? msg.input : [],
+          this.reasoning.asMap(),
+        );
+        fullMessages = [...storedHistory, ...newMessages];
+      } else {
+        // 全量模式 / 首轮：input 中已含完整历史，或 store 未命中（如重连）
+        const fixedInput = fixOrphanedToolResults(
+          Array.isArray(msg.input) ? msg.input : [],
+          lastToolCalls,
+        );
+        const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
+        fullMessages = [...sysMsg, ...itemsToMessages(fixedInput, this.reasoning.asMap())];
+      }
       if (!fullMessages.some((m) => m.role === 'user' || m.role === 'tool')) {
         fullMessages.push({ role: 'user', content: 'Hello' });
       }
@@ -946,6 +974,13 @@ export class DeepSeekProxy extends EventEmitter {
           lastToolCalls = outputItems.filter(
             (o) => (o as ResponsesItem).type === 'function_call',
           ) as ResponsesItem[];
+          // 保存完整对话上下文（当轮 input + assistant 输出），供下轮 previous_response_id 恢复。
+          const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
+          this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
+          if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
+            const oldest = this.conversationStore.keys().next().value as string | undefined;
+            if (oldest !== undefined) this.conversationStore.delete(oldest);
+          }
           this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
             endTurn,
             finishReason,
