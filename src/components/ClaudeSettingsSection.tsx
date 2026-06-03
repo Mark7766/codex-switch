@@ -14,8 +14,16 @@ const DESKTOP_MODEL_OPTIONS = [
 const ENV_VAR_ROWS: Array<{ key: string; label: string; envName: string }> = [
   { key: 'anthropicModel', label: '默认主模型', envName: 'ANTHROPIC_MODEL' },
   { key: 'anthropicDefaultOpusModel', label: 'Opus 角色', envName: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
-  { key: 'anthropicDefaultSonnetModel', label: 'Sonnet 角色', envName: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
-  { key: 'anthropicDefaultHaikuModel', label: 'Haiku 角色', envName: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
+  {
+    key: 'anthropicDefaultSonnetModel',
+    label: 'Sonnet 角色',
+    envName: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  },
+  {
+    key: 'anthropicDefaultHaikuModel',
+    label: 'Haiku 角色',
+    envName: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  },
   { key: 'claudeCodeSubagentModel', label: '子代理模型', envName: 'CLAUDE_CODE_SUBAGENT_MODEL' },
 ];
 
@@ -57,7 +65,9 @@ export function ClaudeSettingsSection(): JSX.Element {
         window.codexSwitch.claudeDesktopBackups(),
       ]);
 
-      const cli = prefs.claudeCli as { enabled: boolean; envVars: Record<string, string> } | undefined;
+      const cli = prefs.claudeCli as
+        | { enabled: boolean; envVars: Record<string, string> }
+        | undefined;
       const desktop = prefs.claudeDesktop as
         | { enabled: boolean; modelMap: Record<string, RoleEntry> }
         | undefined;
@@ -103,11 +113,19 @@ export function ClaudeSettingsSection(): JSX.Element {
     setSavingDesktop(true);
     try {
       const fullMap = {
-        sonnet: { model: roleMap.sonnet.model, supports1m: roleMap.sonnet.model === 'deepseek-v4-pro' },
+        sonnet: {
+          model: roleMap.sonnet.model,
+          supports1m: roleMap.sonnet.model === 'deepseek-v4-pro',
+        },
         opus: { model: roleMap.opus.model, supports1m: roleMap.opus.model === 'deepseek-v4-pro' },
-        haiku: { model: roleMap.haiku.model, supports1m: roleMap.haiku.model === 'deepseek-v4-pro' },
+        haiku: {
+          model: roleMap.haiku.model,
+          supports1m: roleMap.haiku.model === 'deepseek-v4-pro',
+        },
       };
-      await window.codexSwitch.setPreferences({ claudeDesktop: { enabled: desktopEnabled, modelMap: fullMap } });
+      await window.codexSwitch.setPreferences({
+        claudeDesktop: { enabled: desktopEnabled, modelMap: fullMap },
+      });
       if (desktopEnabled) await window.codexSwitch.claudeApplyAll();
       pushToast({
         kind: 'success',
@@ -238,7 +256,10 @@ export function ClaudeSettingsSection(): JSX.Element {
                 onChange={(e) =>
                   setRoleMap((m) => ({
                     ...m,
-                    [role]: { model: e.target.value, supports1m: e.target.value === 'deepseek-v4-pro' },
+                    [role]: {
+                      model: e.target.value,
+                      supports1m: e.target.value === 'deepseek-v4-pro',
+                    },
                   }))
                 }
                 className="flex-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs"
@@ -266,10 +287,7 @@ export function ClaudeSettingsSection(): JSX.Element {
             <div className="text-xs text-slate-400 mb-1">Claude Desktop 配置备份</div>
             <ul className="space-y-1 text-xs">
               {desktopBackups.slice(0, 5).map((f) => (
-                <li
-                  key={f}
-                  className="flex items-center gap-2 bg-slate-900/60 px-3 py-2 rounded"
-                >
+                <li key={f} className="flex items-center gap-2 bg-slate-900/60 px-3 py-2 rounded">
                   <span className="font-mono truncate flex-1">{f.split('/').at(-1)}</span>
                   <button
                     onClick={() => restoreDesktop(f)}

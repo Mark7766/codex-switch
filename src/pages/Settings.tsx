@@ -95,8 +95,7 @@ export function Settings(): JSX.Element {
       if (res.portChanged) {
         pushToast({
           kind: 'info',
-          message:
-            '端口已变更，请手动重启 Codex Desktop（退出后重新打开）使新端口生效。',
+          message: '端口已变更，请手动重启 Codex Desktop（退出后重新打开）使新端口生效。',
         });
       }
       setMsg(null);
@@ -190,7 +189,9 @@ export function Settings(): JSX.Element {
             <span className="flex-1">
               拦截 Codex Desktop 后台 "建议气泡" 请求
               <span className="block text-xs text-slate-500 mt-1">
-                Codex Desktop 会周期性后台请求 "hyperpersonalized suggestions"，一句提问可触发数十次额外调用。开启后这些后台请求被本地直接返回空建议，不消耗 DeepSeek token。
+                Codex Desktop 会周期性后台请求 "hyperpersonalized
+                suggestions"，一句提问可触发数十次额外调用。开启后这些后台请求被本地直接返回空建议，不消耗
+                DeepSeek token。
               </span>
             </span>
             <input

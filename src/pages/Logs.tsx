@@ -43,8 +43,7 @@ export function Logs(): JSX.Element {
   const filtered = useMemo(() => {
     let result = logs;
     if (filter !== 'all') result = result.filter((l) => l.level === filter);
-    if (sourceFilter === 'codex')
-      result = result.filter((l) => l.source !== 'claude-desktop');
+    if (sourceFilter === 'codex') result = result.filter((l) => l.source !== 'claude-desktop');
     else if (sourceFilter === 'claude-desktop')
       result = result.filter((l) => l.source === 'claude-desktop');
     return result;
@@ -65,7 +64,12 @@ export function Logs(): JSX.Element {
       else if (g.outcome === 'error') error++;
       else if (g.outcome === 'blocked') blocked++;
     }
-    return { groups: allGroups.filter((g) => g.outcome !== 'blocked').length, success, error, blocked };
+    return {
+      groups: allGroups.filter((g) => g.outcome !== 'blocked').length,
+      success,
+      error,
+      blocked,
+    };
   }, [allGroups]);
 
   return (
@@ -92,7 +96,10 @@ export function Logs(): JSX.Element {
       <div className="flex items-center gap-3 mb-4 text-sm">
         <span className="text-slate-400">共 {groupStats.groups} 组请求</span>
         <span className="text-emerald-400">{groupStats.success} 实调 DeepSeek</span>
-        <span className="text-slate-400" title="Codex Desktop 后台轮询 / 空 warm-up被本地拦截，未调用 DeepSeek、未消耗 token">
+        <span
+          className="text-slate-400"
+          title="Codex Desktop 后台轮询 / 空 warm-up被本地拦截，未调用 DeepSeek、未消耗 token"
+        >
           {groupStats.blocked} 已拦截
         </span>
         <span className="text-red-400">{groupStats.error} 失败</span>

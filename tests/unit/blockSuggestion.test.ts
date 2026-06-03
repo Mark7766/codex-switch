@@ -42,7 +42,9 @@ describe('isBackgroundSuggestionRequest', () => {
   it('returns false for normal user prompts', () => {
     expect(
       isBackgroundSuggestionRequest({
-        input: [{ type: 'message', role: 'user', content: '如果让你写PPT，你需要安装什么技能或者插件' }],
+        input: [
+          { type: 'message', role: 'user', content: '如果让你写PPT，你需要安装什么技能或者插件' },
+        ],
       }),
     ).toBe(false);
   });

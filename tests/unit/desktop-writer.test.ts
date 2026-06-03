@@ -16,12 +16,8 @@ vi.mock('node:fs/promises', () => ({
 
 // Mock paths helpers
 vi.mock('../../electron/claude/paths', () => ({
-  claudeDesktopConfigPath: vi.fn(
-    () => '/home/user/.config/Claude/claude_desktop_config.json',
-  ),
-  claudeDesktop3pConfigPath: vi.fn(
-    () => '/home/user/.config/Claude-3p/claude_desktop_config.json',
-  ),
+  claudeDesktopConfigPath: vi.fn(() => '/home/user/.config/Claude/claude_desktop_config.json'),
+  claudeDesktop3pConfigPath: vi.fn(() => '/home/user/.config/Claude-3p/claude_desktop_config.json'),
   claudeDesktopConfigLibraryDir: vi.fn(() => '/home/user/.config/Claude-3p/configLibrary'),
   claudeDesktopProfilePath: vi.fn(
     (id: string) => `/home/user/.config/Claude-3p/configLibrary/${id}.json`,
@@ -83,10 +79,7 @@ describe('writeClaudeDesktopConfig', () => {
 
     // Check profile JSON has the gateway fields
     const profile = calls.find(
-      ([p]) =>
-        typeof p === 'string' &&
-        p.endsWith(`${PROFILE_ID}.json`) &&
-        !p.includes('.bak.'),
+      ([p]) => typeof p === 'string' && p.endsWith(`${PROFILE_ID}.json`) && !p.includes('.bak.'),
     ) as [string, string, unknown] | undefined;
     expect(profile).toBeTruthy();
     const parsed = JSON.parse(profile![1]) as Record<string, unknown>;
@@ -154,9 +147,7 @@ describe('removeClaudeDesktopConfig', () => {
   it('switches both configs back to 1p and deletes profile when our placeholder is present', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(
-          JSON.stringify({ inferenceGatewayApiKey: PLACEHOLDER_KEY }),
-        );
+        return Promise.resolve(JSON.stringify({ inferenceGatewayApiKey: PLACEHOLDER_KEY }));
       }
       // Return empty object for both config files and meta
       return Promise.resolve('{"deploymentMode":"3p"}');
@@ -182,9 +173,7 @@ describe('removeClaudeDesktopConfig', () => {
   it('does NOT touch anything when profile API key is a real user key', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(
-          JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }),
-        );
+        return Promise.resolve(JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }));
       }
       return Promise.resolve('{"deploymentMode":"3p"}');
     }) as never);
@@ -216,9 +205,7 @@ describe('listClaudeDesktopBackups', () => {
         ] as never);
       }
       if (dir.endsWith('Claude-3p')) {
-        return Promise.resolve([
-          'claude_desktop_config.json.bak.20250101000002',
-        ] as never);
+        return Promise.resolve(['claude_desktop_config.json.bak.20250101000002'] as never);
       }
       return Promise.resolve([] as never);
     }) as never);

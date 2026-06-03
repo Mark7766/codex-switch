@@ -100,9 +100,7 @@ export function itemsToMessages(
           function: {
             name: fc.name || '',
             arguments:
-              typeof fc.arguments === 'string'
-                ? fc.arguments
-                : JSON.stringify(fc.arguments ?? {}),
+              typeof fc.arguments === 'string' ? fc.arguments : JSON.stringify(fc.arguments ?? {}),
           },
         });
         const rc = reasoningMap.get(callId);
@@ -181,7 +179,8 @@ export function fixOrphanedToolResults(
 export function fixToolMessageOrder(messages: ChatMessage[]): ChatMessage[] {
   let assistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant' && messages[i].tool_calls?.length) {
+    const msg = messages[i];
+    if (msg?.role === 'assistant' && msg.tool_calls?.length) {
       assistantIdx = i;
       break;
     }
@@ -189,7 +188,8 @@ export function fixToolMessageOrder(messages: ChatMessage[]): ChatMessage[] {
   if (assistantIdx < 0) return messages;
 
   const assistantMsg = messages[assistantIdx];
-  const expectedIds = new Set(assistantMsg.tool_calls!.map((tc) => tc.id));
+  if (!assistantMsg?.tool_calls) return messages;
+  const expectedIds = new Set(assistantMsg.tool_calls.map((tc) => tc.id));
   const before = messages.slice(0, assistantIdx + 1);
   const after = messages.slice(assistantIdx + 1);
 

@@ -137,7 +137,12 @@ async function createWindow(): Promise<void> {
 /** §3：事务性应用偏好——store → ~/.codex → 必要时重启代理。任一步失败抛出。 */
 async function applyPreferencesTransaction(
   patch: Partial<UserPreferences> & { codexModel?: string },
-): Promise<{ prefs: UserPreferences; codexWritten: boolean; restarted: boolean; portChanged: boolean }> {
+): Promise<{
+  prefs: UserPreferences;
+  codexWritten: boolean;
+  restarted: boolean;
+  portChanged: boolean;
+}> {
   const before = getPreferences();
   const { codexModel, ...prefsPatch } = patch;
   const portChanged =
@@ -235,12 +240,20 @@ function registerIpc(): void {
     if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
       detectAll()
         .then(async (result) => {
-          if (prefs.claudeCli.enabled && result.claudeCli.installed && !result.claudeCli.configApplied) {
+          if (
+            prefs.claudeCli.enabled &&
+            result.claudeCli.installed &&
+            !result.claudeCli.configApplied
+          ) {
             await writeClaudeCliConfig(key, prefs.claudeCli.envVars).catch((e) =>
               log.warn('[main] claudeCli 自动写入失败：', (e as Error).message),
             );
           }
-          if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed && !result.claudeDesktop.configApplied) {
+          if (
+            prefs.claudeDesktop.enabled &&
+            result.claudeDesktop.installed &&
+            !result.claudeDesktop.configApplied
+          ) {
             const port = proxy?.getPort() ?? prefs.proxyPort;
             await writeClaudeDesktopConfig(port).catch((e) =>
               log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
@@ -506,7 +519,8 @@ async function flushLifetime(): Promise<void> {
   if (!proxy) return;
   lifetimeFlushing = true;
   try {
-    const { requestsDelta, uptimeMs, inputTokensDelta, outputTokensDelta } = proxy.consumeLifetimeDelta();
+    const { requestsDelta, uptimeMs, inputTokensDelta, outputTokensDelta } =
+      proxy.consumeLifetimeDelta();
     if (requestsDelta === 0 && uptimeMs === 0) return;
     const cur = getPreferences();
     setPreferences({

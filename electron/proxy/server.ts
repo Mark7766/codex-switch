@@ -207,7 +207,12 @@ export class DeepSeekProxy extends EventEmitter {
     this.stats.pendingDelta = 0;
     this.stats.pendingInputTokensDelta = 0;
     this.stats.pendingOutputTokensDelta = 0;
-    return { requestsDelta: d, uptimeMs: this.getUptimeMs(), inputTokensDelta: it, outputTokensDelta: ot };
+    return {
+      requestsDelta: d,
+      uptimeMs: this.getUptimeMs(),
+      inputTokensDelta: it,
+      outputTokensDelta: ot,
+    };
   }
 
   /** 主面板"近 5 分钟"统计。 */
@@ -679,7 +684,9 @@ export class DeepSeekProxy extends EventEmitter {
           this.reasoning,
         )
           .then(({ usage }) => {
-            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, { usage });
+            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+              usage,
+            });
             res.end();
           })
           .catch((e) => {
@@ -834,7 +841,9 @@ export class DeepSeekProxy extends EventEmitter {
       const resolvedModel = this.resolveAndWarn(requestedModel, reqId, 'ws');
 
       // 把 codex 实际发来的内容做摘要，便于诊断"同一个问题是否被重复打"。
-      const inputArr = Array.isArray(msg.input) ? (msg.input as Array<Record<string, unknown>>) : [];
+      const inputArr = Array.isArray(msg.input)
+        ? (msg.input as Array<Record<string, unknown>>)
+        : [];
       const inputCount = inputArr.length;
       const inputKinds: Record<string, number> = {};
       for (const it of inputArr) {
@@ -850,7 +859,8 @@ export class DeepSeekProxy extends EventEmitter {
           if (typeof c === 'string') lastUserPreview = c;
           else if (Array.isArray(c)) {
             const part = c.find(
-              (p) => (p as { type?: string }).type === 'input_text' || (p as { text?: unknown }).text,
+              (p) =>
+                (p as { type?: string }).type === 'input_text' || (p as { text?: unknown }).text,
             ) as { text?: unknown } | undefined;
             if (part && typeof part.text === 'string') lastUserPreview = part.text;
           }
@@ -1110,7 +1120,9 @@ export class DeepSeekProxy extends EventEmitter {
         ? { finishReason: extras.finishReason }
         : {}),
       ...(extras?.connId ? { connId: extras.connId } : {}),
-      ...(extras?.usage && !isBlocked ? { inputTokens: extras.usage.inputTokens, outputTokens: extras.usage.outputTokens } : {}),
+      ...(extras?.usage && !isBlocked
+        ? { inputTokens: extras.usage.inputTokens, outputTokens: extras.usage.outputTokens }
+        : {}),
     });
   }
 

@@ -247,18 +247,10 @@ function DiagTab(): JSX.Element {
       <div className="bg-slate-800/50 rounded-xl p-5 text-sm text-slate-400">
         <div className="font-medium text-slate-200 mb-2">遇到问题？</div>
         <ul className="space-y-1.5 list-disc list-inside">
-          <li>
-            日志页看请求详情 —— 红色错误条目有原因说明和修复建议
-          </li>
-          <li>
-            401 错误 → 设置页重新填写 DeepSeek API Key
-          </li>
-          <li>
-            429 错误 → 等 30~60 秒或检查 DeepSeek 账户余额
-          </li>
-          <li>
-            端口冲突 → 设置页修改本地端口
-          </li>
+          <li>日志页看请求详情 —— 红色错误条目有原因说明和修复建议</li>
+          <li>401 错误 → 设置页重新填写 DeepSeek API Key</li>
+          <li>429 错误 → 等 30~60 秒或检查 DeepSeek 账户余额</li>
+          <li>端口冲突 → 设置页修改本地端口</li>
           <li>
             <button
               onClick={() =>
@@ -290,9 +282,7 @@ function TabBtn({
     <button
       onClick={() => onClick(val as 'guide' | 'faq' | 'diag')}
       className={`px-4 py-1.5 text-sm rounded-t transition ${
-        cur === val
-          ? 'bg-brand-600 text-white'
-          : 'text-slate-400 hover:text-slate-200'
+        cur === val ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-slate-200'
       }`}
     >
       {label}

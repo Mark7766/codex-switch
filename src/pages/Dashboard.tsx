@@ -189,14 +189,13 @@ export function Dashboard(): JSX.Element {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <ToolCard label="Codex Desktop" ts={detectResult.codexDesktop} />
             <ToolCard label="Codex CLI" ts={detectResult.codexCli} />
-            <ToolCard
-              label="Claude Code CLI"
-              ts={detectResult.claudeCli}
-            />
+            <ToolCard label="Claude Code CLI" ts={detectResult.claudeCli} />
             <ToolCard
               label="Claude Desktop"
               ts={detectResult.claudeDesktop}
-              restartHint={justApplied && detectResult.claudeDesktop.configApplied ? '重启应用生效' : undefined}
+              restartHint={
+                justApplied && detectResult.claudeDesktop.configApplied ? '重启应用生效' : undefined
+              }
             />
           </div>
         ) : (
@@ -238,11 +237,7 @@ function ToolCard({
   ts: ToolStatus;
   restartHint?: string;
 }): JSX.Element {
-  const dot = ts.installed
-    ? ts.configApplied
-      ? 'bg-green-500'
-      : 'bg-red-500'
-    : 'bg-slate-500';
+  const dot = ts.installed ? (ts.configApplied ? 'bg-green-500' : 'bg-red-500') : 'bg-slate-500';
   const text = ts.installed ? (ts.configApplied ? '已配置' : '未配置') : '未安装';
   return (
     <div className="bg-slate-900/70 rounded-md p-3 flex items-start gap-2">

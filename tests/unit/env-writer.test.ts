@@ -108,9 +108,9 @@ describe('removeClaudeCliConfig', () => {
     await removeClaudeCliConfig();
 
     const calls = vi.mocked(fs.writeFile).mock.calls;
-    const profileCall = calls.find(
-      ([p]) => typeof p === 'string' && p.endsWith('.zshrc'),
-    ) as [string, string, unknown] | undefined;
+    const profileCall = calls.find(([p]) => typeof p === 'string' && p.endsWith('.zshrc')) as
+      | [string, string, unknown]
+      | undefined;
     expect(profileCall).toBeTruthy();
     const content = profileCall![1];
     expect(content).not.toContain(BLOCK_START);
@@ -129,9 +129,7 @@ describe('removeClaudeCliConfig', () => {
     await removeClaudeCliConfig();
 
     const calls = vi.mocked(fs.writeFile).mock.calls;
-    const profileCall = calls.find(
-      ([p]) => typeof p === 'string' && p.endsWith('.zshrc'),
-    );
+    const profileCall = calls.find(([p]) => typeof p === 'string' && p.endsWith('.zshrc'));
     expect(profileCall).toBeUndefined();
   });
 });

@@ -99,10 +99,7 @@ export function resolveAnthropicModel(
 // ─── Route handlers ──────────────────────────────────────────────────────────
 
 /** Handle GET /anthropic/v1/models */
-export function handleAnthropicModels(
-  res: ServerResponse,
-  opts: AnthropicRelayOptions,
-): void {
+export function handleAnthropicModels(res: ServerResponse, opts: AnthropicRelayOptions): void {
   if (!opts.apiKey) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(
@@ -177,8 +174,12 @@ export function handleAnthropicMessages(
     const startTs = Date.now();
 
     // Inspect body for diagnostics
-    const msgs = Array.isArray(body['messages']) ? (body['messages'] as Array<{ role: string }>) : [];
-    const toolDefs = Array.isArray(body['tools']) ? (body['tools'] as Array<{ name?: string }>) : [];
+    const msgs = Array.isArray(body['messages'])
+      ? (body['messages'] as Array<{ role: string }>)
+      : [];
+    const toolDefs = Array.isArray(body['tools'])
+      ? (body['tools'] as Array<{ name?: string }>)
+      : [];
     const lastRole = msgs[msgs.length - 1]?.role ?? 'none';
     const sysRaw = body['system'];
     const sysPreview =
@@ -187,7 +188,8 @@ export function handleAnthropicMessages(
         : Array.isArray(sysRaw)
           ? JSON.stringify(sysRaw).slice(0, 60)
           : '';
-    const toolInfo = toolDefs.length > 0 ? ` tools=[${toolDefs.map((t) => t.name ?? '?').join(',')}]` : '';
+    const toolInfo =
+      toolDefs.length > 0 ? ` tools=[${toolDefs.map((t) => t.name ?? '?').join(',')}]` : '';
 
     // Sub-agent dispatch detection:
     // Claude Desktop routes every user message to multiple parallel sub-agents
@@ -196,8 +198,7 @@ export function handleAnthropicMessages(
     // Also stub continuation requests (lastRole=assistant): Claude Desktop sends
     // these when it thinks the previous reply was truncated; DeepSeek doesn't
     // support continuation and would just generate a redundant follow-up.
-    const isSubAgentDispatch =
-      msgs.length === 1 && msgs[0]?.role === 'user' && toolDefs.length > 0;
+    const isSubAgentDispatch = msgs.length === 1 && msgs[0]?.role === 'user' && toolDefs.length > 0;
     const isContinuation = msgs.length > 0 && lastRole === 'assistant';
     const stubReason = isSubAgentDispatch ? 'sub-agent' : isContinuation ? 'continuation' : null;
 
@@ -228,8 +229,12 @@ export function handleAnthropicMessages(
           'Cache-Control': 'no-cache',
           'X-Accel-Buffering': 'no',
         });
-        res.write(`data: ${JSON.stringify({ type: 'message_start', message: { ...stubMsg, stop_reason: null } })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ type: 'message_start', message: { ...stubMsg, stop_reason: null } })}\n\n`,
+        );
+        res.write(
+          `data: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } })}\n\n`,
+        );
         res.write(`data: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
         res.end();
       } else {
@@ -284,7 +289,9 @@ export function handleAnthropicMessages(
         let outputTokens = 0;
         let stopReason = '';
         let sseBuf = '';
-        const isSse = (upstreamRes.headers['content-type'] ?? '').toString().includes('event-stream');
+        const isSse = (upstreamRes.headers['content-type'] ?? '')
+          .toString()
+          .includes('event-stream');
         upstreamRes.on('data', (chunk: Buffer) => {
           res.write(chunk);
           if (isSse) {
@@ -382,10 +389,7 @@ export function handleAnthropicMessages(
  * Returns a rough token-count estimate so Claude Desktop's UI can display
  * context-usage progress without retrying on 404.
  */
-export function handleAnthropicCountTokens(
-  req: IncomingMessage,
-  res: ServerResponse,
-): void {
+export function handleAnthropicCountTokens(req: IncomingMessage, res: ServerResponse): void {
   const chunks: Buffer[] = [];
   req.on('data', (chunk: Buffer) => chunks.push(chunk));
   req.on('end', () => {

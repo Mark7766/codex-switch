@@ -188,7 +188,11 @@ describe('fixToolMessageOrder', () => {
   const makeAssistant = (ids: string[]) => ({
     role: 'assistant' as const,
     content: null,
-    tool_calls: ids.map((id) => ({ id, type: 'function' as const, function: { name: 'sh', arguments: '{}' } })),
+    tool_calls: ids.map((id) => ({
+      id,
+      type: 'function' as const,
+      function: { name: 'sh', arguments: '{}' },
+    })),
   });
   const makeTool = (id: string) => ({ role: 'tool' as const, content: 'ok', tool_call_id: id });
   const makeUser = (content: string) => ({ role: 'user' as const, content });

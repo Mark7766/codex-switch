@@ -27,34 +27,22 @@ import {
 
 describe('resolveAnthropicModel', () => {
   it('maps claude-sonnet to deepseek-v4-pro', () => {
-    const result = resolveAnthropicModel(
-      'claude-sonnet-4-5',
-      DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
-    );
+    const result = resolveAnthropicModel('claude-sonnet-4-5', DEFAULT_CLAUDE_DESKTOP_MODEL_MAP);
     expect(result).toBe('deepseek-v4-pro');
   });
 
   it('maps claude-haiku to deepseek-v4-flash', () => {
-    const result = resolveAnthropicModel(
-      'claude-haiku-3-5',
-      DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
-    );
+    const result = resolveAnthropicModel('claude-haiku-3-5', DEFAULT_CLAUDE_DESKTOP_MODEL_MAP);
     expect(result).toBe('deepseek-v4-flash');
   });
 
   it('strips [1m] suffix before resolving', () => {
-    const result = resolveAnthropicModel(
-      'claude-sonnet-4-5[1m]',
-      DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
-    );
+    const result = resolveAnthropicModel('claude-sonnet-4-5[1m]', DEFAULT_CLAUDE_DESKTOP_MODEL_MAP);
     expect(result).toBe('deepseek-v4-pro');
   });
 
   it('falls back to deepseek-v4-pro for unknown model IDs', () => {
-    const result = resolveAnthropicModel(
-      'claude-unknown-model',
-      DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
-    );
+    const result = resolveAnthropicModel('claude-unknown-model', DEFAULT_CLAUDE_DESKTOP_MODEL_MAP);
     // Unknown model falls back to opus or sonnet mapping
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
@@ -100,7 +88,10 @@ describe('handleAnthropicModels', () => {
 
 describe('handleAnthropicCountTokens', () => {
   it('returns input_tokens estimate based on body size', async () => {
-    const body = JSON.stringify({ model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hello world' }] });
+    const body = JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: 'hello world' }],
+    });
     let statusCode = 0;
     const chunks: string[] = [];
 
@@ -112,8 +103,12 @@ describe('handleAnthropicCountTokens', () => {
       }),
     };
     const mockRes = {
-      writeHead: vi.fn((code: number) => { statusCode = code; }),
-      end: vi.fn((body: string) => { chunks.push(body); }),
+      writeHead: vi.fn((code: number) => {
+        statusCode = code;
+      }),
+      end: vi.fn((body: string) => {
+        chunks.push(body);
+      }),
     };
 
     handleAnthropicCountTokens(mockReq as never, mockRes as never);
@@ -134,7 +129,15 @@ describe('handleAnthropicMessages – missing API key', () => {
 
     const mockReq = {
       on: vi.fn((event: string, cb: (data: Buffer) => void) => {
-        if (event === 'data') cb(Buffer.from(JSON.stringify({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] })));
+        if (event === 'data')
+          cb(
+            Buffer.from(
+              JSON.stringify({
+                model: 'claude-sonnet-4-5',
+                messages: [{ role: 'user', content: 'hi' }],
+              }),
+            ),
+          );
         if (event === 'end') (cb as unknown as () => void)();
         return mockReq;
       }),
@@ -150,10 +153,15 @@ describe('handleAnthropicMessages – missing API key', () => {
       }),
     };
 
-    await handleAnthropicMessages(mockReq as never, mockRes as never, {
-      apiKey: '',
-      modelMap: DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
-    }, vi.fn());
+    await handleAnthropicMessages(
+      mockReq as never,
+      mockRes as never,
+      {
+        apiKey: '',
+        modelMap: DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
+      },
+      vi.fn(),
+    );
 
     expect(statusCode).toBe(401);
   });

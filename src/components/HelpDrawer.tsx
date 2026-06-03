@@ -31,7 +31,10 @@ export function HelpDrawer({ open, onClose, page }: HelpDrawerProps): JSX.Elemen
   const [diagPreview, setDiagPreview] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) { setTab('faq'); setDiagPreview(null); }
+    if (open) {
+      setTab('faq');
+      setDiagPreview(null);
+    }
   }, [open]);
 
   if (!open) return null;

@@ -13,8 +13,7 @@ function claudeDesktopDir(): string {
     return path.join(os.homedir(), 'Library', 'Application Support', 'Claude');
   }
   if (process.platform === 'win32') {
-    const localAppData =
-      process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
     return path.join(localAppData, 'Claude');
   }
   return path.join(os.homedir(), '.config', 'Claude');
@@ -29,8 +28,7 @@ function claudeDesktop3pDir(): string {
     return path.join(os.homedir(), 'Library', 'Application Support', 'Claude-3p');
   }
   if (process.platform === 'win32') {
-    const localAppData =
-      process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
     return path.join(localAppData, 'Claude-3p');
   }
   return path.join(os.homedir(), '.config', 'Claude-3p');
@@ -65,8 +63,7 @@ export function claudeDesktopMetaPath(): string {
 export function claudeDesktopAppPath(): string | null {
   if (process.platform === 'darwin') return '/Applications/Claude.app';
   if (process.platform === 'win32') {
-    const localAppData =
-      process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
     return path.join(localAppData, 'Programs', 'Claude', 'Claude.exe');
   }
   return null; // Linux not supported
@@ -116,8 +113,7 @@ export function codexDir(): string {
 export function codexDesktopAppPath(): string | null {
   if (process.platform === 'darwin') return '/Applications/Codex.app';
   if (process.platform === 'win32') {
-    const localAppData =
-      process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
     return path.join(localAppData, 'Programs', 'OpenAI', 'Codex.exe');
   }
   return null;
