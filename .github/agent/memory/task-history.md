@@ -21,6 +21,20 @@
 
 ## 任务记录
 
+### [TASK-038] 发布 v1.3.0
+- **日期**：2026-06-03
+- **类型**：chore（release）
+- **摘要**：将 TASK-034 ~ TASK-037 所有变更打包为 v1.3.0，推送远程并创建 GitHub Release。
+- **操作步骤**：
+  1. `npm version 1.3.0 --no-git-tag-version` 更新 package.json
+  2. `git add` 所有新增/修改文件（30 个），`git commit`
+  3. `git tag v1.3.0`
+  4. `pnpm package:mac` 构建 4 个产物：arm64/x64 DMG + zip
+  5. `git push origin main --tags`
+  6. `gh release create v1.3.0` 附带 4 个安装包
+- **Release URL**：https://github.com/Mark7766/codex-switch/releases/tag/v1.3.0
+- **测试**：99/99 通过（发布前验证）
+
 ### [TASK-037] Claude Desktop 续写拦截 + token 显示
 - **日期**：2026-06-03
 - **类型**：fix + feat
