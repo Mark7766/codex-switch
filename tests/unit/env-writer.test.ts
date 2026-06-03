@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const isWindows = process.platform === 'win32';
+
 // Mock node:fs/promises using factory functions — no captured variables to avoid hoisting errors.
 vi.mock('node:fs/promises', () => ({
   default: {
@@ -44,7 +46,7 @@ beforeEach(() => {
 });
 
 describe('writeClaudeCliConfig', () => {
-  it('writes env var block to shell profile', async () => {
+  it.skipIf(isWindows)('writes env var block to shell profile', async () => {
     await writeClaudeCliConfig('sk-test-key', DEFAULT_ENV_VARS);
 
     // Shell profile is identifiable by `.zshrc`
@@ -73,7 +75,7 @@ describe('writeClaudeCliConfig', () => {
     expect(parsed.env['ANTHROPIC_BASE_URL']).toBe('https://api.deepseek.com/anthropic');
   });
 
-  it('removes existing block before re-writing', async () => {
+  it.skipIf(isWindows)('removes existing block before re-writing', async () => {
     const existingBlock = `# existing\n${BLOCK_START}\nexport ANTHROPIC_AUTH_TOKEN=old\n${BLOCK_END}\n# end`;
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith('.zshrc')) return Promise.resolve(existingBlock);
@@ -93,7 +95,7 @@ describe('writeClaudeCliConfig', () => {
 });
 
 describe('removeClaudeCliConfig', () => {
-  it('removes the block from shell profile', async () => {
+  it.skipIf(isWindows)('removes the block from shell profile', async () => {
     const withBlock = `# before\n${BLOCK_START}\nexport X=1\n${BLOCK_END}\n# after\n`;
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith('.zshrc')) return Promise.resolve(withBlock);
