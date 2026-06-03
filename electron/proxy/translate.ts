@@ -168,6 +168,41 @@ export function fixOrphanedToolResults(
   return result;
 }
 
+/**
+ * DeepSeek requires every `tool` message to immediately follow the assistant
+ * message containing the matching `tool_calls`.  If Codex inserts regular
+ * messages (e.g. "Approved command prefix saved …") between the assistant
+ * tool_calls and the tool results, DeepSeek returns 400.
+ *
+ * This function finds the last assistant{tool_calls} in the array and moves
+ * all matching tool-result messages to immediately after it, deferring any
+ * interleaved non-tool messages to after the tool block.
+ */
+export function fixToolMessageOrder(messages: ChatMessage[]): ChatMessage[] {
+  let assistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant' && messages[i].tool_calls?.length) {
+      assistantIdx = i;
+      break;
+    }
+  }
+  if (assistantIdx < 0) return messages;
+
+  const assistantMsg = messages[assistantIdx];
+  const expectedIds = new Set(assistantMsg.tool_calls!.map((tc) => tc.id));
+  const before = messages.slice(0, assistantIdx + 1);
+  const after = messages.slice(assistantIdx + 1);
+
+  const toolMsgs = after.filter(
+    (m) => m.role === 'tool' && m.tool_call_id != null && expectedIds.has(m.tool_call_id),
+  );
+  const others = after.filter(
+    (m) => !(m.role === 'tool' && m.tool_call_id != null && expectedIds.has(m.tool_call_id)),
+  );
+
+  return [...before, ...toolMsgs, ...others];
+}
+
 export function extractTools(tools: unknown): ChatRequest['tools'] {
   if (!Array.isArray(tools) || tools.length === 0) return undefined;
   const result: NonNullable<ChatRequest['tools']> = [];

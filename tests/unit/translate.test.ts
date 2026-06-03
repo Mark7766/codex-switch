@@ -3,6 +3,7 @@ import {
   itemsToMessages,
   normalizeRole,
   fixOrphanedToolResults,
+  fixToolMessageOrder,
   extractTools,
   mapModel,
   resolveModel,
@@ -180,5 +181,66 @@ describe('resolveModel', () => {
   });
   it('reports fallback when requested is empty', () => {
     expect(resolveModel(undefined, {}).matched).toBe('fallback');
+  });
+});
+
+describe('fixToolMessageOrder', () => {
+  const makeAssistant = (ids: string[]) => ({
+    role: 'assistant' as const,
+    content: null,
+    tool_calls: ids.map((id) => ({ id, type: 'function' as const, function: { name: 'sh', arguments: '{}' } })),
+  });
+  const makeTool = (id: string) => ({ role: 'tool' as const, content: 'ok', tool_call_id: id });
+  const makeUser = (content: string) => ({ role: 'user' as const, content });
+
+  it('no-ops when no assistant tool_calls present', () => {
+    const msgs = [makeUser('hi'), { role: 'assistant' as const, content: 'hello' }];
+    expect(fixToolMessageOrder(msgs)).toEqual(msgs);
+  });
+
+  it('no-ops when tool messages already follow immediately', () => {
+    const msgs = [makeUser('run'), makeAssistant(['c1', 'c2']), makeTool('c1'), makeTool('c2')];
+    expect(fixToolMessageOrder(msgs)).toEqual(msgs);
+  });
+
+  it('moves tool messages before interleaved regular messages', () => {
+    // Simulates: assistant{tool_calls} + 3 approval msgs + 3 tool results
+    const msgs = [
+      makeUser('start'),
+      makeAssistant(['c1', 'c2', 'c3']),
+      makeUser('Approved command 1'),
+      makeUser('Approved command 2'),
+      makeUser('Approved command 3'),
+      makeTool('c1'),
+      makeTool('c2'),
+      makeTool('c3'),
+    ];
+    const fixed = fixToolMessageOrder(msgs);
+    // assistant must be immediately followed by 3 tool messages
+    expect(fixed[2]?.role).toBe('tool');
+    expect(fixed[3]?.role).toBe('tool');
+    expect(fixed[4]?.role).toBe('tool');
+    // approval messages are deferred to after tool block
+    expect(fixed[5]?.role).toBe('user');
+    expect(fixed[6]?.role).toBe('user');
+    expect(fixed[7]?.role).toBe('user');
+    expect(fixed).toHaveLength(msgs.length);
+  });
+
+  it('only reorders for the last assistant{tool_calls} block', () => {
+    const msgs = [
+      makeAssistant(['a1']),
+      makeTool('a1'),
+      makeUser('next turn'),
+      makeAssistant(['b1', 'b2']),
+      makeUser('approval'),
+      makeTool('b1'),
+      makeTool('b2'),
+    ];
+    const fixed = fixToolMessageOrder(msgs);
+    // Second block: tool messages should come before the approval user message
+    expect(fixed[4]?.role).toBe('tool');
+    expect(fixed[5]?.role).toBe('tool');
+    expect(fixed[6]?.role).toBe('user');
   });
 });

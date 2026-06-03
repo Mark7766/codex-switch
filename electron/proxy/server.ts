@@ -7,6 +7,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   extractTools,
   fixOrphanedToolResults,
+  fixToolMessageOrder,
   itemsToMessages,
   resolveModel,
   type ChatMessage,
@@ -965,6 +966,10 @@ export class DeepSeekProxy extends EventEmitter {
         const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
         fullMessages = [...sysMsg, ...itemsToMessages(fixedInput, this.reasoning.asMap())];
       }
+      // DeepSeek rejects if any non-tool message appears between an
+      // assistant{tool_calls} and its tool results.  Reorder so that tool
+      // messages always come immediately after their matching tool_calls.
+      fullMessages = fixToolMessageOrder(fullMessages);
       if (!fullMessages.some((m) => m.role === 'user' || m.role === 'tool')) {
         fullMessages.push({ role: 'user', content: 'Hello' });
       }
