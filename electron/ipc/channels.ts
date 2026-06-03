@@ -52,6 +52,21 @@ export const IPC = {
   logsClearPersisted: 'logs:clear-persisted',
   logsOpenDir: 'logs:open-dir',
   logsGetStats: 'logs:get-stats',
+  // v1.3.0 Claude 接入
+  /** 检测 4 个工具的安装 / 配置状态。 */
+  claudeDetect: 'claude:detect',
+  /** 对检测到的工具应用配置（需要已保存 API Key）。 */
+  claudeApplyAll: 'claude:apply-all',
+  /** 卸载 Claude Code CLI 的 profile 注释块。 */
+  claudeUninstallCli: 'claude:uninstall-cli',
+  /** 卸载 Claude Desktop 的 config.json（仅删除 Codex Switch 写入的那份）。 */
+  claudeUninstallDesktop: 'claude:uninstall-desktop',
+  /** 一键卸载所有 Codex Switch 写入的 Claude 配置。 */
+  claudeUninstallAll: 'claude:uninstall-all',
+  /** 列出 Claude Desktop config 的备份文件。 */
+  claudeDesktopBackups: 'claude:desktop-backups',
+  /** 还原 Claude Desktop config 某个备份。 */
+  claudeDesktopRestore: 'claude:desktop-restore',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

@@ -21,6 +21,149 @@
 
 ## 任务记录
 
+### [TASK-037] Claude Desktop 续写拦截 + token 显示
+- **日期**：2026-06-03
+- **类型**：fix + feat
+- **问题**：用户提 3 个问题仍产生大量请求；日志里 token 输入输出全空。
+- **根因**：
+  1. 续写请求：Claude Desktop 收到 DeepSeek 回复后，会再发 `lastRole=assistant` 的"续写请求"（认为上次回复被截断）。每次主对话都触发一次额外的续写调用。
+  2. token 缺失：之前用 `upstreamRes.pipe(res)` 直接管道转发，没解析 SSE 流，无法提取 `message_start.message.usage` 和 `message_delta.usage`。
+- **修复**：
+  1. 在 stub 检测里新增 `isContinuation = msgs.length > 0 && lastRole === 'assistant'`，命中即返回空 `end_turn` stub，不调用 DeepSeek。
+  2. 把 `pipe()` 改成手工 chunk 转发：监听 `data` 事件同时把字节 `res.write(chunk)` + 累积 SSE 缓冲，按行解析 `data:` 行，提取 `input_tokens` / `output_tokens` / `stop_reason`，最后写入 success 日志的 `inputTokens`/`outputTokens`/`finishReason` 字段。Logs UI 因此能显示 `↑XXX ↓YYY tokens`。
+- **变更文件**：
+  - `electron/proxy/anthropic-relay.ts`（`AnthropicLogEntry` 加 inputTokens/outputTokens/finishReason；新增续写 stub；改写响应转发为 chunk + SSE 解析）
+- **测试**：99/99 通过
+
+### [TASK-036] 修复 Claude Desktop 工具调用死循环
+- **日期**：2026-06-03
+- **类型**：fix
+- **根因**：TASK-035 修复了子代理并行问题（已被 stub 拦截），但仍有大量真实请求循环。日志显示 `msgs=53→55→57→...→69` 持续递增，每次 +2，全带 `tools=[Agent,Bash,Edit,mcp__*]`。这是 **tool-use 循环**：Claude Desktop 把 44 个 Claude 专属工具定义传给 DeepSeek，DeepSeek 不认识这些工具但兼容协议会回 `tool_use` stop_reason；Claude Desktop "执行"工具→把 tool_result 作为 user 消息回传→DeepSeek 又回 tool_use……每次用户提一个问题就触发 30+ 轮自动续轮。
+- **修复**：在 `handleAnthropicMessages` 转发到 DeepSeek 之前，删除请求 body 中的 `tools` 和 `tool_choice` 字段。DeepSeek 不会再回 tool_use，stop_reason 变成 end_turn，对话正常结束。Claude Desktop 的内置工具本来就执行不了，转发它们没意义。
+- **变更文件**：`electron/proxy/anthropic-relay.ts`（在 onLog start 之后、构造 bodyStr 之前 delete body['tools'] / body['tool_choice']）
+- **测试**：99/99 通过
+
+### [TASK-035] 修复 Claude Desktop 子代理并行请求过多
+- **日期**：2026-06-03
+- **类型**：fix
+- **根因**：Claude Desktop 有多代理路由机制——用户每发一条消息，Claude Desktop 会把该消息同时分发给多个专属子代理（Chrome 代理、Claude Code 代理、技能分发器、调度代理等），每个子代理携带各自的 tools 列表，msgs=1。这些子代理对 DeepSeek 毫无意义（DeepSeek 无法执行 Claude 的专用工具），但每个都会消耗一次 DeepSeek API 调用。
+- **修复**：在 `handleAnthropicMessages` 中检测子代理分发请求（`msgs.length === 1 AND tools.length > 0 AND lastRole === 'user'`），直接返回空 `end_turn` stub，不转发到 DeepSeek。日志 phase 设为 `'stub'`，Logs UI 显示"子代理拦截 · 未消耗 DeepSeek token"。
+- **变更文件**：
+  - `electron/proxy/anthropic-relay.ts`（新增 sub-agent dispatch 检测 + stub 响应）
+  - `electron/proxy/server.ts`（`LogPhase` 加 `'stub'`）
+  - `src/pages/Logs.tsx`（`phase === 'stub'` 时设 outcome = 'blocked'，UI 显示子代理拦截文案）
+- **测试**：99/99 通过
+
+### [TASK-034] 修复 Claude Desktop 模型过多 + 请求过多
+- **日期**：2026-06-03
+- **类型**：fix
+- **摘要**：
+  1. **模型过多**：profile JSON 缺少 `inferenceModels` 字段，Claude Desktop 展示了全部 8 个 Claude 模型而不是 2 个。修复：在 `buildGatewayProfile()` 中加入 `inferenceModels: [{labelOverride:"deepseek-v4-flash", name:"claude-haiku-4-5"}, {labelOverride:"deepseek-v4-pro", name:"claude-sonnet-4-6"}]`（与 cc-switch 一致），移除不必要的 `coworkEgressAllowedHosts`。
+  2. **请求过多**：`handleAnthropicModels` 返回全部 8 个模型，Claude Desktop 为每个模型做能力探测/预热请求。修复：新增 `INFERENCE_MODELS` 常量（2 个条目），`handleAnthropicModels` 改为仅返回这 2 个模型。同时新增 `handleAnthropicCountTokens` 处理 `POST /anthropic/v1/count_tokens`，避免 Claude Desktop 因 404 而重试。
+  3. **其它**：`CLAUDE_MODELS` 补充 `claude-sonnet-4-6`；server.ts 新增 `/anthropic/v1/count_tokens` 路由；99/99 tests 绿。
+- **变更文件**：
+  - `electron/proxy/anthropic-relay.ts`（新增 `claude-sonnet-4-6`、`INFERENCE_MODELS`、`handleAnthropicCountTokens`；`handleAnthropicModels` 改用 `INFERENCE_MODELS`）
+  - `electron/claude/desktop-writer.ts`（`buildGatewayProfile` 加 `inferenceModels`，移除 `coworkEgressAllowedHosts`）
+  - `electron/proxy/server.ts`（新增 `/anthropic/v1/count_tokens` 路由）
+  - `tests/unit/anthropic-relay.test.ts`（更新断言 + 新增 `handleAnthropicCountTokens` 测试）
+  - `tests/unit/desktop-writer.test.ts`（断言 profile 含 `inferenceModels` 2 条）
+- **注意事项**：已有用户的 Claude Desktop profile JSON 不会自动更新；需要重新"保存并应用"或重启 Codex Switch（`startupApplyClaude` 会自动重写）。
+
+### [TASK-033] 修复启动未自动应用 CLI 配置 + 状态提示错误 + 日志来源过滤
+- **日期**：2026-06-05
+- **类型**：fix
+- **摘要**：
+  1. **启动未自动应用配置（Bug 1）**：`runV130ClaudeMigration` 是一次性迁移，首次运行后永不再执行。导致每次重启 Codex Switch 后，Claude Code CLI 的 `~/.claude/settings.json` 不会被重新写入，用户必须手动"保存并应用"才生效。修复：在 `migrations.ts` 新增 `startupApplyClaude(port)`，每次启动都无条件重新写入已启用工具的配置（有 API Key 且 installed 时）；在 `main.ts` `app.whenReady` 中于迁移之后调用它。
+  2. **状态提示永久显示"↺ 重开终端生效/重启应用生效"（Bug 2）**：`ToolCard` 在 `configApplied === true` 时始终渲染 restartHint，用户重启后提示也不消失。修复：① `detect.ts` 的 `isClaudeCliConfigApplied()` 优先检查 `~/.claude/settings.json` 的 `__codexSwitch` 标记（settings.json 即生效，无需重启终端）；② Dashboard 引入 `justApplied` 状态，仅在本次刷新中触发了 `claudeApplyAll` 时才显示 hint；③ Claude Code CLI 的 restartHint 完全移除（settings.json 立即生效）；④ Claude Desktop restartHint 改为 `justApplied ? "重启应用生效" : undefined`。
+  3. **日志来源无法区分/过滤（Bug 3）**：`handleAnthropicMessages` 只发出简单 string log（无 reqId / phase），Claude Desktop 请求落入 "系统/启动日志" misc 组，源过滤功能因此无效。修复：在 `anthropic-relay.ts` 新增 `AnthropicLogEntry` 类型，并在 `handleAnthropicMessages` 内生成 reqId、记录 start / success / error 三阶段结构化日志；`server.ts` 的回调直接将 entry 传给 `this.log()`。
+- **变更文件**：
+  - `electron/config/migrations.ts`（新增 `startupApplyClaude`）
+  - `electron/main.ts`（import + 调用 `startupApplyClaude`）
+  - `electron/claude/detect.ts`（`isClaudeCliConfigApplied` 优先检 settings.json；import `claudeCliSettingsPath`）
+  - `electron/proxy/anthropic-relay.ts`（新增 `AnthropicLogEntry` + randomBytes + reqId/phase 日志）
+  - `electron/proxy/server.ts`（更新 anthropic 回调签名）
+  - `src/pages/Dashboard.tsx`（`justApplied` state + 修正 ToolCard restartHint）
+- **注意事项**：`startupApplyClaude` 在 API Key 不存在时直接 return，不影响首次启动 Setup 向导流程。
+
+### [TASK-032] 修复 Claude Desktop 模型映射未传入代理 + claudeApplyAll 未检查 enabled
+- **日期**：2026-06-03
+- **类型**：fix
+- **摘要**：`prefs.claudeDesktop.modelMap` 存入 preferences 但从未传入代理实例，导致模型映射始终回落到 `DEFAULT_CLAUDE_DESKTOP_MODEL_MAP`（用户在 UI 修改无效）。同时 `claudeApplyAll` 未检查 `prefs.claudeDesktop.enabled`，即使用户关闭开关也会写入配置。修复：①`ensureProxy()` 创建代理时传 `claudeDesktop`；② `applyPreferencesTransaction()` 正向+回滚两处 `updateOptions` 均加入 `claudeDesktop`；③ `IPC.prefsSet` 改为 async，同步 `claudeDesktop` 到代理；④ `claudeApplyAll` 加 `prefs.claudeCli.enabled` / `prefs.claudeDesktop.enabled` 守卫。
+- **变更文件**：
+  - `electron/main.ts`（4 处修改）
+- **注意事项**：`claudeDesktop.apiKey` 字段在 `AnthropicRelayOptions` 中存在但 `anthropicRelayOpts()` 忽略它（使用顶层 `opts.apiKey`）；传入空串或当前 key 均可。
+
+### [TASK-031] 修复 Claude Desktop / Claude Code CLI 配置不生效（采用 cc-switch 3P 方案）
+- **日期**：2026-06-04
+- **类型**：fix
+- **摘要**：用户报告"Claude Desktop 配置根本没有改变"。根因：之前往 `~/Library/Application Support/Claude/claude_desktop_config.json` 写 `inferenceProvider/inferenceGatewayBaseUrl/...` 完全无效——Claude Desktop 的 3P 网关从一个**完全不同**的目录读：`Claude-3p/configLibrary/<PROFILE_ID>.json`。参考 [farion1231/cc-switch](https://github.com/farion1231/cc-switch) 的 `claude_desktop_config.rs`+`claude_plugin.rs`，重写为：① 在 1p 与 3p 两份 `claude_desktop_config.json` 中都写 `deploymentMode:"3p"`（保留用户已有字段如 `mcpServers`）；② 在 `Claude-3p/configLibrary/00000000-0000-4000-8000-0000c0dec501.json` 写 gateway profile（`inferenceProvider:"gateway"`, `inferenceGatewayBaseUrl`, `inferenceGatewayApiKey`（占位 `cs-internal-placeholder`）, `inferenceGatewayAuthScheme:"bearer"`, `disableDeploymentModeChooser:true`, `coworkEgressAllowedHosts:["*"]`）；③ `_meta.json` 注册 entry+`appliedId`。卸载时仅当 `inferenceGatewayApiKey===PLACEHOLDER_KEY` 才动手，避免误删用户手配的 profile。Claude Code CLI 同步改为写 `~/.claude/settings.json` 的 `env` 字段（每次调用即生效，**无需重启终端**）+ `~/.claude/config.json` 的 `primaryApiKey:"any"`（cc-switch 的 OAuth 旁路标记），保留 `~/.zshrc` 写入作为兜底。Windows 路径从 `APPDATA` 改为 `LOCALAPPDATA`（与 Claude Desktop 实际位置一致）。`detect.ts` 改为读取 profile JSON 判断"已配置"。98/98 tests 绿。
+- **变更文件**：
+  - `electron/claude/paths.ts`（新增 `claudeDesktop3pConfigPath` / `claudeDesktopConfigLibraryDir` / `claudeDesktopProfilePath` / `claudeDesktopMetaPath` / `claudeCliSettingsPath` / `claudeCliConfigJsonPath`；Windows 改用 `LOCALAPPDATA`）
+  - `electron/claude/desktop-writer.ts`（重写为 3P 方案；新增 `PROFILE_ID` / `PROFILE_NAME` / `PLACEHOLDER_KEY` 常量；`listClaudeDesktopBackups` 跨 3 个目录扫描并按时间戳倒序）
+  - `electron/claude/env-writer.ts`（新增 `writeSettingsJson` / `removeSettingsJson` / `writeAuthBypass` 与 `CS_MARKER_KEY`；保留 shell profile 兜底）
+  - `electron/claude/detect.ts`（`isClaudeDesktopConfigured` 改读 profile JSON）
+  - `tests/unit/desktop-writer.test.ts`（重写覆盖 3P 路径、placeholder 边界、备份排序）
+  - `tests/unit/env-writer.test.ts`（断言改用路径定位 calls 而非 index）
+  - `src/components/ClaudeSettingsSection.tsx`（toast 改为"已写入 ~/.claude/settings.json 和 ~/.zshrc，直接运行 claude 即可"）
+- **注意事项**：
+  - PROFILE_ID `00000000-0000-4000-8000-0000c0dec501` 故意区别于 cc-switch 的 `00000000-0000-4000-8000-000000157210`，允许两者共存。
+  - 卸载分支以 `inferenceGatewayApiKey === 'cs-internal-placeholder'` 作为"是我们写的"判定，**不要**改成普通字符串比较以免误判。
+  - 用户已有 `claude_desktop_config.json` 中的 `mcpServers` 等字段会被保留——任何后续修改 desktop-writer 的人请勿改成"整体覆盖"。
+
+### [TASK-028] 完整实现主面板、设置、日志和帮助页的缺失功能
+- **日期**：2026-06-02
+- **类型**：feat
+- **摘要**：全面补完各大页面的未完成功能：① 新建 `src/pages/Help.tsx`，含上手指南（13步分页/复制按钮）、FAQ 手风琴（按 tag 分类筛选）、诊断信息导出（JSON 下载 + 复制）三个 Tab；② `App.tsx` 侧边栏新增"帮助"入口并接通路由，同步更新 `HeaderBar`/`HelpDrawer` 的 page 类型；③ `Settings.tsx` 新增"Claude 工具接入"分区，含 Claude Code CLI/Claude Desktop 启用开关、Desktop 备份还原列表、一键卸载所有写入按钮；④ `Logs.tsx` 新增来源筛选器（全部/Codex/Claude Desktop）并在页眉加注 Claude Code CLI 不走代理的说明；⑤ `server.ts` anthropic-relay 日志 source 改为 `claude-desktop`，类型同步更新；⑥ `global.d.ts` 补充 `claudeCli`/`claudeDesktop`/`migrations` 字段到 `getPreferences` 返回类型；⑦ `store.ts` Page 类型新增 'help'。96/96 tests 通过，typecheck 干净。
+- **变更文件**：
+  - `src/pages/Help.tsx`（新建）
+  - `src/App.tsx`（Help 路由 + 侧边栏）
+  - `src/components/HeaderBar.tsx`（page 类型扩展）
+  - `src/components/HelpDrawer.tsx`（page 类型 + help 入口提示）
+  - `src/pages/Settings.tsx`（Claude 工具接入 Section）
+  - `src/pages/Logs.tsx`（来源筛选 + CLI 说明注释）
+  - `electron/proxy/server.ts`（anthropic 日志 source = 'claude-desktop'）
+  - `src/types/global.d.ts`（getPreferences 返回类型）
+  - `src/lib/store.ts`（Page 类型）
+- **注意事项**：UAT 前不 push 远程；Settings Claude 区块接入后，开关变更立即调 `setPreferences` 但不重启代理，需用户手动重开对应工具。
+
+### [TASK-027] 修复工具连接状态三个缺陷
+- **日期**：2026-06-02
+- **类型**：fix
+- **摘要**：修复三个工具状态显示 bug：① `whichExists()` 在 Electron 受限 PATH 下找不到 `codex`/`claude` 二进制（如 nvm、pnpm global 路径），改为先尝试当前 PATH，失败后用 `$SHELL -lc "which ..."` 登录 shell 重试，获取用户完整 PATH；② "刷新检测"仅读取状态但不应用配置，改为自动对 `installed && !configApplied` 的 Claude 工具调用 `claudeApplyAll()`，使刷新具有实际修复效果；③ ToolCard 对 Claude Code CLI 和 Claude Desktop 显示 `↺ 重开终端生效` / `↺ 重启应用生效` 琥珀色提示，告知用户配置已写入但需重启才能生效。
+- **变更文件**：
+  - `electron/claude/detect.ts`（`whichExists` 增加登录 shell 回退逻辑）
+  - `src/pages/Dashboard.tsx`（`refreshDetect` 增加 auto-apply；`ToolCard` 新增 `restartHint` prop）
+
+### [TASK-026] v1.3.0 Claude 接入后端全量实现
+- **日期**：2026-06-03
+- **类型**：feat
+- **摘要**：按设计文档 docs/DESIGN-claude-support.md 实现全部后端 + UI 变更。新建 5 个文件，修改 7 个现有文件，新建 3 个单元测试文件，所有 96 个测试通过，typecheck 零报错。
+- **变更文件**：
+  - `electron/claude/paths.ts`（新建：跨平台路径工具，含 claudeDesktopConfigPath、shellProfilePaths、backupPath、codexDir 等）
+  - `electron/claude/detect.ts`（新建：detectAll() 并行探测 4 个工具安装与配置状态）
+  - `electron/claude/env-writer.ts`（新建：写/删 Claude Code CLI shell profile 环境变量块，Windows setx 路径）
+  - `electron/claude/desktop-writer.ts`（新建：写/备份/还原/删 claude_desktop_config.json，PLACEHOLDER_KEY 安全鉴别）
+  - `electron/proxy/anthropic-relay.ts`（新建：处理 GET /anthropic/v1/models 和 POST /anthropic/v1/messages，虚拟 Claude 模型目录 + SSE 透传至 api.deepseek.com/anthropic）
+  - `electron/config/migrations.ts`（新建：v130_claude 一次性迁移，升级后自动应用已安装工具配置）
+  - `electron/config/store.ts`（修改：新增 ClaudeCliPrefs、ClaudeDesktopPrefs、MigrationFlags 接口与 DEFAULTS）
+  - `electron/proxy/server.ts`（修改：新增 /anthropic/v1/* 路由，anthropicRelayOpts() helper，claudeDesktop ProxyOptions 字段）
+  - `electron/ipc/channels.ts`（修改：新增 claude:detect/apply-all/uninstall-cli/uninstall-desktop/uninstall-all/desktop-backups/desktop-restore）
+  - `electron/preload.ts`（修改：暴露全部 claude:* IPC 方法）
+  - `electron/main.ts`（修改：import claude 模块，keySet 后自动应用配置，registerIpc 注册 claude:* handlers，whenReady 运行迁移）
+  - `src/pages/Dashboard.tsx`（修改：新增 4 卡片工具状态区，ToolCard 组件，claudeDetect 轮询/刷新）
+  - `src/types/global.d.ts`（修改：新增 DetectResult/ToolStatus 类型，CodexSwitchApi 扩展 claude 方法）
+  - `tests/unit/anthropic-relay.test.ts`（新建）
+  - `tests/unit/env-writer.test.ts`（新建）
+  - `tests/unit/desktop-writer.test.ts`（新建）
+- **注意事项**：代码不推送到远端，等待用户 UAT 验证后由用户授权 push。
+
+### [TASK-025] 设计 Claude Code CLI + Claude Desktop 接入方案（v0.3）
+- **日期**：2026-06-02
+- **类型**：docs
+- **摘要**：撰写并迭代 docs/DESIGN-claude-support.md 至 v0.3，覆盖 4 款工具（Codex Desktop、Codex CLI、Claude Code CLI、Claude Desktop），明确 Codex Desktop 主力地位与 "不动存量" 原则。核心方案：(1) Claude Code CLI 直连 DeepSeek 官方 Anthropic 端点 `https://api.deepseek.com/anthropic`，写 9 个 env vars（含 ANTHROPIC_AUTH_TOKEN=真实 DeepSeek Key、CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1、CLAUDE_CODE_EFFORT_LEVEL=high），不经本地代理；(2) Claude Desktop 用本地代理新增 /anthropic/v1/{models,messages} 路由，仅做模型名重写 + SSE 透传；(3) 零配置 UX：保存 API Key 自动触发应用，Dashboard 升级为四卡片状态盘；(4) §5.4 安装顺序无关性：4 种安装场景（工具先/Switch 先/同时/卸载）+ 多触发点 rescan（启动/聚焦/托盘/手动）+ detectAll() 探测；(5) §5.5 Settings/Logs/Help 变更：Settings 增加 Claude 子区块和"卸载所有写入"按钮，Logs 增加来源标签列与脱敏规则扩展，Help 增加 onboarding/FAQ/诊断导出；(6) 向后兼容：electron-store schema 仅追加，keytar 复用，v1.2.x 用户升级一次性迁移。
+- **变更文件**：
+  - `docs/DESIGN-claude-support.md`（v0.1 → v0.2 → v0.3）
+
 ### [TASK-024] 修复 Codex 对话失忆（previous_response_id 未处理）
 - **日期**：2026-06-02
 - **类型**：fix
@@ -499,3 +642,40 @@
 - **注意事项**：
   - 参考工程 `codex-deepseek-installer/proxy/deepseek-proxy.mjs` 同样缺 `end_turn`，对老版 codex CLI（不要求该字段）可能没事，但对 v0.135+ 也是潜在 bug，可考虑反哺 PR。
   - 1.1.4 的字段补全（usage/created_at 等）是必要前置：缺这些 codex 会更早判残；只补 end_turn 而忽略它们可能仍出问题。两者一起才完整。
+
+---
+
+## TASK-029：Claude 功能补全（Settings/Logs/Help 按设计稿对齐）
+
+- **日期**：2025-07-14
+- **类型**：feat
+- **摘要**：对照 `docs/DESIGN-claude-support.md` 逐项排查四大页面缺口，补全缺失功能。
+- **变更文件**：
+  - `src/pages/Logs.tsx` — 新增"显示拦截"复选框，将原有 `showBlocked` 状态变量接线到 UI
+  - `electron/claude/detect.ts` — `ToolStatus` 新增 `profilePaths?: string[]`，`detectClaudeCli` 返回时填充 shell profile 路径
+  - `src/types/global.d.ts` — 同步 `ToolStatus` 接口更新
+  - `src/components/ClaudeSettingsSection.tsx` — **新建**：自包含的 Claude 设置分区组件，含 Claude Code CLI（enable 开关 + shell profile 路径展示 + 5 个环境变量表格 + 保存）、Claude Desktop（enable 开关 + 配置路径展示 + 3 行模型映射表格 + 保存 + 备份还原）、一键卸载按钮
+  - `src/pages/Settings.tsx` — 替换原简易 Claude section 为 `<ClaudeSettingsSection />`，删除已迁移的 state 和函数
+  - `docs/help/faq.json` — 新增 5 条 Claude 专项 FAQ（tag: Claude）
+  - `docs/help/onboarding.json` — 新增 2 个上手步骤（Claude Code CLI 验证、Claude Desktop 验证）
+- **注意事项**：
+  - Settings.tsx 行数从 490 降至约 350，符合 400 行限制；ClaudeSettingsSection.tsx ~245 行
+  - TypeScript 0 错误；96/96 测试通过
+
+---
+
+## TASK-030：三个 Bug 修复（重复帮助、Claude Desktop 配置覆盖、CLI 模型名错误）
+
+- **日期**：2025-07-14
+- **类型**：fix
+- **摘要**：修复用户测试后报告的三个 Bug。
+- **变更文件**：
+  - `src/App.tsx` — 从侧边栏 nav items 中移除 `{ id: 'help', label: '帮助', emoji: '❓' }`，去掉重复的帮助导航入口；顶部 `?` 按钮打开的 HelpDrawer 保留
+  - `src/components/HelpDrawer.tsx` — 新增"诊断"标签页（内嵌原 Help 页的 DiagTab 内容：下载 JSON / 复制到剪贴板 / 打开日志目录 + 常见问题解决提示）；将旧 Help 页的全部内容合并到抽屉
+  - `electron/claude/desktop-writer.ts` — 将 `writeClaudeDesktopConfig` 从**覆盖整个文件**改为**合并写入**（读取已有 JSON → spread 合并 gateway 字段 → 写回），防止 mcpServers 等用户配置丢失；`removeClaudeDesktopConfig` 同步改为只删除 gateway 字段，非空时写回而非 unlink；移除无用 `GatewayConfig` 接口
+  - `electron/claude/env-writer.ts` — 移除 `DEFAULT_ENV_VARS` 中模型名的 `[1m]` 后缀（`deepseek-v4-pro[1m]` → `deepseek-v4-pro`）；该后缀是 UI 显示标注，直传 DeepSeek API 会导致模型无法识别
+  - `src/components/ClaudeSettingsSection.tsx` — CLI 模型下拉移除带 `[1m]` 的选项；保存成功 toast 改为附带操作提示：CLI 配置显示"已写入 ~/.zshrc，请重新打开终端后运行 claude"，Desktop 配置显示"已写入 Claude Desktop 配置，请重启 Claude Desktop 生效"
+- **注意事项**：
+  - TypeScript 0 错误；96/96 测试通过（desktop-writer 原 6 个测试全部兼容新 merge 语义）
+  - 用户遇到"ConnectionRefused"的根本原因：CLI env 未刷新（需要重开终端），现已通过 toast 提示
+  - Claude Desktop 原代码覆盖写会导致 mcpServers 配置丢失，用户恢复备份后 gateway 配置消失，现改为 merge 可解决

@@ -327,3 +327,50 @@ Codex Switch 是它的 GUI 版本，代理逻辑必须达到至少同等覆盖�
   - 真实 codex CLI 验证：`codex exec` 单问题只产生一对 `response.create`/`response.completed`，无 Reconnecting。
   - 参考工程 `codex-deepseek-installer/proxy/deepseek-proxy.mjs` 同样缺该字段，对 v0.135+ 也是潜在 bug；可考虑反哺 PR。
 - **教训**：v1.1.4 单凭"补齐看起来该有的字段"判断 root cause 是错的。真正的 root cause 必须从协议消费者（codex 源码）反推；没有源码佐证就发版 = 概率事件。下次类似 bug 优先克隆 codex 看 parser，再设计补丁。
+
+---
+
+### ADR-006: Claude Desktop / Claude Code CLI 配置走 cc-switch 的 3P + settings.json 方案
+
+- **日期**：2026-06-04
+- **状态**：✅ 已采纳
+- **决策者**：AI Agent（用户授权）
+
+#### 背景
+v1.x 早期版本往 `~/Library/Application Support/Claude/claude_desktop_config.json` 写
+`inferenceProvider/inferenceGatewayBaseUrl/...` 完全无效，用户报告"配置根本没改变"。
+Claude Code CLI 仅写 `~/.zshrc`，需要重启终端才生效，体验差。
+
+#### 决策
+照搬业内成熟方案 [`farion1231/cc-switch`](https://github.com/farion1231/cc-switch)：
+
+1. **Claude Desktop** 走 3P (third-party gateway) 目录：
+   - 在 1p 与 3p 两份 `claude_desktop_config.json` 都写 `deploymentMode: "3p"`，**保留**用户已有字段。
+   - 网关参数写到 `Claude-3p/configLibrary/<PROFILE_ID>.json`。
+   - `_meta.json` 维护 `appliedId` 与 `entries` 注册表。
+   - PROFILE_ID 选 `00000000-0000-4000-8000-0000c0dec501`，故意区别于 cc-switch 的
+     `00000000-0000-4000-8000-000000157210`，允许两者共存。
+   - 卸载只在 `inferenceGatewayApiKey === 'cs-internal-placeholder'`（占位标记）时执行，
+     避免误删用户手配的 profile。
+2. **Claude Code CLI** 走 `~/.claude/settings.json` 的 `env` 字段（每次调用读取，**无需重启终端**）+
+   `~/.claude/config.json` 写 `primaryApiKey: "any"`（cc-switch 的 OAuth 旁路标记）。
+   `~/.zshrc` 块仍保留作为兜底。
+   `settings.json` 中带 `__codexSwitch: "managed"` 标记，卸载时仅清理我们写入的 9 个 env 键，保留用户其他字段。
+3. **Windows 路径** 从 `APPDATA` 改为 `LOCALAPPDATA`（Claude Desktop 实际安装位置）。
+
+#### 替代方案
+- "继续往 1p `claude_desktop_config.json` 写 gateway 字段" → 否决：Claude Desktop 不读这里，无效。
+- "整体覆盖 `claude_desktop_config.json`" → 否决：会抹掉用户的 `mcpServers` 等已有配置。
+- "只用 `~/.zshrc` 不写 `settings.json`" → 否决：需重启终端，UX 差，且其他 shell 配置可能覆盖。
+
+#### 影响
+- 用户安装后 Claude Desktop 重启即可走代理，Claude Code CLI 立即生效。
+- `electron/claude/desktop-writer.ts` 完全重写（~210 行），新增 `PROFILE_ID` / `PLACEHOLDER_KEY` 常量。
+- `electron/claude/env-writer.ts` 新增 `writeSettingsJson` / `writeAuthBypass` / `removeSettingsJson`。
+- `tests/unit/desktop-writer.test.ts` 与 `tests/unit/env-writer.test.ts` 重写（断言改用路径定位，不再依赖 call index）。
+- 与 cc-switch 共存：通过不同 PROFILE_ID 实现，两者切换互不干扰（但同一时刻只能有一个 `appliedId` 生效）。
+
+#### 教训
+集成成熟桌面应用的配置时，**先看竞品/参考实现的源码**再动手。Claude Desktop 的官方文档没说 3P 走
+`Claude-3p/configLibrary/`，但 cc-switch 的 Rust 源码（`src-tauri/src/claude_desktop_config.rs`）
+有完整路径推导逻辑；花 20 分钟读它比花 2 小时猜路径强。

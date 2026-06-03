@@ -16,6 +16,13 @@ import {
 import { ReasoningStore } from './reasoning';
 import { callDeepSeekSync, streamDeepSeek, type SseEvent } from './stream';
 import { translateError, redactSensitive, type ErrorAction } from './errors';
+import {
+  handleAnthropicModels,
+  handleAnthropicMessages,
+  handleAnthropicCountTokens,
+  type AnthropicRelayOptions,
+  DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
+} from './anthropic-relay';
 
 const DEEPSEEK_BASE = 'api.deepseek.com';
 const REDACT_HEADERS = new Set(['authorization', 'cookie']);
@@ -27,14 +34,16 @@ export interface ProxyOptions {
   defaultModel?: string;
   /** 拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求，避免一句提问被诱发 N 个后台会话。 */
   blockBackgroundSuggestions?: boolean;
+  /** v1.3.0: Claude Desktop 代理选项，缺省关闭。 */
+  claudeDesktop?: AnthropicRelayOptions;
 }
 
-export type LogPhase = 'start' | 'success' | 'error';
+export type LogPhase = 'start' | 'stub' | 'success' | 'error';
 
 export interface ProxyLogEntry {
   ts: number;
   level: 'info' | 'warn' | 'error';
-  source: 'http' | 'ws' | 'proxy';
+  source: 'http' | 'ws' | 'proxy' | 'claude-desktop';
   message: string;
   reqId?: string;
   /** WebSocket 连接 id，用于把同一个 WS 上的多次请求串起来。 */
@@ -221,6 +230,13 @@ export class DeepSeekProxy extends EventEmitter {
 
   updateOptions(patch: Partial<ProxyOptions>): void {
     this.opts = { ...this.opts, ...patch };
+  }
+
+  private anthropicRelayOpts(): AnthropicRelayOptions {
+    return {
+      apiKey: this.opts.apiKey,
+      modelMap: this.opts.claudeDesktop?.modelMap ?? DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
+    };
   }
 
   /** 串行化外部生命周期调用，确保 start/stop/restart 不并发。 */
@@ -526,6 +542,24 @@ export class DeepSeekProxy extends EventEmitter {
 
     if (req.method === 'POST' && url.pathname === '/v1/responses') {
       this.handleResponses(req, res);
+      return;
+    }
+
+    // ─── Anthropic routes (v1.3.0 — Claude Desktop) ───────────────────────
+    if (req.method === 'GET' && url.pathname === '/anthropic/v1/models') {
+      handleAnthropicModels(res, this.anthropicRelayOpts());
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/anthropic/v1/messages') {
+      handleAnthropicMessages(req, res, this.anthropicRelayOpts(), (entry) => {
+        this.log(entry);
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/anthropic/v1/count_tokens') {
+      handleAnthropicCountTokens(req, res);
       return;
     }
 

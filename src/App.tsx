@@ -4,6 +4,7 @@ import { Setup } from './pages/Setup';
 import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { Logs } from './pages/Logs';
+import { Help } from './pages/Help';
 import { ChangelogModal } from './components/ChangelogModal';
 import { HeaderBar } from './components/HeaderBar';
 import { ToastStack } from './components/Toast';
@@ -100,6 +101,7 @@ export default function App(): JSX.Element {
           {page === 'dashboard' && <Dashboard />}
           {page === 'settings' && <Settings />}
           {page === 'logs' && <Logs />}
+          {page === 'help' && <Help />}
         </div>
       </main>
       <ChangelogModal open={showChangelog} onClose={closeChangelog} version={version} />
@@ -114,12 +116,13 @@ function titleOf(page: string): string {
   if (page === 'dashboard') return '主面板';
   if (page === 'settings') return '设置';
   if (page === 'logs') return '日志';
+  if (page === 'help') return '帮助';
   return 'Codex Switch';
 }
 
 interface SidebarProps {
   page: string;
-  setPage: (p: 'setup' | 'dashboard' | 'settings' | 'logs') => void;
+  setPage: (p: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help') => void;
   status: string;
 }
 

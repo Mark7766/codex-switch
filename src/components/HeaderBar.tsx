@@ -5,7 +5,7 @@ import { UpdateBadge } from './UpdateBadge';
 interface HeaderBarProps {
   title: string;
   /** 当前所在页面，用于让帮助抽屉给出"页面相关"的提示。 */
-  page: 'setup' | 'dashboard' | 'settings' | 'logs';
+  page: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help';
 }
 
 export function HeaderBar({ title, page }: HeaderBarProps): JSX.Element {

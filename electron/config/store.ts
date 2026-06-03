@@ -1,5 +1,29 @@
 import Store from 'electron-store';
 
+import type { ClaudeCliEnvVars } from '../claude/env-writer';
+import { DEFAULT_ENV_VARS } from '../claude/env-writer';
+import type { ClaudeDesktopModelMap } from '../proxy/anthropic-relay';
+import { DEFAULT_CLAUDE_DESKTOP_MODEL_MAP } from '../proxy/anthropic-relay';
+
+// ─── Claude sub-schemas ───────────────────────────────────────────────────────
+
+export interface ClaudeCliPrefs {
+  /** Whether Codex Switch should auto-manage Claude Code CLI env vars. */
+  enabled: boolean;
+  envVars: ClaudeCliEnvVars;
+}
+
+export interface ClaudeDesktopPrefs {
+  /** Whether Codex Switch should auto-manage Claude Desktop config. */
+  enabled: boolean;
+  modelMap: ClaudeDesktopModelMap;
+}
+
+export interface MigrationFlags {
+  /** True once the one-time v1.3.0 Claude bootstrap has run. */
+  v130_claude: boolean;
+}
+
 export interface UserPreferences {
   proxyPort: number;
   defaultModel: 'deepseek-v4-flash' | 'deepseek-v4-pro';
@@ -37,6 +61,12 @@ export interface UserPreferences {
   lifetimeOutputTokens: number;
   /** 预留：未来付费"token 节省"Feature 开关（默认 false）。 */
   tokenSavingEnabled: boolean;
+  /** v1.3.0 Claude Code CLI 配置。 */
+  claudeCli: ClaudeCliPrefs;
+  /** v1.3.0 Claude Desktop 配置。 */
+  claudeDesktop: ClaudeDesktopPrefs;
+  /** 一次性迁移标志，防止重复执行。 */
+  migrations: MigrationFlags;
 }
 
 /** v3 默认映射表：覆盖 OpenAI / Codex 已知常用模型（含 gpt-5.4 系列）。 */
@@ -80,6 +110,17 @@ const DEFAULTS: UserPreferences = {
   lifetimeInputTokens: 0,
   lifetimeOutputTokens: 0,
   tokenSavingEnabled: false,
+  claudeCli: {
+    enabled: true,
+    envVars: DEFAULT_ENV_VARS,
+  },
+  claudeDesktop: {
+    enabled: true,
+    modelMap: DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
+  },
+  migrations: {
+    v130_claude: false,
+  },
 };
 
 let store: Store<UserPreferences> | null = null;

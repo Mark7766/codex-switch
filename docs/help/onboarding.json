@@ -55,6 +55,15 @@
     "body": "三个方向逐个查：\n\n1. Codex 那边没反应 → 看 Codex Switch 的「日志」页，有没有红色错误\n\n2. 日志里全是 401 / API Key invalid → 回「设置」页，重新填 DeepSeek Key\n\n3. 日志里是 429 / quota → 你的 DeepSeek 余额不够了，去 platform.deepseek.com 充值\n\n4. 还是搞不定 → 点「帮助」抽屉里的「加入交流群」，作者和老用户在群里答疑"
   },
   {
+    "title": "Claude Code CLI 也能用？",
+    "body": "可以！如果你装了 Claude Code CLI（终端里 claude 命令），Codex Switch 会自动把环境变量写入你的 Shell profile，让 CLI 直连 DeepSeek 官方 Anthropic 端点。\n\n验证方式：\n\n1. 打开「仪表板」，看「工具连接状态」里 Claude Code CLI 那栏是否显示绿色「已配置」\n\n2. 打开一个新终端窗口（重要：必须是新窗口，已有窗口读不到新的环境变量），输入：",
+    "copy": "claude --version"
+  },
+  {
+    "title": "Claude Desktop 也能用？",
+    "body": "可以！如果你装了 Claude Desktop，Codex Switch 会自动写入它的配置文件，让请求经由本地代理转发到 DeepSeek，同时把模型名重写为 Claude Desktop 认识的格式。\n\n验证方式：\n\n1. 打开「仪表板」，看「工具连接状态」里 Claude Desktop 那栏是否显示绿色「已配置」\n\n2. 完全退出 Claude Desktop（⌘Q），重新打开\n\n3. 在 Claude Desktop 里发一条消息，然后切回 Codex Switch 的「日志」页，应该能看到来源为「Claude Desktop」的请求记录"
+  },
+  {
     "title": "下次想更顺手",
     "body": "做这两件事，以后开机就能用：\n\n1. 在「设置」里打开「开机自动启动 Codex Switch」\n2. 在「设置」里打开「应用启动时自动启动代理」\n\n之后双击 Codex Desktop / 打开终端输 codex，就能直接用，不用再来开 Codex Switch。"
   }

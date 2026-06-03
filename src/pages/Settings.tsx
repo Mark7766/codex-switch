@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChangelogModal } from '../components/ChangelogModal';
+import { ClaudeSettingsSection } from '../components/ClaudeSettingsSection';
 import { useAppStore } from '@/lib/store';
 
 export function Settings(): JSX.Element {
@@ -250,6 +251,10 @@ export function Settings(): JSX.Element {
           onRestore={restore}
           onDelete={deleteBackup}
         />
+      </Section>
+
+      <Section title="Claude 工具接入">
+        <ClaudeSettingsSection />
       </Section>
 
       <Section title="自动更新">

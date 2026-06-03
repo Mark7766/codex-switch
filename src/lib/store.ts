@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Page = 'setup' | 'dashboard' | 'settings' | 'logs';
+export type Page = 'setup' | 'dashboard' | 'settings' | 'logs' | 'help';
 
 export interface LogEntry {
   ts: number;

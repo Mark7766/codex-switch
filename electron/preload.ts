@@ -40,6 +40,13 @@ const IPC = {
   logsClearPersisted: 'logs:clear-persisted',
   logsOpenDir: 'logs:open-dir',
   logsGetStats: 'logs:get-stats',
+  claudeDetect: 'claude:detect',
+  claudeApplyAll: 'claude:apply-all',
+  claudeUninstallCli: 'claude:uninstall-cli',
+  claudeUninstallDesktop: 'claude:uninstall-desktop',
+  claudeUninstallAll: 'claude:uninstall-all',
+  claudeDesktopBackups: 'claude:desktop-backups',
+  claudeDesktopRestore: 'claude:desktop-restore',
 } as const;
 
 const api = {
@@ -109,6 +116,15 @@ const api = {
   clearPersistedLogs: () => ipcRenderer.invoke(IPC.logsClearPersisted),
   openLogsFolder: () => ipcRenderer.invoke(IPC.logsOpenDir),
   getLogsStats: () => ipcRenderer.invoke(IPC.logsGetStats),
+  // v1.3.0 Claude 接入
+  claudeDetect: () => ipcRenderer.invoke(IPC.claudeDetect),
+  claudeApplyAll: () => ipcRenderer.invoke(IPC.claudeApplyAll),
+  claudeUninstallCli: () => ipcRenderer.invoke(IPC.claudeUninstallCli),
+  claudeUninstallDesktop: () => ipcRenderer.invoke(IPC.claudeUninstallDesktop),
+  claudeUninstallAll: () => ipcRenderer.invoke(IPC.claudeUninstallAll),
+  claudeDesktopBackups: () => ipcRenderer.invoke(IPC.claudeDesktopBackups),
+  claudeDesktopRestore: (backupPath: string) =>
+    ipcRenderer.invoke(IPC.claudeDesktopRestore, backupPath),
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);

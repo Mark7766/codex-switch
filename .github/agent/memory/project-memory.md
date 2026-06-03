@@ -171,6 +171,8 @@
 | BUG-002 | Windows 默认 PowerShell 脚本执行策略禁止运行 npx.ps1 / npm.ps1 / pnpm.ps1 | 运行 `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` 清理当前对话的受限策略 | 2026-05-30 |
 | BUG-003 | Windows 本地打包时，7-zip 提取 `winCodeSign.7z` 中的 OS 符号链接报错 `ERROR: Cannot create symbolic link: 客户端没有所需的特权` | 1. 开启 Windows 系统的【开发人员模式】（设置 -> 系统 -> 开发者选项 -> 开启【开发人员模式】）允许普通用户创建软链接。<br>2. 或以管理员权限重新启动 VS Code/PS终端。 | 2026-05-30 |
 | BUG-004 | Windows 自动升级点击「立即安装」后报错程序未关闭，导致升级失败 | 在 `IPC.updateInstall` 显式异步停止 proxy 并 flush lifetime；且在 `before-quit` 最后调用 `app.exit(0)` 强行终止进程以配合 NSIS。 | 2026-06-01 |
+| BUG-005 | Claude Desktop 配置写入 `~/Library/Application Support/Claude/claude_desktop_config.json` 完全无效 | Claude Desktop 的 3P (third-party gateway) 网关从 `Claude-3p/configLibrary/<PROFILE_ID>.json` 读，需同时在两份 `claude_desktop_config.json` 中写 `deploymentMode:"3p"`（详见 ADR-006）。`PROFILE_ID = '00000000-0000-4000-8000-0000c0dec501'`，占位 `inferenceGatewayApiKey = 'cs-internal-placeholder'` 用于卸载时识别我们的 profile。Windows 路径用 `LOCALAPPDATA` 而非 `APPDATA`。 | 2026-06-04 |
+| BUG-006 | Claude Code CLI 仅靠 `~/.zshrc` 写 env 需要重启终端才生效 | 同时写 `~/.claude/settings.json` 的 `env` 字段（每次调用读取，立即生效）+ `~/.claude/config.json` 的 `primaryApiKey:"any"`（OAuth 旁路标记）。`settings.json` 用 `__codexSwitch:"managed"` 标记我方写入，卸载时只清理 9 个受管 env 键，保留用户其它字段。 | 2026-06-04 |
 
 ---
 

@@ -88,6 +88,9 @@ interface CodexSwitchApi {
     lastErrorMessage: string;
     lastErrorAt: number;
     blockBackgroundSuggestions: boolean;
+    claudeCli?: { enabled: boolean; envVars: Record<string, string> };
+    claudeDesktop?: { enabled: boolean; modelMap: Record<string, string> };
+    migrations?: { v130_claude: boolean };
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
   applyPreferences: (
@@ -175,6 +178,31 @@ interface CodexSwitchApi {
   clearPersistedLogs: () => Promise<boolean>;
   openLogsFolder: () => Promise<void>;
   getLogsStats: () => Promise<{ files: number; totalBytes: number }>;
+  // v1.3.0 Claude 接入
+  claudeDetect: () => Promise<DetectResult>;
+  claudeApplyAll: () => Promise<DetectResult>;
+  claudeUninstallCli: () => Promise<DetectResult>;
+  claudeUninstallDesktop: () => Promise<DetectResult>;
+  claudeUninstallAll: () => Promise<DetectResult>;
+  claudeDesktopBackups: () => Promise<string[]>;
+  claudeDesktopRestore: (backupPath: string) => Promise<void>;
+}
+
+/** 工具安装与配置状态。 */
+interface ToolStatus {
+  installed: boolean;
+  configApplied: boolean;
+  configPath?: string;
+  /** Shell profile paths where env vars are injected (Claude Code CLI only). */
+  profilePaths?: string[];
+}
+
+/** 四个工具的检测结果。 */
+interface DetectResult {
+  codexDesktop: ToolStatus;
+  codexCli: ToolStatus;
+  claudeCli: ToolStatus;
+  claudeDesktop: ToolStatus;
 }
 
 interface Window {

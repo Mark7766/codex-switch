@@ -23,6 +23,15 @@ import { UpdaterManager, type UpdateEvent } from './updater';
 import { redactSensitive } from './proxy/errors';
 import { PersistentLog } from './proxy/persistentLog';
 import { lookupPortHolder, killPid } from './proxy/portInfo';
+import { detectAll } from './claude/detect';
+import { writeClaudeCliConfig, removeClaudeCliConfig } from './claude/env-writer';
+import {
+  writeClaudeDesktopConfig,
+  removeClaudeDesktopConfig,
+  listClaudeDesktopBackups,
+  restoreClaudeDesktopBackup,
+} from './claude/desktop-writer';
+import { runV130ClaudeMigration, startupApplyClaude } from './config/migrations';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
@@ -64,6 +73,9 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
     blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
+    claudeDesktop: prefs.claudeDesktop.enabled
+      ? { apiKey, modelMap: prefs.claudeDesktop.modelMap }
+      : undefined,
   });
   proxy.on('status', (status: ProxyStatus) => {
     mainWindow?.webContents.send(IPC.proxyOnStatus, status);
@@ -142,6 +154,9 @@ async function applyPreferencesTransaction(
       modelMapping: next.modelMapping,
       defaultModel: next.defaultModel,
       blockBackgroundSuggestions: next.blockBackgroundSuggestions,
+      claudeDesktop: next.claudeDesktop.enabled
+        ? { apiKey: apiKey ?? '', modelMap: next.claudeDesktop.modelMap }
+        : undefined,
     });
   }
 
@@ -164,6 +179,9 @@ async function applyPreferencesTransaction(
           modelMapping: before.modelMapping,
           defaultModel: before.defaultModel,
           blockBackgroundSuggestions: before.blockBackgroundSuggestions,
+          claudeDesktop: before.claudeDesktop.enabled
+            ? { apiKey: apiKey ?? '', modelMap: before.claudeDesktop.modelMap }
+            : undefined,
         });
       }
       throw e;
@@ -182,14 +200,18 @@ async function applyPreferencesTransaction(
 
 function registerIpc(): void {
   ipcMain.handle(IPC.prefsGet, () => getPreferences());
-  ipcMain.handle(IPC.prefsSet, (_e, patch: Partial<UserPreferences>) => {
+  ipcMain.handle(IPC.prefsSet, async (_e, patch: Partial<UserPreferences>) => {
     const next = setPreferences(patch);
     if (proxy) {
+      const currentKey = await getApiKey().catch(() => '');
       proxy.updateOptions({
         port: next.proxyPort,
         modelMapping: next.modelMapping,
         defaultModel: next.defaultModel,
         blockBackgroundSuggestions: next.blockBackgroundSuggestions,
+        claudeDesktop: next.claudeDesktop.enabled
+          ? { apiKey: currentKey ?? '', modelMap: next.claudeDesktop.modelMap }
+          : undefined,
       });
     }
     return next;
@@ -208,6 +230,25 @@ function registerIpc(): void {
   ipcMain.handle(IPC.keySet, async (_e, key: string) => {
     await setApiKey(key);
     if (proxy) proxy.updateOptions({ apiKey: key });
+    // Auto-apply Claude configs for any installed tools when user saves a key.
+    const prefs = getPreferences();
+    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
+      detectAll()
+        .then(async (result) => {
+          if (prefs.claudeCli.enabled && result.claudeCli.installed && !result.claudeCli.configApplied) {
+            await writeClaudeCliConfig(key, prefs.claudeCli.envVars).catch((e) =>
+              log.warn('[main] claudeCli 自动写入失败：', (e as Error).message),
+            );
+          }
+          if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed && !result.claudeDesktop.configApplied) {
+            const port = proxy?.getPort() ?? prefs.proxyPort;
+            await writeClaudeDesktopConfig(port).catch((e) =>
+              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+            );
+          }
+        })
+        .catch((e) => log.warn('[main] 保存 key 后检测失败：', (e as Error).message));
+    }
     return true;
   });
   ipcMain.handle(IPC.keyClear, async () => {
@@ -409,6 +450,39 @@ function registerIpc(): void {
     if (!persistentLog) return { files: 0, totalBytes: 0 };
     return persistentLog.getStats();
   });
+
+  // ─── v1.3.0 Claude 接入 ──────────────────────────────────────────────
+  ipcMain.handle(IPC.claudeDetect, () => detectAll());
+  ipcMain.handle(IPC.claudeApplyAll, async () => {
+    const apiKey = await getApiKey();
+    if (!apiKey) throw new Error('请先填写 DeepSeek API Key');
+    const prefs = getPreferences();
+    const result = await detectAll();
+    const port = proxy?.getPort() ?? prefs.proxyPort;
+    if (prefs.claudeCli.enabled && result.claudeCli.installed) {
+      await writeClaudeCliConfig(apiKey, prefs.claudeCli.envVars);
+    }
+    if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
+      await writeClaudeDesktopConfig(port);
+    }
+    return detectAll();
+  });
+  ipcMain.handle(IPC.claudeUninstallCli, async () => {
+    await removeClaudeCliConfig();
+    return detectAll();
+  });
+  ipcMain.handle(IPC.claudeUninstallDesktop, async () => {
+    await removeClaudeDesktopConfig();
+    return detectAll();
+  });
+  ipcMain.handle(IPC.claudeUninstallAll, async () => {
+    await Promise.allSettled([removeClaudeCliConfig(), removeClaudeDesktopConfig()]);
+    return detectAll();
+  });
+  ipcMain.handle(IPC.claudeDesktopBackups, () => listClaudeDesktopBackups());
+  ipcMain.handle(IPC.claudeDesktopRestore, (_e, backupPath: string) =>
+    restoreClaudeDesktopBackup(backupPath),
+  );
 }
 
 async function readHelpJson(name: string): Promise<unknown> {
@@ -482,6 +556,20 @@ app.whenReady().then(async () => {
     } catch (e) {
       log.error('自动启动代理失败：', (e as Error).message);
     }
+  }
+
+  // v1.3.0 一次性迁移：如果检测到 Claude 工具已安装，自动应用配置。
+  try {
+    await runV130ClaudeMigration(prefs.proxyPort);
+  } catch (e) {
+    log.warn('v1.3.0 Claude 迁移失败：', (e as Error).message);
+  }
+
+  // 每次启动都重新写入 Claude 配置，确保外部工具更新后仍然生效。
+  try {
+    await startupApplyClaude(prefs.proxyPort);
+  } catch (e) {
+    log.warn('Startup Claude auto-apply 失败：', (e as Error).message);
   }
 
   if (prefs.autoCheckUpdate) {

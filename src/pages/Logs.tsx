@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAppStore, type LogEntry } from '../lib/store';
 
 type Filter = 'all' | 'error' | 'warn';
+type SourceFilter = 'all' | 'codex' | 'claude-desktop';
 
 export function Logs(): JSX.Element {
   const logs = useAppStore((s) => s.logs);
   const setLogs = useAppStore((s) => s.setLogs);
   const pushToast = useAppStore((s) => s.pushToast);
   const [filter, setFilter] = useState<Filter>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showBlocked, setShowBlocked] = useState(false);
   const [stats, setStatsBytes] = useState<{ files: number; totalBytes: number } | null>(null);
@@ -39,9 +41,14 @@ export function Logs(): JSX.Element {
   };
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return logs;
-    return logs.filter((l) => l.level === filter);
-  }, [logs, filter]);
+    let result = logs;
+    if (filter !== 'all') result = result.filter((l) => l.level === filter);
+    if (sourceFilter === 'codex')
+      result = result.filter((l) => l.source !== 'claude-desktop');
+    else if (sourceFilter === 'claude-desktop')
+      result = result.filter((l) => l.source === 'claude-desktop');
+    return result;
+  }, [logs, filter, sourceFilter]);
 
   const groups = useMemo(() => {
     const all = groupByReqId(filtered);
@@ -67,6 +74,9 @@ export function Logs(): JSX.Element {
       <p className="text-sm text-slate-400 mb-3">
         每次请求按 <code className="bg-slate-900 px-1 rounded">req_xxxxx</code> 编号分组，
         点击展开看完整时间线。日志中的 API Key 已自动脱敏。
+      </p>
+      <p className="text-xs text-amber-500/80 mb-3">
+        ⚠️ Claude Code CLI 直连 DeepSeek，不经过本地代理，因此不出现在此日志中。
       </p>
       {stats && (
         <p className="text-xs text-slate-500 mb-3">
@@ -102,6 +112,25 @@ export function Logs(): JSX.Element {
         <FilterBtn cur={filter} val="all" onClick={setFilter} label="全部" />
         <FilterBtn cur={filter} val="warn" onClick={setFilter} label="警告" />
         <FilterBtn cur={filter} val="error" onClick={setFilter} label="错误" />
+        <span className="text-slate-600 text-xs">|</span>
+        <SourceFilterBtn cur={sourceFilter} val="all" onClick={setSourceFilter} label="所有来源" />
+        <SourceFilterBtn cur={sourceFilter} val="codex" onClick={setSourceFilter} label="Codex" />
+        <SourceFilterBtn
+          cur={sourceFilter}
+          val="claude-desktop"
+          onClick={setSourceFilter}
+          label="Claude Desktop"
+        />
+        <span className="text-slate-600 text-xs">|</span>
+        <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showBlocked}
+            onChange={(e) => setShowBlocked(e.target.checked)}
+            className="rounded border-slate-600 bg-slate-800"
+          />
+          显示拦截
+        </label>
       </div>
 
       <div className="bg-slate-950 rounded-xl border border-slate-800 max-h-[560px] overflow-auto">
@@ -133,6 +162,25 @@ function FilterBtn(props: {
       onClick={() => props.onClick(props.val)}
       className={`text-xs px-2.5 py-1 rounded ${
         active ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+      }`}
+    >
+      {props.label}
+    </button>
+  );
+}
+
+function SourceFilterBtn(props: {
+  cur: SourceFilter;
+  val: SourceFilter;
+  onClick: (f: SourceFilter) => void;
+  label: string;
+}): JSX.Element {
+  const active = props.cur === props.val;
+  return (
+    <button
+      onClick={() => props.onClick(props.val)}
+      className={`text-xs px-2.5 py-1 rounded ${
+        active ? 'bg-slate-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
       }`}
     >
       {props.label}
@@ -209,6 +257,11 @@ function groupByReqId(logs: LogEntry[]): Group[] {
       g.statusCode = l.statusCode;
       g.errorReason = l.errorReason;
       g.errorAction = l.errorAction;
+    } else if (l.phase === 'stub') {
+      g.outcome = 'blocked';
+      g.blockedReason = 'sub-agent-stub';
+      g.model = l.model ?? g.model;
+      g.requestedModel = l.requestedModel ?? g.requestedModel;
     }
   }
   const arr = Array.from(map.values()).sort((a, b) => b.startTs - a.startTs);
@@ -270,7 +323,10 @@ function GroupRow({
             }`}
           {group.outcome === 'blocked' && (
             <span className="text-slate-400">
-              ⌫ 本地拦截，未调用 DeepSeek（未消耗 token）· {group.blockedReason}
+              ⌫{' '}
+              {group.blockedReason === 'sub-agent-stub'
+                ? `子代理拦截 · ${group.requestedModel ?? ''} · 未消耗 DeepSeek token`
+                : `本地拦截，未调用 DeepSeek（未消耗 token）· ${group.blockedReason}`}
             </span>
           )}
           {group.outcome === 'error' && (

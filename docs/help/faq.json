@@ -70,5 +70,35 @@
     "tag": "网络",
     "question": "我能离线使用 Codex Switch 吗？",
     "answer": "代理服务本身可以离线启动，但 Codex 调用模型仍需访问 DeepSeek 服务器，所以核心功能必须联网。"
+  },
+  {
+    "id": "claude-cli-no-proxy",
+    "tag": "Claude",
+    "question": "为什么 Claude Code CLI 不需要 Codex Switch 运行？",
+    "answer": "Claude Code CLI 使用 Anthropic SDK，DeepSeek 官方已提供兼容的 Anthropic 端点（https://api.deepseek.com/anthropic）。Codex Switch 只需把环境变量 ANTHROPIC_BASE_URL 和 ANTHROPIC_AUTH_TOKEN 写入你的 Shell profile，CLI 之后就直连 DeepSeek，无需本地代理中转。"
+  },
+  {
+    "id": "claude-desktop-needs-proxy",
+    "tag": "Claude",
+    "question": "为什么 Claude Desktop 需要 Codex Switch 运行？",
+    "answer": "Claude Desktop 的第三方网关配置会校验模型名：它只接受 claude-* 格式的型号（如 claude-sonnet-4-5），而 DeepSeek 返回的是 deepseek-v4-pro 等真实模型名。Codex Switch 在本地代理层把模型名重写，让 Claude Desktop 认可请求，否则会报「未知模型」错误。"
+  },
+  {
+    "id": "claude-desktop-after-install",
+    "tag": "Claude",
+    "question": "我先装了 Codex Switch，后装了 Claude Desktop，该怎么让它生效？",
+    "answer": "不需要手动操作。Codex Switch 在每次启动时（或窗口获得焦点时）会自动检测所有工具的安装状态。只要你的 DeepSeek API Key 已设置，检测到 Claude Desktop 后会立即自动写配置并弹一条 toast 提示你重启 Claude Desktop 即可。"
+  },
+  {
+    "id": "claude-cli-no-log",
+    "tag": "Claude",
+    "question": "Claude Code CLI 发起了请求，但日志页里没有记录，是 bug 吗？",
+    "answer": "不是 bug。Claude Code CLI 直连 DeepSeek 官方 Anthropic 端点，完全绕过本地代理，因此请求不会经过 Codex Switch，日志页也不会出现对应记录。如果需要排查 CLI 调用问题，可以在终端运行 claude 时加 --verbose 参数查看原始日志。"
+  },
+  {
+    "id": "uninstall-all",
+    "tag": "Claude",
+    "question": "如何完全退出 Codex Switch，不留任何痕迹？",
+    "answer": "进入「设置 → Claude 工具接入」，点击底部「一键卸载所有写入的配置」按钮。这会同时还原 Codex 配置文件（~/.codex/）、删除 Shell profile 中的 Codex Switch 注入块，以及还原 Claude Desktop 配置。之后退出应用即可。"
   }
 ]
