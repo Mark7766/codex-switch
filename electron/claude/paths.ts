@@ -59,14 +59,32 @@ export function claudeDesktopMetaPath(): string {
   return path.join(claudeDesktopConfigLibraryDir(), '_meta.json');
 }
 
-/** Path to the Claude Desktop application binary / bundle for install detection. */
-export function claudeDesktopAppPath(): string | null {
-  if (process.platform === 'darwin') return '/Applications/Claude.app';
+/**
+ * Ordered list of candidate paths where Claude Desktop may be installed.
+ * Returns the first path that exists on macOS (only one location).
+ * On Windows, multiple locations are tried because Anthropic has shipped
+ * both Squirrel-style (AnthropicClaude\) and NSIS-style (Programs\Claude\) installers.
+ */
+export function claudeDesktopAppPaths(): string[] {
+  if (process.platform === 'darwin') return ['/Applications/Claude.app'];
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
-    return path.join(localAppData, 'Programs', 'Claude', 'Claude.exe');
+    return [
+      // Squirrel-based installer (most common for Anthropic's official builds)
+      path.join(localAppData, 'AnthropicClaude', 'claude.exe'),
+      path.join(localAppData, 'AnthropicClaude', 'Claude.exe'),
+      // NSIS per-user installer (electron-builder default)
+      path.join(localAppData, 'Programs', 'Claude', 'Claude.exe'),
+      path.join(localAppData, 'Programs', 'Anthropic', 'Claude', 'Claude.exe'),
+    ];
   }
-  return null; // Linux not supported
+  return [];
+}
+
+/** @deprecated Use claudeDesktopAppPaths() instead. */
+export function claudeDesktopAppPath(): string | null {
+  const candidates = claudeDesktopAppPaths();
+  return candidates[0] ?? null;
 }
 
 // ─── Claude Code CLI ─────────────────────────────────────────────────────────
@@ -109,14 +127,32 @@ export function codexDir(): string {
   return path.join(os.homedir(), '.codex');
 }
 
-/** Path to the Codex Desktop application bundle for install detection. */
-export function codexDesktopAppPath(): string | null {
-  if (process.platform === 'darwin') return '/Applications/Codex.app';
+/**
+ * Ordered list of candidate paths where Codex Desktop (OpenAI) may be installed.
+ * On Windows, multiple locations are tried to handle different electron-builder
+ * productName configurations used across releases.
+ */
+export function codexDesktopAppPaths(): string[] {
+  if (process.platform === 'darwin') return ['/Applications/Codex.app'];
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
-    return path.join(localAppData, 'Programs', 'OpenAI', 'Codex.exe');
+    return [
+      // NSIS per-user: productName variants seen in the wild
+      path.join(localAppData, 'Programs', 'OpenAI', 'Codex.exe'),
+      path.join(localAppData, 'Programs', 'OpenAI Codex', 'Codex.exe'),
+      path.join(localAppData, 'Programs', 'Codex', 'Codex.exe'),
+      // Squirrel-style
+      path.join(localAppData, 'OpenAI Codex', 'Codex.exe'),
+      path.join(localAppData, 'codex', 'Codex.exe'),
+    ];
   }
-  return null;
+  return [];
+}
+
+/** @deprecated Use codexDesktopAppPaths() instead. */
+export function codexDesktopAppPath(): string | null {
+  const candidates = codexDesktopAppPaths();
+  return candidates[0] ?? null;
 }
 
 // ─── Shared ──────────────────────────────────────────────────────────────────

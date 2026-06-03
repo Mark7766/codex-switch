@@ -231,7 +231,7 @@ describe('fixToolMessageOrder', () => {
     expect(fixed).toHaveLength(msgs.length);
   });
 
-  it('only reorders for the last assistant{tool_calls} block', () => {
+  it('reorders both last and earlier assistant{tool_calls} blocks', () => {
     const msgs = [
       makeAssistant(['a1']),
       makeTool('a1'),
@@ -246,5 +246,33 @@ describe('fixToolMessageOrder', () => {
     expect(fixed[4]?.role).toBe('tool');
     expect(fixed[5]?.role).toBe('tool');
     expect(fixed[6]?.role).toBe('user');
+  });
+
+  it('fixes all blocks in a long history (approval messages in every turn)', () => {
+    // Simulates a 89-item conversation with 25 function_call rounds, each with an
+    // approval message interleaved between the assistant tool_calls and the tool results.
+    const msgs = [
+      makeUser('turn 1'),
+      makeAssistant(['x1', 'x2']),
+      makeUser('Approved x1'), // interleaved approval
+      makeTool('x1'),
+      makeTool('x2'),
+      makeUser('turn 2'),
+      makeAssistant(['y1']),
+      makeUser('Approved y1'), // interleaved approval
+      makeTool('y1'),
+      makeUser('turn 3'),
+    ];
+    const fixed = fixToolMessageOrder(msgs);
+    // Turn 1 block: indices 1=assistant, 2+3=tools, 4=approval
+    expect(fixed[1]?.role).toBe('assistant');
+    expect(fixed[2]?.role).toBe('tool'); // x1 moved before approval
+    expect(fixed[3]?.role).toBe('tool'); // x2 moved before approval
+    expect(fixed[4]?.content).toBe('Approved x1'); // approval deferred
+    // Turn 2 block: y1 must follow assistant immediately
+    expect(fixed[6]?.role).toBe('assistant');
+    expect(fixed[7]?.role).toBe('tool'); // y1 moved before approval
+    expect(fixed[8]?.content).toBe('Approved y1'); // approval deferred
+    expect(fixed).toHaveLength(msgs.length);
   });
 });

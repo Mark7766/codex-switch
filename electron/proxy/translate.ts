@@ -167,53 +167,67 @@ export function fixOrphanedToolResults(
 }
 
 /**
- * DeepSeek requires every `tool` message to immediately follow the assistant
- * message containing the matching `tool_calls`.  If Codex inserts regular
- * messages (e.g. "Approved command prefix saved …") between the assistant
- * tool_calls and the tool results, DeepSeek returns 400.
+ * DeepSeek rejects any conversation where an assistant message that contains
+ * `tool_calls` is not IMMEDIATELY followed by one `tool` message per call_id.
+ * Codex CLI sometimes inserts "Approved command…" user messages between the
+ * assistant tool-call message and the tool results, which triggers a 400.
  *
- * This function finds the last assistant{tool_calls} in the array and moves
- * all matching tool-result messages to immediately after it, deferring any
- * interleaved non-tool messages to after the tool block.
+ * This function rebuilds the message array so that every `assistant{tool_calls}`
+ * block is immediately followed by its matching tool messages (in call-order,
+ * with empty stubs for any missing ones). Non-tool messages that were
+ * originally interleaved are deferred to after the completed tool block.
+ *
+ * Unlike the previous version this processes ALL assistant{tool_calls} blocks
+ * in the array, not just the last one — necessary for long conversations where
+ * approval messages may appear in earlier turns as well.
  */
 export function fixToolMessageOrder(messages: ChatMessage[]): ChatMessage[] {
-  let assistantIdx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
+  // Indices of tool messages that have already been placed immediately after
+  // their corresponding assistant{tool_calls} message.
+  const consumed = new Set<number>();
+  const result: ChatMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    if (consumed.has(i)) continue;
+
     const msg = messages[i];
-    if (msg?.role === 'assistant' && msg.tool_calls?.length) {
-      assistantIdx = i;
-      break;
+    if (!msg) continue;
+
+    if (msg.role !== 'assistant' || !msg.tool_calls?.length) {
+      result.push(msg);
+      continue;
+    }
+
+    // Assistant message with tool_calls — emit it, then immediately emit
+    // all matching tool messages (in toolCallIds order, stubs for missing).
+    result.push(msg);
+    const toolCallIds = msg.tool_calls.map((tc) => tc.id);
+
+    // Look ahead for matching tool messages (first occurrence per call_id wins).
+    const toolMsgByCallId = new Map<string, { idx: number; msg: ChatMessage }>();
+    for (let j = i + 1; j < messages.length; j++) {
+      const m = messages[j];
+      if (!m || consumed.has(j)) continue;
+      if (m.role === 'tool' && m.tool_call_id && toolCallIds.includes(m.tool_call_id)) {
+        if (!toolMsgByCallId.has(m.tool_call_id)) {
+          toolMsgByCallId.set(m.tool_call_id, { idx: j, msg: m });
+        }
+      }
+    }
+
+    // Emit in toolCallIds order; fill any missing call_ids with an empty stub.
+    for (const id of toolCallIds) {
+      const found = toolMsgByCallId.get(id);
+      if (found) {
+        result.push(found.msg);
+        consumed.add(found.idx);
+      } else {
+        result.push({ role: 'tool', tool_call_id: id, content: '' });
+      }
     }
   }
-  if (assistantIdx < 0) return messages;
 
-  const assistantMsg = messages[assistantIdx];
-  if (!assistantMsg?.tool_calls) return messages;
-  const toolCallIds = assistantMsg.tool_calls.map((tc) => tc.id);
-  const before = messages.slice(0, assistantIdx + 1);
-  const after = messages.slice(assistantIdx + 1);
-
-  // Map tool_call_id → tool message
-  const toolMsgMap = new Map<string, ChatMessage>();
-  const usedToolMsgIdx = new Set<number>();
-  after.forEach((m, idx) => {
-    if (m.role === 'tool' && m.tool_call_id && toolCallIds.includes(m.tool_call_id)) {
-      toolMsgMap.set(m.tool_call_id, m);
-      usedToolMsgIdx.add(idx);
-    }
-  });
-
-  // Build tool messages in order, fill missing with empty
-  const orderedToolMsgs: ChatMessage[] = toolCallIds.map((id) => {
-    if (toolMsgMap.has(id)) return toolMsgMap.get(id)!;
-    // Fill missing with empty tool message
-    return { role: 'tool', tool_call_id: id, content: '' };
-  });
-
-  // Other messages (not tool, or tool_call_id not matching)
-  const others = after.filter((m, idx) => !(m.role === 'tool' && m.tool_call_id && toolCallIds.includes(m.tool_call_id)));
-
-  return [...before, ...orderedToolMsgs, ...others];
+  return result;
 }
 
 export function extractTools(tools: unknown): ChatRequest['tools'] {

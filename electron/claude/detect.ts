@@ -3,12 +3,12 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import {
-  claudeDesktopAppPath,
+  claudeDesktopAppPaths,
   claudeDesktopConfigPath,
   claudeDesktopProfilePath,
   claudeCliDir,
   claudeCliSettingsPath,
-  codexDesktopAppPath,
+  codexDesktopAppPaths,
   codexDir,
   shellProfilePaths,
 } from './paths';
@@ -75,9 +75,15 @@ async function whichExists(cmd: string): Promise<boolean> {
   }
 }
 
+async function anyPathExists(paths: string[]): Promise<boolean> {
+  for (const p of paths) {
+    if (await pathExists(p)) return true;
+  }
+  return false;
+}
+
 async function detectCodexDesktop(): Promise<ToolStatus> {
-  const appPath = codexDesktopAppPath();
-  const installed = appPath ? await pathExists(appPath) : false;
+  const installed = await anyPathExists(codexDesktopAppPaths());
   const configDir = codexDir();
   const configApplied =
     (await pathExists(configDir)) && (await pathExists(`${configDir}/config.toml`));
@@ -144,8 +150,7 @@ async function isClaudeCliConfigApplied(): Promise<boolean> {
 }
 
 async function detectClaudeDesktop(): Promise<ToolStatus> {
-  const appPath = claudeDesktopAppPath();
-  const installed = appPath ? await pathExists(appPath) : false;
+  const installed = await anyPathExists(claudeDesktopAppPaths());
   const configPath = claudeDesktopConfigPath();
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
   const configApplied = installed && (await isClaudeDesktopConfigured(profilePath));
