@@ -76,6 +76,9 @@ export function claudeDesktopAppPaths(): string[] {
       // NSIS per-user installer (electron-builder default)
       path.join(localAppData, 'Programs', 'Claude', 'Claude.exe'),
       path.join(localAppData, 'Programs', 'Anthropic', 'Claude', 'Claude.exe'),
+      // Microsoft Store (AppX/MSIX) packages - they use versioned folders in WindowsApps,
+      // but the LocalAppData mapping is stable.
+      path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude'),
     ];
   }
   return [];
@@ -96,12 +99,45 @@ export function claudeCliDir(): string {
 
 /** ~/.claude/settings.json — primary Claude Code CLI config (env, model, etc.). */
 export function claudeCliSettingsPath(): string {
-  return path.join(claudeCliDir(), 'settings.json');
+  const clDir = claudeCliDir();
+  if (process.platform === 'win32') {
+    // If installed via Microsoft Store, the config might be in the sandbox.
+    // However, Claude Code CLI usually stays in ~/.claude.
+    // We check both if needed in detect.ts, but here we provide the standard one.
+    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+    const sandboxPath = path.join(
+      localAppData,
+      'Packages',
+      'Claude_pzs8sxrjxfjjc',
+      'LocalCache',
+      'Roaming',
+      'Claude',
+      'config.json',
+    );
+    // Note: Claude Desktop (Store version) config.json is in LocalCache.
+  }
+  return path.join(clDir, 'settings.json');
 }
 
 /** ~/.claude/config.json — Claude Code CLI auth-bypass marker (primaryApiKey). */
 export function claudeCliConfigJsonPath(): string {
   return path.join(claudeCliDir(), 'config.json');
+}
+
+/**
+ * Microsoft Store (AppX) sandboxed config paths for Claude Desktop.
+ */
+export function claudeDesktopStoreConfigPath(): string {
+  const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
+  return path.join(
+    localAppData,
+    'Packages',
+    'Claude_pzs8sxrjxfjjc',
+    'LocalCache',
+    'Roaming',
+    'Claude',
+    'config.json',
+  );
 }
 
 /** Ordered list of shell profile files to write env vars into (macOS / Linux). */
@@ -144,6 +180,8 @@ export function codexDesktopAppPaths(): string[] {
       // Squirrel-style
       path.join(localAppData, 'OpenAI Codex', 'Codex.exe'),
       path.join(localAppData, 'codex', 'Codex.exe'),
+      // Microsoft Store (AppX/MSIX) packages
+      path.join(localAppData, 'Packages', 'OpenAI.Codex_2p2nqsd0c76g0', 'LocalCache', 'Roaming', 'Codex'),
     ];
   }
   return [];

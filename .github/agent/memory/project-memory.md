@@ -73,7 +73,7 @@
 ### 核心特征
 - **进程边界严格**：主进程独占文件系统/网络/Codex 配置；渲染层只通过 IPC 间接访问。`contextIsolation: true`、`nodeIntegration: false` 不可变更。
 - **代理仅监听 loopback**：默认 `127.0.0.1:11435`，与参考工程保持一致；端口被占自动 +1 重试并通知用户，绝不绑定 `0.0.0.0`。
-- **协议双通道**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；需正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
+- **协议双通道**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；均支持 `previous_response_id` 状态管理、`fixToolMessageOrder` 序列修复、以及正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
 - **凭据安全**：DeepSeek API Key 走 OS keychain（macOS Keychain / Windows Credential Manager），不落盘到普通配置文件。
 - **配置可还原**：所有对 `~/.codex/*` 的写入都先备份成 `*.bak.<timestamp>`，提供"一键还原"。
 - **跨平台一套代码**：Electron 同时产出 **macOS x64 / arm64** 两个 `.dmg`（可选 universal）与 **Windows x64 / arm64** 两个 NSIS `.exe` 安装包；图标 / 路径 / 安装器脚本全部兼容。

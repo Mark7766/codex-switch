@@ -21,6 +21,21 @@
 
 ## 任务记录
 
+### [TASK-040] 修复 Windows 打包权限与依赖缺失问题
+- **日期**：2026-06-03
+- **类型**：fix
+- **摘要**：解决了 `pnpm package:win` 过程中的两个阻碍：① PowerShell 脚本执行策略限制（已用 `Set-ExecutionPolicy` 修复）；② `electron/updater/index.ts` 因缺失 `electron-updater` 导致的编译错误（已通过 `pnpm install` 修复）。最终成功产出 v1.3.1 Windows 安装包。
+- **变更文件**：
+  - N/A（主要是环境与依赖修复）
+
+### [TASK-039] 修复 HTTP 代理下工具调用顺序导致的 DeepSeek 400 错误
+- **日期**：2026-06-03
+- **类型**：fix
+- **摘要**：修复了 `handleResponses` (HTTP) 未调用 `fixToolMessageOrder` 的问题，该缺失会导致 Codex CLI/Desktop 在特定场景下发送的工具调用序列被 DeepSeek 拒绝并报 400 错误。同时同步了 WebSocket 的鲁棒逻辑：支持 `previous_response_id` 状态管理、自动保存对话历史、补全空 user 消息等。
+- **变更文件**：
+  - `electron/proxy/server.ts` (重构 `handleResponses` 逻辑)
+- **测试**：已通过静态检查，逻辑对齐已验证的 WS 实现。
+
 ### [TASK-038] 发布 v1.3.0
 - **日期**：2026-06-03
 - **类型**：chore（release）

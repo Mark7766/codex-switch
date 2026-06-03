@@ -6,6 +6,7 @@ import {
   claudeDesktopAppPaths,
   claudeDesktopConfigPath,
   claudeDesktopProfilePath,
+  claudeDesktopStoreConfigPath,
   claudeCliDir,
   claudeCliSettingsPath,
   codexDesktopAppPaths,
@@ -82,12 +83,27 @@ async function anyPathExists(paths: string[]): Promise<boolean> {
   return false;
 }
 
+/**
+ * Heuristic to detect if a tool is "installed" by checking if its process is currently running.
+ * Useful for Microsoft Store apps where paths are versioned and restricted.
+ */
+async function isProcessRunning(processName: string): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  try {
+    const { stdout } = await execAsync(`tasklist /FI "IMAGENAME eq ${processName}.exe" /NH`);
+    return stdout.includes(processName);
+  } catch {
+    return false;
+  }
+}
+
 async function detectCodexDesktop(): Promise<ToolStatus> {
-  const installed = await anyPathExists(codexDesktopAppPaths());
+  const installedByPath = await anyPathExists(codexDesktopAppPaths());
+  const installedByProcess = installedByPath || (await isProcessRunning('Codex'));
   const configDir = codexDir();
   const configApplied =
     (await pathExists(configDir)) && (await pathExists(`${configDir}/config.toml`));
-  return { installed, configApplied, configPath: configDir };
+  return { installed: installedByProcess, configApplied, configPath: configDir };
 }
 
 async function detectCodexCli(): Promise<ToolStatus> {
@@ -150,11 +166,34 @@ async function isClaudeCliConfigApplied(): Promise<boolean> {
 }
 
 async function detectClaudeDesktop(): Promise<ToolStatus> {
-  const installed = await anyPathExists(claudeDesktopAppPaths());
+  const installedByPath = await anyPathExists(claudeDesktopAppPaths());
+  const installedByProcess = installedByPath || (await isProcessRunning('Claude'));
+
   const configPath = claudeDesktopConfigPath();
+  const storeConfigPath = claudeDesktopStoreConfigPath();
+
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
-  const configApplied = installed && (await isClaudeDesktopConfigured(profilePath));
-  return { installed, configApplied, configPath };
+  const configApplied =
+    installedByProcess &&
+    ((await isClaudeDesktopConfigured(profilePath)) || (await isStoreConfigApplied(storeConfigPath)));
+
+  return { installed: installedByProcess, configApplied, configPath };
+}
+
+/**
+ * Checks if the Microsoft Store version of Claude Desktop has configuration.
+ * Note: Even if we can't write to it easily via regular file API,
+ * we check if it already exists or has been modified.
+ */
+async function isStoreConfigApplied(storeConfigPath: string): Promise<boolean> {
+  // For Store apps, we might not be able to read config.json due to sandboxing
+  // but if the user manually configured it or we found it, we report true.
+  try {
+    const stats = await fs.stat(storeConfigPath);
+    return stats.size > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function isClaudeDesktopConfigured(profilePath: string): Promise<boolean> {

@@ -618,6 +618,7 @@ export class DeepSeekProxy extends EventEmitter {
         model?: string;
         tools?: unknown;
         stream?: boolean;
+        previous_response_id?: string;
       };
       try {
         parsed = JSON.parse(body);
@@ -643,14 +644,38 @@ export class DeepSeekProxy extends EventEmitter {
         model: resolvedModel,
       });
 
-      const sysMsg = parsed.instructions
-        ? [{ role: 'system', content: String(parsed.instructions) }]
-        : [];
-      const newMsgs = itemsToMessages(parsed.input, this.reasoning.asMap());
-      const messages = [...sysMsg, ...newMsgs];
-      if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' });
+      const prevRespId = parsed.previous_response_id;
+      const storedHistory = prevRespId ? (this.conversationStore.get(prevRespId) ?? null) : null;
 
-      const chatReq: ChatRequest = { model: resolvedModel, messages };
+      let fullMessages: ChatMessage[];
+      if (storedHistory !== null) {
+        const newMessages = itemsToMessages(
+          Array.isArray(parsed.input) ? parsed.input : [],
+          this.reasoning.asMap(),
+        );
+        fullMessages = [...storedHistory, ...newMessages];
+      } else {
+        const sysMsg = parsed.instructions
+          ? [{ role: 'system', content: String(parsed.instructions) }]
+          : [];
+        fullMessages = [
+          ...sysMsg,
+          ...itemsToMessages(
+            Array.isArray(parsed.input) ? parsed.input : [],
+            this.reasoning.asMap(),
+          ),
+        ];
+      }
+
+      // DeepSeek rejects if any non-tool message appears between an
+      // assistant{tool_calls} and its tool results.  Reorder so that tool
+      // messages always come immediately after their matching tool_calls.
+      fullMessages = fixToolMessageOrder(fullMessages);
+      if (!fullMessages.some((m) => m.role === 'user' || m.role === 'tool')) {
+        fullMessages.push({ role: 'user', content: 'Hello' });
+      }
+
+      const chatReq: ChatRequest = { model: resolvedModel, messages: fullMessages };
       const tools = extractTools(parsed.tools);
       if (tools) chatReq.tools = tools;
 
@@ -683,8 +708,16 @@ export class DeepSeekProxy extends EventEmitter {
           { apiKey: this.opts.apiKey, agent: this.agent },
           this.reasoning,
         )
-          .then(({ usage }) => {
+          .then(({ outputItems, finishReason, endTurn, usage }) => {
+            const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
+            this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
+            if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
+              const oldest = this.conversationStore.keys().next().value as string | undefined;
+              if (oldest !== undefined) this.conversationStore.delete(oldest);
+            }
             this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+              endTurn,
+              finishReason,
               usage,
             });
             res.end();
@@ -732,6 +765,10 @@ export class DeepSeekProxy extends EventEmitter {
               .choices;
             const msg = choices?.[0]?.message || {};
             const msgId = `msg_${Date.now()}`;
+            const choicesArr = (r.body as any).choices || [];
+            const firstChoice = choicesArr[0] || {};
+            const finishReason = firstChoice.finish_reason || 'stop';
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(
               JSON.stringify({
@@ -751,7 +788,28 @@ export class DeepSeekProxy extends EventEmitter {
                 usage: (r.body as { usage?: unknown }).usage || {},
               }),
             );
-            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200);
+
+            // Sync sync call output back to status history
+            const outputItems = [
+              {
+                id: msgId,
+                type: 'message',
+                status: 'completed',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: msg.content || '', annotations: [] }],
+              },
+            ];
+            const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
+            this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
+            if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
+              const oldest = this.conversationStore.keys().next().value as string | undefined;
+              if (oldest !== undefined) this.conversationStore.delete(oldest);
+            }
+
+            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+              finishReason,
+              usage: (r.body as any).usage,
+            });
           })
           .catch((e) => {
             const f = translateError({ networkErrorMessage: (e as Error).message });
