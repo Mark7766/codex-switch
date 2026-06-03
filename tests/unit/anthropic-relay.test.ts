@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock node:fs/promises before importing the module under test.
 vi.mock('node:fs/promises', () => ({
@@ -11,8 +11,6 @@ vi.mock('node:fs/promises', () => ({
     chmod: vi.fn(),
   },
 }));
-
-import fs from 'node:fs/promises';
 
 import {
   handleAnthropicModels,

@@ -21,7 +21,6 @@ vi.mock('../../electron/codex/paths', async () => {
 import {
   writeCodexConfig,
   listBackups,
-  pruneBackups,
   listBackupsFor,
   deleteBackup,
   cleanAllBackups,

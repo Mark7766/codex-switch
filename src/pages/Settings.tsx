@@ -187,10 +187,10 @@ export function Settings(): JSX.Element {
           </label>
           <label className="flex items-start justify-between gap-4">
             <span className="flex-1">
-              拦截 Codex Desktop 后台 "建议气泡" 请求
+              拦截 Codex Desktop 后台 &ldquo;建议气泡&rdquo; 请求
               <span className="block text-xs text-slate-500 mt-1">
-                Codex Desktop 会周期性后台请求 "hyperpersonalized
-                suggestions"，一句提问可触发数十次额外调用。开启后这些后台请求被本地直接返回空建议，不消耗
+                Codex Desktop 会周期性后台请求 &ldquo;hyperpersonalized
+                suggestions&rdquo;，一句提问可触发数十次额外调用。开启后这些后台请求被本地直接返回空建议，不消耗
                 DeepSeek token。
               </span>
             </span>
