@@ -189,18 +189,31 @@ export function fixToolMessageOrder(messages: ChatMessage[]): ChatMessage[] {
 
   const assistantMsg = messages[assistantIdx];
   if (!assistantMsg?.tool_calls) return messages;
-  const expectedIds = new Set(assistantMsg.tool_calls.map((tc) => tc.id));
+  const toolCallIds = assistantMsg.tool_calls.map((tc) => tc.id);
   const before = messages.slice(0, assistantIdx + 1);
   const after = messages.slice(assistantIdx + 1);
 
-  const toolMsgs = after.filter(
-    (m) => m.role === 'tool' && m.tool_call_id != null && expectedIds.has(m.tool_call_id),
-  );
-  const others = after.filter(
-    (m) => !(m.role === 'tool' && m.tool_call_id != null && expectedIds.has(m.tool_call_id)),
-  );
+  // Map tool_call_id → tool message
+  const toolMsgMap = new Map<string, ChatMessage>();
+  const usedToolMsgIdx = new Set<number>();
+  after.forEach((m, idx) => {
+    if (m.role === 'tool' && m.tool_call_id && toolCallIds.includes(m.tool_call_id)) {
+      toolMsgMap.set(m.tool_call_id, m);
+      usedToolMsgIdx.add(idx);
+    }
+  });
 
-  return [...before, ...toolMsgs, ...others];
+  // Build tool messages in order, fill missing with empty
+  const orderedToolMsgs: ChatMessage[] = toolCallIds.map((id) => {
+    if (toolMsgMap.has(id)) return toolMsgMap.get(id)!;
+    // Fill missing with empty tool message
+    return { role: 'tool', tool_call_id: id, content: '' };
+  });
+
+  // Other messages (not tool, or tool_call_id not matching)
+  const others = after.filter((m, idx) => !(m.role === 'tool' && m.tool_call_id && toolCallIds.includes(m.tool_call_id)));
+
+  return [...before, ...orderedToolMsgs, ...others];
 }
 
 export function extractTools(tools: unknown): ChatRequest['tools'] {
