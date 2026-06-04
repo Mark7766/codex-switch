@@ -175,7 +175,8 @@ async function detectClaudeDesktop(): Promise<ToolStatus> {
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
   const configApplied =
     installedByProcess &&
-    ((await isClaudeDesktopConfigured(profilePath)) || (await isStoreConfigApplied(storeConfigPath)));
+    ((await isClaudeDesktopConfigured(profilePath)) ||
+      (await isStoreConfigApplied(storeConfigPath)));
 
   return { installed: installedByProcess, configApplied, configPath };
 }

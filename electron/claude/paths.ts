@@ -78,7 +78,14 @@ export function claudeDesktopAppPaths(): string[] {
       path.join(localAppData, 'Programs', 'Anthropic', 'Claude', 'Claude.exe'),
       // Microsoft Store (AppX/MSIX) packages - they use versioned folders in WindowsApps,
       // but the LocalAppData mapping is stable.
-      path.join(localAppData, 'Packages', 'Claude_pzs8sxrjxfjjc', 'LocalCache', 'Roaming', 'Claude'),
+      path.join(
+        localAppData,
+        'Packages',
+        'Claude_pzs8sxrjxfjjc',
+        'LocalCache',
+        'Roaming',
+        'Claude',
+      ),
     ];
   }
   return [];
@@ -181,7 +188,14 @@ export function codexDesktopAppPaths(): string[] {
       path.join(localAppData, 'OpenAI Codex', 'Codex.exe'),
       path.join(localAppData, 'codex', 'Codex.exe'),
       // Microsoft Store (AppX/MSIX) packages
-      path.join(localAppData, 'Packages', 'OpenAI.Codex_2p2nqsd0c76g0', 'LocalCache', 'Roaming', 'Codex'),
+      path.join(
+        localAppData,
+        'Packages',
+        'OpenAI.Codex_2p2nqsd0c76g0',
+        'LocalCache',
+        'Roaming',
+        'Codex',
+      ),
     ];
   }
   return [];
