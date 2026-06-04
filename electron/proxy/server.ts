@@ -551,6 +551,34 @@ export class DeepSeekProxy extends EventEmitter {
       return;
     }
 
+    // ─── Context compaction (Codex Desktop background task) ───────────────
+    // Codex Desktop periodically calls POST /v1/responses/compact to compress
+    // long conversation history.  DeepSeek has no equivalent endpoint, so we
+    // return a minimal valid Response object (no-op) so Codex Desktop doesn't
+    // log a 404 error and retains its normal flow.
+    if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
+      req.resume(); // drain body
+      const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
+      this.log({
+        level: 'info',
+        source: 'http',
+        message: '↩ /v1/responses/compact (no-op stub — DeepSeek 不支持原生压缩)',
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: compactId,
+          object: 'response',
+          created_at: Math.floor(Date.now() / 1000),
+          status: 'completed',
+          model: this.opts.defaultModel ?? 'deepseek-v4-flash',
+          output: [],
+          usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        }),
+      );
+      return;
+    }
+
     // ─── Anthropic routes (v1.3.0 — Claude Desktop) ───────────────────────
     if (req.method === 'GET' && url.pathname === '/anthropic/v1/models') {
       handleAnthropicModels(res, this.anthropicRelayOpts());
