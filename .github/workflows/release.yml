@@ -64,19 +64,30 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           pnpm build
-          # hdiutil on macos-latest (arm64) is flaky; retry up to 3 times
-          for i in 1 2 3; do
-            echo "::group::electron-builder attempt $i"
-            if npx electron-builder --mac --x64 --arm64 --publish never; then
+          # Build each arch in a SEPARATE electron-builder invocation.
+          # When --x64 --arm64 are passed together, electron-builder builds both
+          # DMGs concurrently; on macOS arm64 runners both try to mount a volume
+          # named "Codex Switch <version>" at the same time, causing hdiutil
+          # detach failures and background.tiff FileNotFoundError (APFS mode).
+          # Sequential invocations avoid the volume-name collision entirely.
+          build_arch() {
+            local arch=$1
+            for i in 1 2 3; do
+              echo "::group::electron-builder $arch attempt $i"
+              if npx electron-builder --mac --${arch} --publish never; then
+                echo "::endgroup::"
+                return 0
+              fi
               echo "::endgroup::"
-              break
-            fi
-            echo "::endgroup::"
-            if [ "$i" = "3" ]; then exit 1; fi
-            echo "Build attempt $i failed; cleaning and retrying..."
-            rm -rf release/ /tmp/t-* 2>/dev/null || true
-            sleep 10
-          done
+              if [ "$i" = "3" ]; then return 1; fi
+              echo "Build $arch attempt $i failed; cleaning and retrying..."
+              rm -rf release/mac* /tmp/t-* 2>/dev/null || true
+              sleep 10
+            done
+          }
+          build_arch arm64
+          sleep 5
+          build_arch x64
 
       - name: Build (Windows)
         if: matrix.target == 'win'
