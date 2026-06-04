@@ -107,22 +107,6 @@ export function claudeCliDir(): string {
 /** ~/.claude/settings.json — primary Claude Code CLI config (env, model, etc.). */
 export function claudeCliSettingsPath(): string {
   const clDir = claudeCliDir();
-  if (process.platform === 'win32') {
-    // If installed via Microsoft Store, the config might be in the sandbox.
-    // However, Claude Code CLI usually stays in ~/.claude.
-    // We check both if needed in detect.ts, but here we provide the standard one.
-    const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
-    const sandboxPath = path.join(
-      localAppData,
-      'Packages',
-      'Claude_pzs8sxrjxfjjc',
-      'LocalCache',
-      'Roaming',
-      'Claude',
-      'config.json',
-    );
-    // Note: Claude Desktop (Store version) config.json is in LocalCache.
-  }
   return path.join(clDir, 'settings.json');
 }
 

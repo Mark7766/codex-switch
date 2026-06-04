@@ -811,13 +811,21 @@ export class DeepSeekProxy extends EventEmitter {
               res.end(JSON.stringify(r.body));
               return;
             }
-            const choices = (r.body as { choices?: Array<{ message?: { content?: string } }> })
-              .choices;
-            const msg = choices?.[0]?.message || {};
+            const syncBody = r.body as {
+              choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+            };
+            const choices = syncBody.choices;
+            const msg = choices?.[0]?.message ?? {};
             const msgId = `msg_${Date.now()}`;
-            const choicesArr = (r.body as any).choices || [];
-            const firstChoice = choicesArr[0] || {};
-            const finishReason = firstChoice.finish_reason || 'stop';
+            const finishReason = choices?.[0]?.finish_reason ?? 'stop';
+            const usage = syncBody.usage
+              ? {
+                  inputTokens: syncBody.usage.prompt_tokens ?? 0,
+                  outputTokens: syncBody.usage.completion_tokens ?? 0,
+                  totalTokens: syncBody.usage.total_tokens ?? 0,
+                }
+              : undefined;
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(
@@ -858,7 +866,7 @@ export class DeepSeekProxy extends EventEmitter {
 
             this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
               finishReason,
-              usage: (r.body as any).usage,
+              usage,
             });
           })
           .catch((e) => {
