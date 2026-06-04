@@ -21,6 +21,13 @@
 
 ## 任务记录
 
+### [TASK-041] 修复 /v1/responses/compact 上下文丢失问题
+- **日期**：2026-06-04
+- **类型**：fix
+- **摘要**：原 no-op stub 返回新 compactId 但不在 conversationStore 存历史，导致 Codex Desktop compact 后下一轮对话上下文全丢。改为读取请求体中的 `previous_response_id`，把对应历史克隆到新 compactId 下，实现"零损耗克隆压缩"（DeepSeek 有 64K–128K context 无需真正截断）。
+- **变更文件**：`electron/proxy/server.ts`（compact 路由由 no-op 改为读体→克隆历史）
+- **测试**：104/104 通过，typecheck 无误
+
 ### [TASK-040] 修复 Windows 打包权限与依赖缺失问题
 - **日期**：2026-06-03
 - **类型**：fix

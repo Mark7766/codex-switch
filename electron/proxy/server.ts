@@ -553,29 +553,51 @@ export class DeepSeekProxy extends EventEmitter {
 
     // ─── Context compaction (Codex Desktop background task) ───────────────
     // Codex Desktop periodically calls POST /v1/responses/compact to compress
-    // long conversation history.  DeepSeek has no equivalent endpoint, so we
-    // return a minimal valid Response object (no-op) so Codex Desktop doesn't
-    // log a 404 error and retains its normal flow.
+    // long conversation history. DeepSeek has no native equivalent, so we:
+    // 1. Read previous_response_id from the request body
+    // 2. Clone existing conversation history under the new compact ID
+    // 3. Return the new ID so Codex Desktop can continue the conversation
+    // DeepSeek has 64K–128K context windows, so no actual truncation is needed.
     if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
-      req.resume(); // drain body
-      const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
-      this.log({
-        level: 'info',
-        source: 'http',
-        message: '↩ /v1/responses/compact (no-op stub — DeepSeek 不支持原生压缩)',
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c));
+      req.on('end', () => {
+        const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
+        let prevRespId: string | undefined;
+        try {
+          const parsed = JSON.parse(body) as { previous_response_id?: string };
+          prevRespId = parsed.previous_response_id;
+        } catch {
+          // body may be empty or non-JSON — treat as fresh session
+        }
+
+        // Clone existing history under new ID so future requests with
+        // previous_response_id=compactId can resume the full conversation.
+        const existingHistory = prevRespId ? this.conversationStore.get(prevRespId) : undefined;
+        this.conversationStore.set(compactId, existingHistory ? [...existingHistory] : []);
+        if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
+          const oldest = this.conversationStore.keys().next().value as string | undefined;
+          if (oldest !== undefined) this.conversationStore.delete(oldest);
+        }
+
+        this.log({
+          level: 'info',
+          source: 'http',
+          message: `↩ /v1/responses/compact → ${compactId} (历史 ${existingHistory?.length ?? 0} 条消息已克隆)`,
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            id: compactId,
+            object: 'response',
+            created_at: Math.floor(Date.now() / 1000),
+            status: 'completed',
+            model: this.opts.defaultModel ?? 'deepseek-v4-flash',
+            output: [],
+            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+          }),
+        );
       });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          id: compactId,
-          object: 'response',
-          created_at: Math.floor(Date.now() / 1000),
-          status: 'completed',
-          model: this.opts.defaultModel ?? 'deepseek-v4-flash',
-          output: [],
-          usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-        }),
-      );
       return;
     }
 
