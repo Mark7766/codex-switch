@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] - 2026-06-11
+
+### 新增
+- **上下文压缩完整重构（LLM 摘要 + 持久化）。** 修复了 Codex Desktop 在长对话后调用 `/v1/responses/compact` 时报 502 错误的问题。根因有三：① compact 端点缺少错误处理/超时/请求体大小限制，流异常时连接裸断导致 502；② 旧实现仅做"ID 克隆"没有真正的上下文压缩，长对话最终超出 DeepSeek 上下文窗口；③ conversationStore 纯内存存储，代理重启后历史全部丢失（"失忆"bug 复现）。重构为三个维度：**健壮性**（HTTP handler 全加固：30s 超时 / 1MB 大小限制 / 流错误捕获 / 400/408/413/500 分级错误响应；WebSocket 新增 `response.compact` 事件处理）、**LLM 摘要**（消息数 >20 时调用 DeepSeek 做对话摘要，保留最近 10 条不动，失败时回退截断保留 30 条）、**持久化**（conversationStore 使用 ndjson 文件存储，debounce 5s 刷盘 + compact 后强制刷盘，启动恢复 + 24h/50 条自动清理）。新增 `electron/proxy/compact.ts` 和 `electron/proxy/conversation-store.ts` 两个模块，新增 19 个测试用例，全量测试 123 个通过。
+
 ## [1.2.3] - 2026-06-02
 
 ### 修复

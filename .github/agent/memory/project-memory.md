@@ -130,7 +130,9 @@
 | 代理服务 | `electron/proxy/server.ts` | Node http server + ws WebSocketServer，监听 127.0.0.1:11435 | ✅ 已完成 v0.1 |
 | 协议转换 | `electron/proxy/translate.ts` | OpenAI Responses ⇄ DeepSeek Chat Completions 请求/响应映射 | ✅ 已完成 v0.1 |
 | 推理状态 | `electron/proxy/reasoning.ts` | `deepseek-reasoner` `reasoning_content` 跨轮回传 | ✅ 已完成 v0.1 |
-| 流式转发 | `electron/proxy/stream.ts` | SSE pipe，断流处理 | ✅ 已完成 v0.1 |
+| 流式转发 | `electron/proxy/stream.ts` | SSE pipe，断流处理；含 `callDeepSeekSync` 非流式 API | ✅ 已完成 v0.1 |
+| 上下文压缩 | `electron/proxy/compact.ts` | LLM 摘要压缩（>20 条触发）+ 超时回退截断 | ✅ v1.5.0 |
+| 对话持久化 | `electron/proxy/conversation-store.ts` | ndjson 文件存储，atomic write，启动恢复，24h/50 条清理 | ✅ v1.5.0 |
 | Codex 路径 | `electron/codex/paths.ts` | 跨平台 `~/.codex` 解析 | ✅ 已完成 v0.1 |
 | Codex 写入 | `electron/codex/writer.ts` | 写 config.toml / auth.json + 备份 + 还原 | ✅ 已完成 v0.1 |
 | Codex 还原 | `electron/codex/writer.ts` | 一键还原最近的备份（合并到 writer.ts） | ✅ 已完成 v0.1 |

@@ -21,6 +21,65 @@
 
 ## 任务记录
 
+### [TASK-045] 实施 v1.5.0 compact 上下文压缩完整重构（代码实现）
+- **日期**：2026-06-11
+- **类型**：feat
+- **摘要**：按 TASK-044 设计文档 `docs/DESIGN-compact-context-compression-v1.5.0.md` 完成代码实现。① 新建 `electron/proxy/conversation-store.ts`（239 行）：ndjson 持久化 Map 包装器，支持原子写入（tmp→rename）、debounce 5s 刷盘、启动 restore、24h/50 条自动清理；② 新建 `electron/proxy/compact.ts`（217 行）：LLM 摘要核心逻辑，复用 `callDeepSeekSync`，>20 条消息触发摘要（保留最近 10 条不动），失败回退截断 30 条，Promise.race 超时控制；③ 重写 `server.ts` compact 路径：HTTP handler 全加固（30s 超时 / 1MB 大小限制 / req.on('error') / 400/408/413/500 分级错误响应），WS 新增 `response.compact` 事件异步处理（不阻塞消息循环），compactAndStore 幂等缓存 + 强制刷盘，replaceAll 旧 CONV_STORE_MAX/keys() 引用为 ConversationStore.markDirty()；④ 新建 19 个测试用例（compact 11 + conversation-store 8），全量测试 123/123 通过；⑤ bump 版本 1.4.0 → 1.5.0，更新 CHANGELOG。typecheck + lint 零报错。
+- **变更文件**：
+  - `electron/proxy/conversation-store.ts`（新建，239 行）
+  - `electron/proxy/compact.ts`（新建，217 行）
+  - `tests/unit/conversation-store.test.ts`（新建，8 用例）
+  - `tests/unit/compact.test.ts`（新建，11 用例）
+  - `electron/proxy/server.ts`（重写 compact HTTP handler + 新增 WS compact + 集成 ConversationStore + replaceAll 旧 Map 引用；+~170 行）
+  - `package.json`（1.4.0 → 1.5.0）
+  - `CHANGELOG.md`（新增 v1.5.0 条目）
+- **关联 ADR**：待写入 ADR-019
+- **注意事项**：
+  1. `electron/proxy/server.ts` 现 1520 行，超出 400 行约束（此前已 ~1350 行，增量 ~170 行主要来自新增 compact 方法；历史遗留问题，TASK-018 已有记录）
+  2. LLM 摘要将完整对话历史发送到 DeepSeek API。用户在设计阶段已明确选择 LLM 摘要方案（而非简单截断），此为功能设计意图
+  3. `conversation-store.ndjson` 文件路径由 `main.ts` 通过 `ProxyOptions.storePath` 传入（`<userData>/logs/conversation-store.ndjson`）
+  4. 摘要失败时自动回退截断，保证 core flow 不中断
+
+### [TASK-044] 编写 v1.5.0 compact 上下文压缩完整重构方案
+- **日期**：2026-06-11
+- **类型**：docs / design
+- **摘要**：用户报告 Codex Desktop 在长对话后报 502 错误（`/v1/responses/compact`），根因为当前 compact 端点：① 无 `req.on('error')` 处理导致流错误时连接裸断；② 无请求体大小限制和超时机制；③ LLM 摘要压缩完全缺失（仅做 ID 克隆）；④ WebSocket compact 事件未处理；⑤ conversationStore 纯内存、重启即丢失。撰写了 `docs/DESIGN-compact-context-compression-v1.5.0.md` 综合方案，覆盖三大维度：**健壮性**（HTTP handler 加 error/timeout/size-limit 全加固 + WS compact 事件分支）、**LLM 摘要压缩**（>20 条消息时调 DeepSeek 摘要 + 失败回退截断 + 幂等控制）、**持久化**（ndjson 文件存储 + debounce 刷盘 + 启动恢复 + 24h/50条/500消息三层清理）。方案包含完整数据流、14 个边界情况矩阵、17 个测试用例清单、风险缓解表。本次任务未写代码，仅输出设计文档。
+- **变更文件**：
+  - `docs/DESIGN-compact-context-compression-v1.5.0.md`（新建）
+- **关联方案**：待实现后写 ADR-019
+- **注意事项**：
+  1. 方案中所有参数阈值（COMPACT_THRESHOLD=20, RECENT_KEEP=10, FALLBACK_KEEP=30 等）为初始建议值，实施时可调整
+  2. 新增模块 `electron/proxy/compact.ts` 和 `electron/proxy/conversation-store.ts`，需注意单文件 ≤400 行约束
+  3. WS compact 处理必须在消息回调中异步执行（不 await），防止阻塞 WebSocket 事件循环
+  4. 持久化文件与现有 persistentLog.ts 的 10MB 滚动逻辑独立，为不同的 ndjson 文件
+  5. 版本从 1.4.0 升到 1.5.0
+
+### [TASK-043] 执行 Copilot → Claude Code 迁移改造（按方案逐项落地）
+- **日期**：2026-06-08
+- **类型**：chore
+- **摘要**：按 `docs/MIGRATION-copilot-to-claude-code.md` 方案，实际执行 3 项核心改造：① 强化 CLAUDE.md（改为全大写 STOP + 直接 Skill 调用指令）；② 扩展 AGENTS.md Plan 阶段从 3 文件到 7 文件（新增 AGENTS.md / system-prompt.md / workflows.md / coding-standards.md），Act 阶段新增第 4 条 agent 文档同步更新规则；③ 创建 `.claude/settings.local.json` 完整 hook 配置（SessionStart/UserPromptSubmit 提醒 + PreToolUse Edit|Write 提醒 + git push/gh release/SSH 阻断器 + Stop asyncRewake 强制 PDCA Act 阻断）。system-prompt.md 和 workflows.md 审查后确认已达标，无需改动。
+- **变更文件**：
+  - `CLAUDE.md`（全大写 STOP 指令）
+  - `AGENTS.md`（Plan 7 文件 + Act 4 条）
+  - `.claude/settings.local.json`（17 权限 + 6 hook 规则）
+- **注意事项**：
+  1. hooks 需要重启 Claude Code 会话或打开 `/hooks` 菜单后才能生效
+  2. codex-switch-server 的 ADR-008（Stop hook asyncRewake）是本配置的核心理论依据
+  3. Stop hook 仅在 `git diff` 检测到 `src/`/`electron/`/`tests/` 有改动时阻断
+  4. settings.local.json 在 .gitignore 中，不会被提交到仓库
+
+### [TASK-042] 编写 Copilot 迁移到 Claude Code 开发方案文档
+- **日期**：2026-06-08
+- **类型**：docs
+- **摘要**：撰写 `docs/MIGRATION-copilot-to-claude-code.md`，完整覆盖从 GitHub Copilot 迁移到 Claude Code 开发的 6 步方案：强化 CLAUDE.md（从温和 @AGENTS.md 到全大写 STOP）、扩展 AGENTS.md Plan 阶段（从 3 文件到 7 文件）、配置 4 层 Hook 强制 PDCA 闭环（SessionStart/UserPromptSubmit/PreToolUse/Stop + asyncRewake）、扩充 system-prompt.md（人格+业务上下文+角色切换+行为边界）、扩充 workflows.md（5 场景预设）、兼容双工具。方案以 codex-switch-server 的实际生产配置为参考范本，包含验证清单和 FAQ。
+- **变更文件**：
+  - `docs/MIGRATION-copilot-to-claude-code.md`（新建）
+- **注意事项**：
+  1. 本任务未改动任何代码，仅输出文档
+  2. 方案中的 6 个步骤均未实际执行（仅写了"怎么做"），codex-switch 需要逐项落地
+  3. 最关键的落地项：`.claude/settings.local.json`（hook 强制阻断）和 `CLAUDE.md`（硬性指令）
+  4. codex-switch-server 的 ADR-008（Stop hook asyncRewake 强制 PDCA Act）是本方案的核心理论依据
+
 ### [TASK-041] 修复 /v1/responses/compact 上下文丢失问题
 - **日期**：2026-06-04
 - **类型**：fix

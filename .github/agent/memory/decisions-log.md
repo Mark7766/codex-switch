@@ -374,3 +374,40 @@ Claude Code CLI 仅写 `~/.zshrc`，需要重启终端才生效，体验差。
 集成成熟桌面应用的配置时，**先看竞品/参考实现的源码**再动手。Claude Desktop 的官方文档没说 3P 走
 `Claude-3p/configLibrary/`，但 cc-switch 的 Rust 源码（`src-tauri/src/claude_desktop_config.rs`）
 有完整路径推导逻辑；花 20 分钟读它比花 2 小时猜路径强。
+
+---
+
+### ADR-019: v1.5.0 — /v1/responses/compact 上下文压缩采用 LLM 摘要 + ndjson 持久化
+
+- **日期**：2026-06-11
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+Codex Desktop 长对话后调用 `POST /v1/responses/compact` 报 502 错误。旧实现仅做"ID 克隆"（零压缩），且存在无错误处理、无超时、无请求体大小限制三个导致 502 的直接缺陷。conversationStore 纯内存存储导致代理重启后历史全丢。
+
+用户在设计阶段明确要求：① 一次性综合方案而非分阶段渐进；② 选择 LLM 摘要（调 DeepSeek 总结旧消息）而非简单截断；③ conversationStore 需持久化到磁盘。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 简单截断（保留最近 N 条） | 零成本、零延迟 | 丢失旧消息中的关键信息；长对话后期模型缺乏上下文 |
+| **B. LLM 摘要 + 保留最近 K 条** | 保上下文连贯性；用户目标和决策不丢失 | 每次 compact 多一次 DeepSeek API 调用 |
+| C. 完全不压缩（仅加固错误处理） | 改动最小 | 长对话最终超出 DeepSeek 上下文窗口（64K–128K），后续请求全部失败 |
+
+#### 决策
+> 选择 **方案 B：LLM 摘要 + 保留最近 K 条**。消息数 >20 时触发摘要（recentKeep=10 条不动），调用 DeepSeek 将更早的消息总结为一条 system 消息。失败时自动回退截断保留 30 条。conversationStore 使用 ndjson 文件持久化，debounce 5s 刷盘 + compact 后强制刷盘，启动自动恢复。
+
+#### 理由
+1. **用户明确选择**：设计阶段用户在三选一（简单截断 / LLM 摘要 / 分阶段）中选择了 LLM 摘要方案
+2. **compact 是低频操作**（每长对话 1–2 次），多一次 API 调用的成本可忽略，对比"上下文断裂导致 N 次重试"反而省钱
+3. **摘要质量有保障**：保留最近 10 条消息不做摘要，确保当前上下文 100% 准确；更早消息做摘要覆盖用户目标和关键决策
+4. **持久化消除"失忆"脆弱性**：代理重启后 recover 所有对话历史，避免 compact ID 悬空
+
+#### 影响
+- 新增 `electron/proxy/compact.ts`（LLM 摘要核心）和 `electron/proxy/conversation-store.ts`（持久化层）
+- `electron/proxy/server.ts` 新增 `handleCompactHttp` / `compactAndStore` / `processWsCompact` 三个方法
+- conversationStore 接口从 `Map<string, ChatMessage[]>` 升级为 `ConversationStore` 类（兼容 get/set/has/delete/size）
+- 每次 compact 发送完整对话历史到 DeepSeek API 做摘要（input tokens ≈ 对话历史大小）
+- v1.5.0 版本号

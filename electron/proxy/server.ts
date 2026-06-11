@@ -24,6 +24,8 @@ import {
   type AnthropicRelayOptions,
   DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
 } from './anthropic-relay';
+import { ConversationStore } from './conversation-store';
+import { compactHistory, type CompactOptions, type CompactResult } from './compact';
 
 const DEEPSEEK_BASE = 'api.deepseek.com';
 const REDACT_HEADERS = new Set(['authorization', 'cookie']);
@@ -37,6 +39,8 @@ export interface ProxyOptions {
   blockBackgroundSuggestions?: boolean;
   /** v1.3.0: Claude Desktop 代理选项，缺省关闭。 */
   claudeDesktop?: AnthropicRelayOptions;
+  /** v1.5.0: conversationStore ndjson 持久化文件路径。未提供则使用内存存储。 */
+  storePath?: string;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
@@ -143,9 +147,14 @@ export class DeepSeekProxy extends EventEmitter {
    * 解决 Codex 通过 `previous_response_id` 链式对话时代理丢失历史的"失忆"问题：
    * Codex Responses API 客户端每轮只发当前新消息并附带 previous_response_id，
    * 服务端（即本代理）需要自行维护历史并在下轮时恢复完整上下文。
+   *
+   * v1.5.0: 改用 ConversationStore（支持 ndjson 持久化 + 自动清理）。
    */
-  private readonly conversationStore = new Map<string, ChatMessage[]>();
-  private static readonly CONV_STORE_MAX = 200;
+  private readonly conversationStore: ConversationStore;
+  /** WS compact 进行中集合，防止同一 ID 并发 compact。 */
+  private readonly activeCompactions = new Set<string>();
+  /** compact id → result 幂等缓存（同一 previous_response_id 返回已有结果）。 */
+  private readonly compactCache = new Map<string, CompactResult>();
   private readonly agent = new https.Agent({ rejectUnauthorized: true });
   private startedAt = 0;
   /** 串行化 start / stop / restart 调用，避免并发竞态（§7 C2/C5）。 */
@@ -173,6 +182,9 @@ export class DeepSeekProxy extends EventEmitter {
   constructor(opts: ProxyOptions) {
     super();
     this.opts = opts;
+    this.conversationStore = new ConversationStore({
+      filePath: opts.storePath,
+    });
   }
 
   getStatus(): ProxyStatus {
@@ -285,6 +297,21 @@ export class DeepSeekProxy extends EventEmitter {
       this.startedAt = Date.now();
       this.setStatus('running');
       this.attachRuntimeMonitor();
+      // v1.5.0: load persisted conversation history
+      this.conversationStore
+        .load()
+        .then((count) => {
+          if (count > 0) {
+            this.log({
+              level: 'info',
+              source: 'proxy',
+              message: `已恢复 ${count} 条对话历史`,
+            });
+          }
+        })
+        .catch(() => {
+          /* best-effort; server still works without history */
+        });
       this.log({
         level: 'info',
         source: 'proxy',
@@ -552,54 +579,12 @@ export class DeepSeekProxy extends EventEmitter {
     }
 
     // ─── Context compaction (Codex Desktop background task) ───────────────
-    // Codex Desktop periodically calls POST /v1/responses/compact to compress
-    // long conversation history. DeepSeek has no native equivalent, so we:
-    // 1. Read previous_response_id from the request body
-    // 2. Clone existing conversation history under the new compact ID
-    // 3. Return the new ID so Codex Desktop can continue the conversation
-    // DeepSeek has 64K–128K context windows, so no actual truncation is needed.
+    // v1.5.0: 完整重构 — 健壮性加固 + LLM 摘要压缩 + 持久化
     if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
-      let body = '';
-      req.on('data', (c: Buffer) => (body += c));
-      req.on('end', () => {
-        const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
-        let prevRespId: string | undefined;
-        try {
-          const parsed = JSON.parse(body) as { previous_response_id?: string };
-          prevRespId = parsed.previous_response_id;
-        } catch {
-          // body may be empty or non-JSON — treat as fresh session
-        }
-
-        // Clone existing history under new ID so future requests with
-        // previous_response_id=compactId can resume the full conversation.
-        const existingHistory = prevRespId ? this.conversationStore.get(prevRespId) : undefined;
-        this.conversationStore.set(compactId, existingHistory ? [...existingHistory] : []);
-        if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
-          const oldest = this.conversationStore.keys().next().value as string | undefined;
-          if (oldest !== undefined) this.conversationStore.delete(oldest);
-        }
-
-        this.log({
-          level: 'info',
-          source: 'http',
-          message: `↩ /v1/responses/compact → ${compactId} (历史 ${existingHistory?.length ?? 0} 条消息已克隆)`,
-        });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            id: compactId,
-            object: 'response',
-            created_at: Math.floor(Date.now() / 1000),
-            status: 'completed',
-            model: this.opts.defaultModel ?? 'deepseek-v4-flash',
-            output: [],
-            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-          }),
-        );
-      });
+      this.handleCompactHttp(req, res);
       return;
     }
+
 
     // ─── Anthropic routes (v1.3.0 — Claude Desktop) ───────────────────────
     if (req.method === 'GET' && url.pathname === '/anthropic/v1/models') {
@@ -649,6 +634,229 @@ export class DeepSeekProxy extends EventEmitter {
         this.log({ level: 'error', source: 'http', message: `获取模型列表失败：${e.message}` });
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Upstream unreachable' }));
+      });
+  }
+
+  // ── v1.5.0: compact ──────────────────────────────────────────────────────
+
+  private static readonly MAX_COMPACT_BODY = 1024 * 1024; // 1 MB
+  private static readonly COMPACT_TIMEOUT_MS = 30_000;
+
+  /** HTTP compact handler — robust error/timeout/size-limit. */
+  private handleCompactHttp(req: IncomingMessage, res: ServerResponse): void {
+    let settled = false;
+    const ensureOnce = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    const sendError = (status: number, code: string, message: string) => {
+      ensureOnce(() => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { code, message } }));
+      });
+    };
+
+    // timeout
+    req.setTimeout(DeepSeekProxy.COMPACT_TIMEOUT_MS, () => {
+      sendError(408, 'request_timeout', 'compact 请求超时');
+      req.destroy();
+    });
+
+    // stream error
+    req.on('error', (e) => {
+      sendError(500, 'stream_error', `请求流错误：${e.message}`);
+    });
+
+    // body size limit
+    const contentLen = Number(req.headers['content-length'] ?? 0);
+    if (contentLen > DeepSeekProxy.MAX_COMPACT_BODY) {
+      sendError(413, 'payload_too_large',
+        `请求体过大（${(contentLen / 1024).toFixed(0)} KB）`);
+      return;
+    }
+
+    let body = '';
+    req.on('data', (c: Buffer) => {
+      body += c;
+      if (body.length > DeepSeekProxy.MAX_COMPACT_BODY) {
+        sendError(413, 'payload_too_large', '请求体超过 1MB 限制');
+        req.destroy();
+      }
+    });
+
+    req.on('end', () => {
+      ensureOnce(() => {
+        this.processCompact(body, res);
+      });
+    });
+  }
+
+  /** Parse body, extract previous_response_id, run compact, respond. */
+  private async processCompact(body: string, res: ServerResponse): Promise<void> {
+    let prevRespId: string | undefined;
+    try {
+      if (body.trim().length > 0) {
+        const parsed = JSON.parse(body) as { previous_response_id?: string };
+        prevRespId = parsed.previous_response_id;
+      }
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { code: 'bad_request', message: '请求体非 JSON' } }));
+      return;
+    }
+
+    try {
+      const result = await this.compactAndStore(prevRespId);
+
+      const respBody: Record<string, unknown> = {
+        id: result.compactedId,
+        object: 'response',
+        created_at: Math.floor(Date.now() / 1000),
+        status: 'completed',
+        model: this.opts.defaultModel ?? 'deepseek-v4-flash',
+        output: [],
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        _compact: {
+          compacted: result.compacted,
+          method: result.method,
+          original_message_count: result.originalMessageCount,
+          compacted_message_count: result.compactedMessageCount,
+          summary_tokens: result.summaryTokens ?? 0,
+        },
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(respBody));
+    } catch (e) {
+      this.log({
+        level: 'error',
+        source: 'http',
+        message: `compact 处理失败：${(e as Error).message}`,
+      });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: { code: 'compact_failed', message: (e as Error).message },
+        }),
+      );
+    }
+  }
+
+  /**
+   * 核心 compact 逻辑：加载历史 → 判断是否压缩 → 调用 LLM 摘要 / 回退截断。
+   * 返回的 compactedId 用于后续响应链。
+   */
+  private async compactAndStore(
+    prevRespId: string | undefined,
+  ): Promise<CompactResult & { compactedId: string }> {
+    // check idempotency cache
+    const cacheKey = prevRespId ?? '__empty__';
+    const cached = this.compactCache.get(cacheKey);
+    if (cached) {
+      return { ...cached, compactedId: cached.compactedId };
+    }
+
+    const history = prevRespId ? (this.conversationStore.get(prevRespId) ?? []) : [];
+    const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
+
+    const compactOpts: CompactOptions = {
+      apiKey: this.opts.apiKey,
+      defaultModel: 'deepseek-chat',
+    };
+
+    const result = await compactHistory(history, compactOpts);
+    const merged = { ...result, compactedId: compactId };
+
+    this.conversationStore.set(compactId, merged.compactedMessages, {
+      compacted: merged.compacted,
+      compactedFrom: prevRespId ?? null,
+    });
+
+    // cache for idempotency
+    if (this.compactCache.size > 50) {
+      const oldest = this.compactCache.keys().next().value as string | undefined;
+      if (oldest !== undefined) this.compactCache.delete(oldest);
+    }
+    this.compactCache.set(cacheKey, merged);
+    // force immediate flush after compact
+    this.conversationStore.forceFlush().catch(() => {});
+
+    this.log({
+      level: 'info',
+      source: 'http',
+      message:
+        `↩ /v1/responses/compact → ${compactId} ` +
+        `(method=${merged.method}, original=${merged.originalMessageCount}, ` +
+        `compacted=${merged.compactedMessageCount}${merged.error ? `, error=${merged.error}` : ''})`,
+    });
+
+    return merged;
+  }
+
+  /** WS compact event — async, non-blocking. */
+  private processWsCompact(ws: WebSocket, prevRespId: string | undefined): void {
+    if (prevRespId && this.activeCompactions.has(prevRespId)) {
+      // already in progress — skip duplicate
+      return;
+    }
+    if (prevRespId) {
+      this.activeCompactions.add(prevRespId);
+    }
+
+    this.compactAndStore(prevRespId)
+      .then((merged) => {
+        if (ws.readyState === 1) {
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'response.completed',
+                response: {
+                  id: merged.compactedId,
+                  object: 'response',
+                  status: 'completed',
+                  created_at: Math.floor(Date.now() / 1000),
+                  model: this.opts.defaultModel ?? 'deepseek-v4-flash',
+                  output: [],
+                  usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+                  _compact: {
+                    compacted: merged.compacted,
+                    method: merged.method,
+                    original_message_count: merged.originalMessageCount,
+                    compacted_message_count: merged.compactedMessageCount,
+                  },
+                },
+              }),
+            );
+          } catch {
+            /* ignore send errors */
+          }
+        }
+      })
+      .catch((err) => {
+        this.log({
+          level: 'error',
+          source: 'ws',
+          message: `WS compact 失败：${(err as Error).message}`,
+        });
+        if (ws.readyState === 1) {
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'error',
+                error: { code: 'compact_failed', message: (err as Error).message },
+              }),
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .finally(() => {
+        if (prevRespId) {
+          this.activeCompactions.delete(prevRespId);
+        }
       });
   }
 
@@ -761,10 +969,7 @@ export class DeepSeekProxy extends EventEmitter {
           .then(({ outputItems, finishReason, endTurn, usage }) => {
             const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
             this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-            if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
-              const oldest = this.conversationStore.keys().next().value as string | undefined;
-              if (oldest !== undefined) this.conversationStore.delete(oldest);
-            }
+            this.conversationStore.markDirty();
             this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
               endTurn,
               finishReason,
@@ -859,10 +1064,7 @@ export class DeepSeekProxy extends EventEmitter {
             ];
             const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
             this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-            if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
-              const oldest = this.conversationStore.keys().next().value as string | undefined;
-              if (oldest !== undefined) this.conversationStore.delete(oldest);
-            }
+            this.conversationStore.markDirty();
 
             this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
               finishReason,
@@ -947,6 +1149,13 @@ export class DeepSeekProxy extends EventEmitter {
           source: 'ws',
           message: `消息解析失败：${(e as Error).message}`,
         });
+        return;
+      }
+      // v1.5.0: handle WS compact event
+      if (msg.type === 'response.compact') {
+        const prevId = (msg as { response?: { previous_response_id?: string } })
+          .response?.previous_response_id;
+        this.processWsCompact(ws, prevId);
         return;
       }
       if (msg.type !== 'response.create') return;
@@ -1142,10 +1351,7 @@ export class DeepSeekProxy extends EventEmitter {
           // 保存完整对话上下文（当轮 input + assistant 输出），供下轮 previous_response_id 恢复。
           const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
           this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-          if (this.conversationStore.size > DeepSeekProxy.CONV_STORE_MAX) {
-            const oldest = this.conversationStore.keys().next().value as string | undefined;
-            if (oldest !== undefined) this.conversationStore.delete(oldest);
-          }
+          this.conversationStore.markDirty();
           this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
             endTurn,
             finishReason,
