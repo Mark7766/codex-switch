@@ -32,13 +32,14 @@ const TEMPLATE = (
 ): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
 # 完整配置参考: https://github.com/openai/codex
 
-model_provider = "codex-switch"
+model_provider = "custom"
 model = "${model}"
-# v1.5.1: 禁用 Response Storage 避免 compact 502 错误
+model_reasoning_effort = "xhigh"
+# v1.5.3: 关闭 Response Storage 避免 compact 502 错误（对齐 cc-switch 方案）
 disable_response_storage = true
 
-[model_providers.codex-switch]
-name = "codex-switch"
+[model_providers.custom]
+name = "Codex Switch"
 base_url = "http://127.0.0.1:${port}/v1"
 wire_api = "responses"
 requires_openai_auth = true
