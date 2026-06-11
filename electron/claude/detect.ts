@@ -204,7 +204,7 @@ async function isClaudeDesktopConfigured(profilePath: string): Promise<boolean> 
     return (
       cfg['inferenceProvider'] === 'gateway' &&
       typeof cfg['inferenceGatewayBaseUrl'] === 'string' &&
-      (cfg['inferenceGatewayBaseUrl'] as string).includes('127.0.0.1')
+      (cfg['inferenceGatewayBaseUrl'] as string).includes('deepseek.com')
     );
   } catch {
     return false;

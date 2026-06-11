@@ -31,7 +31,11 @@ import {
   listClaudeDesktopBackups,
   restoreClaudeDesktopBackup,
 } from './claude/desktop-writer';
-import { runV130ClaudeMigration, startupApplyClaude } from './config/migrations';
+import {
+  runV130ClaudeMigration,
+  runV160ClaudeDesktopMigration,
+  startupApplyClaude,
+} from './config/migrations';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
@@ -73,9 +77,6 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
     blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
-    claudeDesktop: prefs.claudeDesktop.enabled
-      ? { apiKey, modelMap: prefs.claudeDesktop.modelMap }
-      : undefined,
   });
   proxy.on('status', (status: ProxyStatus) => {
     mainWindow?.webContents.send(IPC.proxyOnStatus, status);
@@ -159,9 +160,6 @@ async function applyPreferencesTransaction(
       modelMapping: next.modelMapping,
       defaultModel: next.defaultModel,
       blockBackgroundSuggestions: next.blockBackgroundSuggestions,
-      claudeDesktop: next.claudeDesktop.enabled
-        ? { apiKey: apiKey ?? '', modelMap: next.claudeDesktop.modelMap }
-        : undefined,
     });
   }
 
@@ -184,9 +182,6 @@ async function applyPreferencesTransaction(
           modelMapping: before.modelMapping,
           defaultModel: before.defaultModel,
           blockBackgroundSuggestions: before.blockBackgroundSuggestions,
-          claudeDesktop: before.claudeDesktop.enabled
-            ? { apiKey: apiKey ?? '', modelMap: before.claudeDesktop.modelMap }
-            : undefined,
         });
       }
       throw e;
@@ -208,15 +203,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC.prefsSet, async (_e, patch: Partial<UserPreferences>) => {
     const next = setPreferences(patch);
     if (proxy) {
-      const currentKey = await getApiKey().catch(() => '');
       proxy.updateOptions({
         port: next.proxyPort,
         modelMapping: next.modelMapping,
         defaultModel: next.defaultModel,
         blockBackgroundSuggestions: next.blockBackgroundSuggestions,
-        claudeDesktop: next.claudeDesktop.enabled
-          ? { apiKey: currentKey ?? '', modelMap: next.claudeDesktop.modelMap }
-          : undefined,
       });
     }
     return next;
@@ -254,10 +245,9 @@ function registerIpc(): void {
             result.claudeDesktop.installed &&
             !result.claudeDesktop.configApplied
           ) {
-            const port = proxy?.getPort() ?? prefs.proxyPort;
-            await writeClaudeDesktopConfig(port).catch((e) =>
-              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
-            );
+          await writeClaudeDesktopConfig(key).catch((e) =>
+            log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+          );
           }
         })
         .catch((e) => log.warn('[main] 保存 key 后检测失败：', (e as Error).message));
@@ -471,12 +461,11 @@ function registerIpc(): void {
     if (!apiKey) throw new Error('请先填写 DeepSeek API Key');
     const prefs = getPreferences();
     const result = await detectAll();
-    const port = proxy?.getPort() ?? prefs.proxyPort;
     if (prefs.claudeCli.enabled && result.claudeCli.installed) {
       await writeClaudeCliConfig(apiKey, prefs.claudeCli.envVars);
     }
     if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
-      await writeClaudeDesktopConfig(port);
+      await writeClaudeDesktopConfig(apiKey);
     }
     return detectAll();
   });
@@ -572,16 +561,22 @@ app.whenReady().then(async () => {
     }
   }
 
-  // v1.3.0 一次性迁移：如果检测到 Claude 工具已安装，自动应用配置。
+  // v1.3.0 一次性迁移 + v1.6.0 直连 DeepSeek 迁移
+  const apiKey = await getApiKey().catch(() => '');
   try {
-    await runV130ClaudeMigration(prefs.proxyPort);
+    if (apiKey) await runV130ClaudeMigration(apiKey);
   } catch (e) {
     log.warn('v1.3.0 Claude 迁移失败：', (e as Error).message);
+  }
+  try {
+    if (apiKey) await runV160ClaudeDesktopMigration(apiKey);
+  } catch (e) {
+    log.warn('v1.6.0 Claude Desktop 迁移失败：', (e as Error).message);
   }
 
   // 每次启动都重新写入 Claude 配置，确保外部工具更新后仍然生效。
   try {
-    await startupApplyClaude(prefs.proxyPort);
+    if (apiKey) await startupApplyClaude(apiKey);
   } catch (e) {
     log.warn('Startup Claude auto-apply 失败：', (e as Error).message);
   }

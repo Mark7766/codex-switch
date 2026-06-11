@@ -2,8 +2,8 @@ import Store from 'electron-store';
 
 import type { ClaudeCliEnvVars } from '../claude/env-writer';
 import { DEFAULT_ENV_VARS } from '../claude/env-writer';
-import type { ClaudeDesktopModelMap } from '../proxy/anthropic-relay';
-import { DEFAULT_CLAUDE_DESKTOP_MODEL_MAP } from '../proxy/anthropic-relay';
+// v1.6.0: Claude Desktop modelMap removed — profile.json carries inferenceModels directly.
+// DeepSeek endpoint maps Claude model IDs to DeepSeek models by prefix.
 
 // ─── Claude sub-schemas ───────────────────────────────────────────────────────
 
@@ -16,12 +16,13 @@ export interface ClaudeCliPrefs {
 export interface ClaudeDesktopPrefs {
   /** Whether Codex Switch should auto-manage Claude Desktop config. */
   enabled: boolean;
-  modelMap: ClaudeDesktopModelMap;
 }
 
 export interface MigrationFlags {
   /** True once the one-time v1.3.0 Claude bootstrap has run. */
-  v130_claude: boolean;
+  v130_claude?: boolean;
+  /** True once the v1.6.0 Claude Desktop direct-DeepSeek migration has run. */
+  v160_claudeDesktopDirect?: boolean;
 }
 
 export interface UserPreferences {
@@ -116,10 +117,10 @@ const DEFAULTS: UserPreferences = {
   },
   claudeDesktop: {
     enabled: true,
-    modelMap: DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
   },
   migrations: {
     v130_claude: false,
+    v160_claudeDesktopDirect: false,
   },
 };
 

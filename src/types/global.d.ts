@@ -89,7 +89,7 @@ interface CodexSwitchApi {
     lastErrorAt: number;
     blockBackgroundSuggestions: boolean;
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
-    claudeDesktop?: { enabled: boolean; modelMap: Record<string, string> };
+    claudeDesktop?: { enabled: boolean };
     migrations?: { v130_claude: boolean };
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;

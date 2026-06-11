@@ -6,11 +6,6 @@ const CLI_MODEL_OPTIONS = [
   { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash（Flash）' },
 ];
 
-const DESKTOP_MODEL_OPTIONS = [
-  { value: 'deepseek-v4-pro', label: 'deepseek-v4-pro（Pro）' },
-  { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash（Flash）' },
-];
-
 const ENV_VAR_ROWS: Array<{ key: string; label: string; envName: string }> = [
   { key: 'anthropicModel', label: '默认主模型', envName: 'ANTHROPIC_MODEL' },
   { key: 'anthropicDefaultOpusModel', label: 'Opus 角色', envName: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
@@ -27,15 +22,12 @@ const ENV_VAR_ROWS: Array<{ key: string; label: string; envName: string }> = [
   { key: 'claudeCodeSubagentModel', label: '子代理模型', envName: 'CLAUDE_CODE_SUBAGENT_MODEL' },
 ];
 
-const DESKTOP_ROLES = ['sonnet', 'opus', 'haiku'] as const;
-type DesktopRole = (typeof DESKTOP_ROLES)[number];
-
-const ROLE_LABEL: Record<DesktopRole, string> = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
-
-interface RoleEntry {
-  model: string;
-  supports1m: boolean;
-}
+/** v1.6.0: inferenceModels shown as read-only — DeepSeek endpoint routes by prefix. */
+const INFERENCE_MODEL_ROWS = [
+  { model: 'deepseek-v4-pro', claude: 'claude-opus-4-7' },
+  { model: 'deepseek-v4-flash', claude: 'claude-sonnet-4-6' },
+  { model: 'deepseek-v4-flash', claude: 'claude-haiku-4-5' },
+];
 
 /** Claude 接入设置分区（Claude Code CLI + Claude Desktop）。 */
 export function ClaudeSettingsSection(): JSX.Element {
@@ -46,11 +38,6 @@ export function ClaudeSettingsSection(): JSX.Element {
   const [profilePaths, setProfilePaths] = useState<string[]>([]);
 
   const [desktopEnabled, setDesktopEnabled] = useState(true);
-  const [roleMap, setRoleMap] = useState<Record<DesktopRole, RoleEntry>>({
-    sonnet: { model: 'deepseek-v4-pro', supports1m: true },
-    opus: { model: 'deepseek-v4-pro', supports1m: true },
-    haiku: { model: 'deepseek-v4-flash', supports1m: false },
-  });
   const [desktopConfigPath, setDesktopConfigPath] = useState('');
   const [desktopBackups, setDesktopBackups] = useState<string[]>([]);
 
@@ -68,22 +55,11 @@ export function ClaudeSettingsSection(): JSX.Element {
       const cli = prefs.claudeCli as
         | { enabled: boolean; envVars: Record<string, string> }
         | undefined;
-      const desktop = prefs.claudeDesktop as
-        | { enabled: boolean; modelMap: Record<string, RoleEntry> }
-        | undefined;
+      const desktop = prefs.claudeDesktop as { enabled: boolean } | undefined;
 
       setCliEnabled(cli?.enabled ?? true);
       setEnvVars(cli?.envVars ?? {});
       setDesktopEnabled(desktop?.enabled ?? true);
-
-      if (desktop?.modelMap) {
-        const m = desktop.modelMap;
-        setRoleMap({
-          sonnet: m['sonnet'] ?? { model: 'deepseek-v4-pro', supports1m: true },
-          opus: m['opus'] ?? { model: 'deepseek-v4-pro', supports1m: true },
-          haiku: m['haiku'] ?? { model: 'deepseek-v4-flash', supports1m: false },
-        });
-      }
 
       setProfilePaths(detect.claudeCli.profilePaths ?? []);
       setDesktopConfigPath(detect.claudeDesktop.configPath ?? '');
@@ -112,25 +88,14 @@ export function ClaudeSettingsSection(): JSX.Element {
   const saveDesktop = useCallback(async () => {
     setSavingDesktop(true);
     try {
-      const fullMap = {
-        sonnet: {
-          model: roleMap.sonnet.model,
-          supports1m: roleMap.sonnet.model === 'deepseek-v4-pro',
-        },
-        opus: { model: roleMap.opus.model, supports1m: roleMap.opus.model === 'deepseek-v4-pro' },
-        haiku: {
-          model: roleMap.haiku.model,
-          supports1m: roleMap.haiku.model === 'deepseek-v4-pro',
-        },
-      };
       await window.codexSwitch.setPreferences({
-        claudeDesktop: { enabled: desktopEnabled, modelMap: fullMap },
+        claudeDesktop: { enabled: desktopEnabled },
       });
       if (desktopEnabled) await window.codexSwitch.claudeApplyAll();
       pushToast({
         kind: 'success',
         message: desktopEnabled
-          ? '已写入 Claude Desktop 配置，请重启 Claude Desktop 生效'
+          ? '已写入 Claude Desktop 配置（直连 api.deepseek.com），请重启 Claude Desktop 生效'
           : '已保存 Claude Desktop 配置',
       });
     } catch (e) {
@@ -138,7 +103,7 @@ export function ClaudeSettingsSection(): JSX.Element {
     } finally {
       setSavingDesktop(false);
     }
-  }, [desktopEnabled, roleMap, pushToast]);
+  }, [desktopEnabled, pushToast]);
 
   const restoreDesktop = useCallback(
     async (path: string) => {
@@ -234,7 +199,7 @@ export function ClaudeSettingsSection(): JSX.Element {
           />
         </label>
         <p className="text-xs text-slate-500">
-          写入 Claude Desktop 配置文件，请求经由本地代理转发至 DeepSeek
+          写入 Claude Desktop 3P 网关配置，直连 api.deepseek.com/anthropic（不走本地代理）
         </p>
 
         {desktopConfigPath && (
@@ -246,32 +211,27 @@ export function ClaudeSettingsSection(): JSX.Element {
           </div>
         )}
 
-        <div className="space-y-2 pt-1">
-          <div className="text-xs text-slate-500 mb-1">模型映射（Claude 角色 → DeepSeek 模型）</div>
-          {DESKTOP_ROLES.map((role) => (
-            <div key={role} className="flex items-center justify-between gap-3">
-              <span className="text-slate-400 shrink-0 w-20 text-xs">{ROLE_LABEL[role]}</span>
-              <select
-                value={roleMap[role].model}
-                onChange={(e) =>
-                  setRoleMap((m) => ({
-                    ...m,
-                    [role]: {
-                      model: e.target.value,
-                      supports1m: e.target.value === 'deepseek-v4-pro',
-                    },
-                  }))
-                }
-                className="flex-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs"
-              >
-                {DESKTOP_MODEL_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+        {/* v1.6.0: model mapping is handled by DeepSeek endpoint — read-only display */}
+        <div className="space-y-1 pt-1">
+          <div className="text-xs text-slate-500 mb-1">
+            模型映射（由 DeepSeek 端点按前缀路由，无需代理层处理）
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left font-normal py-0.5">Claude 模型</th>
+                <th className="text-left font-normal py-0.5">→ DeepSeek 模型</th>
+              </tr>
+            </thead>
+            <tbody>
+              {INFERENCE_MODEL_ROWS.map((row) => (
+                <tr key={row.claude} className="text-slate-400">
+                  <td className="py-0.5 font-mono">{row.claude}</td>
+                  <td className="py-0.5 font-mono text-slate-300">{row.model}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         <button

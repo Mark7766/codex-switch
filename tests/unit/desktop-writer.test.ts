@@ -32,9 +32,11 @@ import {
   writeClaudeDesktopConfig,
   removeClaudeDesktopConfig,
   listClaudeDesktopBackups,
-  PLACEHOLDER_KEY,
   PROFILE_ID,
 } from '../../electron/claude/desktop-writer';
+
+const CS_MARKER_KEY = '__codexSwitch';
+const CS_MARKER_VALUE = 'managed';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,7 +55,7 @@ describe('writeClaudeDesktopConfig', () => {
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
     );
 
-    await writeClaudeDesktopConfig(11435);
+    await writeClaudeDesktopConfig('sk-test-api-key');
 
     const calls = vi.mocked(fs.writeFile).mock.calls;
 
@@ -77,18 +79,23 @@ describe('writeClaudeDesktopConfig', () => {
     expect(threeP).toBeTruthy();
     expect(JSON.parse(threeP![1])).toMatchObject({ deploymentMode: '3p' });
 
-    // Check profile JSON has the gateway fields
+    // Check profile JSON has the gateway fields (v1.6.0: direct DeepSeek)
     const profile = calls.find(
       ([p]) => typeof p === 'string' && p.endsWith(`${PROFILE_ID}.json`) && !p.includes('.bak.'),
     ) as [string, string, unknown] | undefined;
     expect(profile).toBeTruthy();
     const parsed = JSON.parse(profile![1]) as Record<string, unknown>;
     expect(parsed['inferenceProvider']).toBe('gateway');
-    expect(parsed['inferenceGatewayBaseUrl']).toBe('http://127.0.0.1:11435/anthropic');
-    expect(parsed['inferenceGatewayApiKey']).toBe(PLACEHOLDER_KEY);
+    expect(parsed['inferenceGatewayBaseUrl']).toBe('https://api.deepseek.com/anthropic');
+    expect(parsed['inferenceGatewayApiKey']).toBe('sk-test-api-key');
     expect(parsed['inferenceGatewayAuthScheme']).toBe('bearer');
+    expect(parsed[CS_MARKER_KEY]).toBe(CS_MARKER_VALUE);
     expect(Array.isArray(parsed['inferenceModels'])).toBe(true);
-    expect((parsed['inferenceModels'] as unknown[]).length).toBe(2);
+    const models = parsed['inferenceModels'] as unknown[];
+    expect(models.length).toBe(3);
+    expect(models[0]).toEqual({ labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' });
+    expect(models[1]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' });
+    expect(models[2]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' });
 
     // Check _meta.json registers our profile and sets appliedId
     const meta = calls.find(
@@ -110,7 +117,7 @@ describe('writeClaudeDesktopConfig', () => {
       return Promise.reject(err);
     }) as never);
 
-    await writeClaudeDesktopConfig(11435);
+    await writeClaudeDesktopConfig('sk-test-api-key');
 
     const calls = vi.mocked(fs.writeFile).mock.calls;
     const oneP = calls.find(
@@ -135,7 +142,7 @@ describe('writeClaudeDesktopConfig', () => {
       return Promise.reject(err);
     }) as never);
 
-    await writeClaudeDesktopConfig(11435);
+    await writeClaudeDesktopConfig('sk-test-api-key');
 
     const calls = vi.mocked(fs.writeFile).mock.calls;
     const bakCall = calls.find(([p]) => typeof p === 'string' && p.includes('.bak.'));
@@ -144,12 +151,13 @@ describe('writeClaudeDesktopConfig', () => {
 });
 
 describe('removeClaudeDesktopConfig', () => {
-  it('switches both configs back to 1p and deletes profile when our placeholder is present', async () => {
+  it('switches both configs back to 1p and deletes profile when our marker is present', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(JSON.stringify({ inferenceGatewayApiKey: PLACEHOLDER_KEY }));
+        return Promise.resolve(
+          JSON.stringify({ [CS_MARKER_KEY]: CS_MARKER_VALUE }),
+        );
       }
-      // Return empty object for both config files and meta
       return Promise.resolve('{"deploymentMode":"3p"}');
     }) as never);
 
@@ -170,10 +178,12 @@ describe('removeClaudeDesktopConfig', () => {
     expect(JSON.parse(oneP![1])).toMatchObject({ deploymentMode: '1p' });
   });
 
-  it('does NOT touch anything when profile API key is a real user key', async () => {
+  it('does NOT touch anything when profile lacks our marker', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }));
+        return Promise.resolve(
+          JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }),
+        );
       }
       return Promise.resolve('{"deploymentMode":"3p"}');
     }) as never);

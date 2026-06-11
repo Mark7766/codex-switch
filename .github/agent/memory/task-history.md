@@ -21,6 +21,51 @@
 
 ## 任务记录
 
+### [TASK-053] v1.6.0 — Claude Desktop 直连 DeepSeek（实施）
+- **日期**：2026-06-11
+- **类型**：feat / refactor
+- **摘要**：按 `docs/DESIGN-claude-desktop-direct-deepseek.md` 方案完整实施。Claude Desktop 不再走 Codex Switch 本地代理，改为直连 `https://api.deepseek.com/anthropic`。核心变更：① `desktop-writer.ts` 重写 — profile gateway URL 指向 DeepSeek + 真实 API Key + `__codexSwitch:"managed"` 标记；② `anthropic-relay.ts` 整体删除（~400 行）；③ `server.ts` 移除 3 条 `/anthropic/v1/*` 路由和 `claudeDesktop` 选项；④ `main.ts` 移除 Claude Desktop 代理 wiring（4 处 claudeDesktop 入参/回滚/sync 删除）；⑤ `store.ts` 移除 `ClaudeDesktopPrefs.modelMap`；⑥ `ClaudeSettingsSection.tsx` 简化 Desktop 配置 UI（去掉模型下拉框，改为只读表）；⑦ 新增 `runV160ClaudeDesktopMigration` 迁移存量用户 profile；⑧ `detect.ts` 检测条件从 `127.0.0.1` 改为 `deepseek.com`。代码净减少 ~380 行。typecheck ✅ / lint ✅ / 134 tests ✅。
+- **变更文件**：
+  - `electron/claude/desktop-writer.ts`（重写：URL→api.deepseek.com, apiKey 换真实 Key, PROFILE_NAME→DeepSeek, +3 条 inferenceModels, +__codexSwitch 标记）
+  - `electron/proxy/anthropic-relay.ts`（删除）
+  - `electron/proxy/server.ts`（-3 anthropic 路由, -claudeDesktop 选项, -anthropicRelayOpts 方法, -'claude-desktop' LogSource）
+  - `electron/main.ts`（-4 处 claudeDesktop wiring, +runV160ClaudeDesktopMigration 调用, writeClaudeDesktopConfig(port)→(apiKey)）
+  - `electron/config/store.ts`（-ClaudeDesktopPrefs.modelMap, +MigrationFlags.v160_claudeDesktopDirect, -anthropic-relay import）
+  - `electron/config/migrations.ts`（+runV160ClaudeDesktopMigration, startupApplyClaude port→apiKey, runV130ClaudeMigration port→apiKey, -getApiKey import）
+  - `electron/claude/detect.ts`（isClaudeDesktopConfigured: 127.0.0.1→deepseek.com）
+  - `src/components/ClaudeSettingsSection.tsx`（-DESKTOP_ROLES/ROLE_LABEL/RoleEntry 常量, -roleMap state, -model mapping 下拉框, +只读 INFERENCE_MODEL_ROWS 表, 文案直连）
+  - `src/types/global.d.ts`（-claudeDesktop.modelMap 类型）
+  - `tests/unit/anthropic-relay.test.ts`（删除）
+  - `tests/unit/desktop-writer.test.ts`（重写断言：apiKey 签名, deepseek.com URL, 3 条 models, __codexSwitch 标记, -PLACEHOLDER_KEY）
+  - `package.json`（1.5.4→1.6.0）
+  - `CHANGELOG.md`（v1.6.0 条目）
+- **关联 ADR**：待写入 ADR-020
+- **注意事项**：
+  1. 存量用户升级时 `runV160ClaudeDesktopMigration` 自动将 profile 从 localhost 改写为 api.deepseek.com
+  2. 卸载逻辑改为检查 `__codexSwitch: "managed"` 标记，不再依赖 PLACEHOLDER_KEY
+  3. DeepSeek Anthropic 端点按 model 前缀路由（opus→v4-pro, sonnet/haiku→v4-flash）
+  4. TASK-051 修复的 max_tokens 穿透问题此版本自然消除
+
+### [TASK-052] 编写 Claude Desktop 直连 DeepSeek 整改方案
+- **日期**：2026-06-11
+- **类型**：docs / design
+- **摘要**：用户决定 Claude Desktop 不再走本地代理，改为和 Claude Code CLI 一样直连 DeepSeek Anthropic 端点。撰写了 `docs/DESIGN-claude-desktop-direct-deepseek.md`，核心变更：desktop-writer.ts 的 3P gateway profile 从 `http://127.0.0.1:{port}/anthropic`（占位 API Key）改为 `https://api.deepseek.com/anthropic`（真实 API Key）；anthropic-relay.ts 整体删除（~400 行）；server.ts 移除 `/anthropic/v1/*` 路由；main.ts 移除 Claude Desktop 代理 wiring；store.ts 移除 ClaudeDesktopPrefs.modelMap；新增迁移更新存量用户 profile。代码净减少 ~400 行。本次任务未写代码。
+- **变更文件**：
+  - `docs/DESIGN-claude-desktop-direct-deepseek.md`（新建）
+- **关联**：TASK-051（max_tokens 修复 — 直连后该问题自然消除）、TASK-026（初版 Claude 接入）、ADR-006（cc-switch 3P 方案 — 现简化为直连）
+
+### [TASK-051] v1.5.5 — 修复 Claude Desktop 代理 max_tokens 穿透导致回复截断
+- **日期**：2026-06-11
+- **类型**：fix
+- **摘要**：用户报告 Claude Desktop 通过代理对话时"一句话没说完"（回复被截断）。日志分析发现 `req_d59661` 请求 `finishReason=max_tokens ↑5↓1`——Claude Desktop 在 warmup/probe 请求中发送 `max_tokens=1`（或极小值），`anthropic-relay.ts` 原样透传给 DeepSeek 导致真实回复只返回 1 个 token。修复：在转发前 clamp `max_tokens` 到 [256, 16384] 区间。日志中还有 `req_1119e3`（↑15606↓55，tools strip 后 DeepSeek 回复偏短）但那是另一类问题（tools 去掉后上下文让模型迷惑），非本次范围。
+- **变更文件**：
+  - `electron/proxy/anthropic-relay.ts`（新增 MAX_TOKENS_MIN=256 / MAX_TOKENS_MAX=16384 常量；tools strip 后 clamp body.max_tokens）
+- **关联**：TASK-026（Anthropic relay 初版实现）
+- **注意事项**：
+  1. clamp 只对 `typeof === 'number'` 生效，未传 `max_tokens` 时不干预
+  2. 对真实对话场景（max_tokens 通常 4096–8192），clamp 值在区间内，零影响
+  3. 修复后 Claude Desktop 需重启才能看到效果
+
 ### [TASK-050] v1.5.4 — 修复 WS `compaction_trigger` 导致 Codex Desktop compaction 报错
 - **日期**：2026-06-11
 - **类型**：fix

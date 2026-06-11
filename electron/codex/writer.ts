@@ -35,8 +35,11 @@ const TEMPLATE = (
 model_provider = "custom"
 model = "${model}"
 model_reasoning_effort = "xhigh"
-# v1.5.3: 关闭 Response Storage 避免 compact 502 错误（对齐 cc-switch 方案）
-disable_response_storage = true
+# v1.5.5: 注释掉 disable_response_storage。
+# 该行导致 Codex Desktop 切到客户端压缩模式，
+# 压缩阈值从 ~200K token 骤降到 ~10K，正常对话频繁触发 compaction。
+# compact 502 的真正修复是 wire_api + requires_openai_auth；此行非必要。
+# disable_response_storage = true
 
 [model_providers.custom]
 name = "Codex Switch"

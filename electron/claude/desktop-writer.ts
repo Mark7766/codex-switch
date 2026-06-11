@@ -16,10 +16,11 @@ import {
  * tools can coexist without overwriting each other's profile entries.
  */
 export const PROFILE_ID = '00000000-0000-4000-8000-0000c0dec501';
-export const PROFILE_NAME = 'Codex Switch';
+export const PROFILE_NAME = 'DeepSeek';
 
-/** Placeholder key inserted into the profile gateway. Used by tests and detection logic. */
-export const PLACEHOLDER_KEY = 'cs-internal-placeholder';
+/** Marker key written into the gateway profile JSON so we can identify our own entry on uninstall. */
+const CS_MARKER_KEY = '__codexSwitch';
+const CS_MARKER_VALUE = 'managed';
 
 // ─── JSON helpers ────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ async function readJsonObject(p: string): Promise<Record<string, unknown>> {
 
 async function writeJsonObject(p: string, obj: unknown): Promise<void> {
   await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(obj, null, 2) + '\n', 'utf-8');
+  await fs.writeFile(p, JSON.stringify(obj, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
 }
 
 async function backupExisting(p: string): Promise<void> {
@@ -91,17 +92,19 @@ async function writeMeta(applied: string | null): Promise<void> {
 
 // ─── Profile JSON (the actual gateway settings Claude Desktop reads) ─────────
 
-function buildGatewayProfile(port: number): Record<string, unknown> {
+function buildGatewayProfile(apiKey: string): Record<string, unknown> {
   return {
     disableDeploymentModeChooser: true,
-    inferenceGatewayApiKey: PLACEHOLDER_KEY,
+    inferenceGatewayApiKey: apiKey,
     inferenceGatewayAuthScheme: 'bearer',
-    inferenceGatewayBaseUrl: `http://127.0.0.1:${port}/anthropic`,
+    inferenceGatewayBaseUrl: 'https://api.deepseek.com/anthropic',
     inferenceModels: [
+      { labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' },
+      { labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' },
       { labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' },
-      { labelOverride: 'deepseek-v4-pro', name: 'claude-sonnet-4-6' },
     ],
     inferenceProvider: 'gateway',
+    [CS_MARKER_KEY]: CS_MARKER_VALUE,
   };
 }
 
@@ -118,9 +121,13 @@ function buildGatewayProfile(port: number): Record<string, unknown> {
  *   2. Write our gateway profile JSON to `Claude-3p/configLibrary/<id>.json`.
  *   3. Register the profile in `Claude-3p/configLibrary/_meta.json` and mark
  *      it as appliedId.
+ *
+ * v1.6.0: Claude Desktop now connects directly to api.deepseek.com/anthropic
+ * (no local proxy relay).  The profile carries the real API key and the
+ * DeepSeek URL; Codex Switch no longer intercepts or rewrites Anthropic traffic.
  * Existing files are backed up before being modified.
  */
-export async function writeClaudeDesktopConfig(port: number): Promise<void> {
+export async function writeClaudeDesktopConfig(apiKey: string): Promise<void> {
   const cfg1p = claudeDesktopConfigPath();
   const cfg3p = claudeDesktop3pConfigPath();
 
@@ -133,21 +140,21 @@ export async function writeClaudeDesktopConfig(port: number): Promise<void> {
   await fs.mkdir(claudeDesktopConfigLibraryDir(), { recursive: true });
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
   await backupExisting(profilePath);
-  await writeJsonObject(profilePath, buildGatewayProfile(port));
+  await writeJsonObject(profilePath, buildGatewayProfile(apiKey));
 
   await writeMeta(PROFILE_ID);
 }
 
 /**
- * Update only the port in our existing profile.  No-op if the profile doesn't
- * exist or the placeholder key is no longer in place.
+ * Update the API key in our existing profile.  No-op if the profile doesn't
+ * exist or the __codexSwitch marker is missing.
  */
-export async function updateClaudeDesktopPort(port: number): Promise<void> {
+export async function updateClaudeDesktopApiKey(apiKey: string): Promise<void> {
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
   try {
     const profile = await readJsonObject(profilePath);
-    if (profile['inferenceGatewayApiKey'] !== PLACEHOLDER_KEY) return;
-    profile['inferenceGatewayBaseUrl'] = `http://127.0.0.1:${port}/anthropic`;
+    if (profile[CS_MARKER_KEY] !== CS_MARKER_VALUE) return;
+    profile['inferenceGatewayApiKey'] = apiKey;
     await writeJsonObject(profilePath, profile);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
@@ -156,7 +163,7 @@ export async function updateClaudeDesktopPort(port: number): Promise<void> {
 
 /**
  * Remove our gateway profile and switch Claude Desktop back to 1p mode.
- * Only acts if the profile we wrote (identified by the placeholder key) is
+ * Only acts if the profile we wrote (identified by the __codexSwitch marker) is
  * still present — otherwise we leave the user's manual setup alone.
  */
 export async function removeClaudeDesktopConfig(): Promise<void> {
@@ -164,7 +171,7 @@ export async function removeClaudeDesktopConfig(): Promise<void> {
   let isOurs = false;
   try {
     const profile = await readJsonObject(profilePath);
-    isOurs = profile['inferenceGatewayApiKey'] === PLACEHOLDER_KEY;
+    isOurs = profile[CS_MARKER_KEY] === CS_MARKER_VALUE;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }

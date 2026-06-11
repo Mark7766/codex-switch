@@ -423,3 +423,33 @@ Codex Desktop 长对话后调用 `POST /v1/responses/compact` 报 502 错误。�
   4. `itemsToMessages` 显式跳过 `compaction` / `compaction_trigger` 类型
 - **理由**：OpenAI Responses API 规范定义 `compaction` 为 opaque output item，Codex Desktop 依赖此类型判断 compaction 成功。我们的 base64 JSON payload 在 proxy 内自产自消费，对 Codex Desktop 完全透明。
 - **影响**：`compact.ts`（+4 helper）、`stream.ts`（+extraOutputItems）、`server.ts`（async ws callback + trigger handling）、`translate.ts`（explicit skip）。141/141 tests pass。
+
+---
+
+### ADR-020: v1.6.0 — Claude Desktop 直连 DeepSeek（取消代理转发）
+
+- **日期**：2026-06-11
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v1.3.0 为 Claude Desktop 引入了本地代理转发路径（`anthropic-relay.ts`），使 Claude Desktop 通过 Codex Switch 代理间接访问 DeepSeek。但随着使用深入，代理层引入了多个问题：max_tokens 穿透导致回复截断（TASK-051）、tools strip 后模型回复偏短、SSE 流式转发增加延迟。同时 Claude Code CLI 一直走直连且运行良好——两种工具的接入模式不统一，增加了维护和排查的复杂度。
+
+#### 决策
+> 删除 Claude Desktop 的本地代理转发路径，改为和 Claude Code CLI 一样：由 Codex Switch 写入 3P gateway profile 直接指向 `https://api.deepseek.com/anthropic` + 真实 DeepSeek API Key。代理层仅保留 Codex（OpenAI Responses ⇄ Chat Completions 协议转换）。
+
+#### 理由
+1. **对称性**：Claude Desktop 和 Claude Code CLI 使用相同的 DeepSeek Anthropic 端点，配置逻辑统一
+2. **消除整类 bug**：代理层的模型重写、tools 处理、max_tokens clamp、SSE 转发等逻辑全部移除，TASK-051 等代理特有问题自然消除
+3. **代码净减少**：删除 ~400 行代码（`anthropic-relay.ts` + server 路由），降低维护负担
+4. **DeepSeek 端点成熟**：Claude Code CLI 已长期验证同一端点稳定可用
+5. **模型映射由 DeepSeek 处理**：按 model 前缀路由（opus→v4-pro, sonnet/haiku→v4-flash），Codex Switch 不再需要维护模型映射表
+
+#### 影响
+- `electron/proxy/anthropic-relay.ts` 整体删除（~400 行）
+- `electron/proxy/server.ts` 移除 3 条 `/anthropic/v1/*` 路由
+- `electron/claude/desktop-writer.ts` 重写：profile 指向 `api.deepseek.com` + 真实 API Key
+- `electron/config/store.ts` 移除 `ClaudeDesktopPrefs.modelMap`
+- 前端 Settings UI 简化（Desktop 模型映射下拉框移除）
+- 新增 v1.6.0 存量用户迁移（自动改写 profile URL + API Key）
+- 不再需要 `PLACEHOLDER_KEY` 机制；改用 `__codexSwitch: "managed"` 标记

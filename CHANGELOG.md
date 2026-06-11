@@ -3,6 +3,21 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.6.0] - 2026-06-11
+
+### 变更
+- **Claude Desktop 直连 DeepSeek（不再走本地代理）。** Claude Desktop 3P 网关 profile 从指向本地代理 `http://127.0.0.1:{port}/anthropic` 改为直接指向 `https://api.deepseek.com/anthropic`，API Key 从占位符改为真实 DeepSeek Key。与 Claude Code CLI 一致——两者都直连 DeepSeek，不再经过 Codex Switch 代理转发。
+- **删除 `electron/proxy/anthropic-relay.ts`**（约 400 行）。模型名重写、tools/tool_choice strip、SSE 流式转发、max_tokens clamp 等代理层逻辑全部移除。
+- **server.ts 移除 `/anthropic/v1/*` 路由**（3 条）。
+- **desktop-writer.ts 重写**：profile JSON 增加 `__codexSwitch: "managed"` 标记用于卸载识别；`inferenceModels` 扩展为 3 条（opus→v4-pro, sonnet→v4-flash, haiku→v4-flash）；`PROFILE_NAME` 改为 "DeepSeek"。
+- **store.ts 简化**：`ClaudeDesktopPrefs.modelMap` 字段移除（模型映射由 DeepSeek 端点按前缀处理）。
+- **detect.ts 更新**：检测 Claude Desktop 配置的条件从 `127.0.0.1` 改为 `deepseek.com`。
+- **前端 UI 简化**：ClaudeSettingsSection 移除 Desktop 三行模型映射下拉框，改为只读模型表。
+- **新增 v1.6.0 迁移**：存量用户 profile 自动从本地代理 URL 改写为 `api.deepseek.com` + 真实 API Key。
+
+### 修复
+- **max_tokens 穿透问题自然消除。** v1.5.5 修复的 Claude Desktop warmup probe `max_tokens=1` 导致回复截断问题，直连后不再需要代理层 clamp（DeepSeek 端点自行处理）。
+
 ## [1.5.0] - 2026-06-11
 
 ### 新增
