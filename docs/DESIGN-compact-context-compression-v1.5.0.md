@@ -90,11 +90,11 @@ if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
 
 一次性综合重构，覆盖三个维度：
 
-| 维度 | 目标 | 优先级 |
-|------|------|--------|
-| **健壮性** | 消除 502，compact 端点具备完整的错误处理、超时、限流 | P0 |
-| **真正的压缩** | LLM 摘要 + 智能截断，对话历史可控且不超 DeepSeek 上下文 | P0 |
-| **持久化** | conversationStore 写入磁盘，代理重启可恢复 | P1 |
+| 维度           | 目标                                                    | 优先级 |
+| -------------- | ------------------------------------------------------- | ------ |
+| **健壮性**     | 消除 502，compact 端点具备完整的错误处理、超时、限流    | P0     |
+| **真正的压缩** | LLM 摘要 + 智能截断，对话历史可控且不超 DeepSeek 上下文 | P0     |
+| **持久化**     | conversationStore 写入磁盘，代理重启可恢复              | P1     |
 
 新增模块 `electron/proxy/compact.ts`（compact 核心逻辑）和 `electron/proxy/conversation-store.ts`（持久化层），不增加新依赖。
 
@@ -125,6 +125,7 @@ POST /v1/responses/compact
 ```
 
 **响应格式（成功）**：
+
 ```json
 {
   "id": "resp_compact_a1b2c3d4e5f6",
@@ -145,6 +146,7 @@ POST /v1/responses/compact
 ```
 
 **响应格式（失败）**：
+
 ```json
 {
   "error": {
@@ -244,30 +246,31 @@ compact(previousResponseId)
 
 ### 4.3 回退机制（摘要失败时）
 
-| 失败模式 | 处理 |
-|---------|------|
+| 失败模式                      | 处理                                     |
+| ----------------------------- | ---------------------------------------- |
 | DeepSeek API 调用超时（>15s） | 截断模式：保留最近 30 条消息，丢弃更早的 |
-| DeepSeek 返回 4xx/5xx | 截断模式同上 |
-| 摘要返回空内容 | 截断模式同上 |
-| 网络错误（DNS/连接失败） | 截断模式同上 |
+| DeepSeek 返回 4xx/5xx         | 截断模式同上                             |
+| 摘要返回空内容                | 截断模式同上                             |
+| 网络错误（DNS/连接失败）      | 截断模式同上                             |
 
 **截断模式**日志级别为 WARN，内容："compact LLM 摘要失败（原因），回退为截断模式，保留最近 30 条消息"。
 
 ### 4.4 关键参数
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `COMPACT_THRESHOLD` | 20 | 消息数 ≤ 此值时不压缩，直接克隆 |
-| `RECENT_KEEP` | 10 | 压缩时保留最近 N 条消息不做摘要 |
-| `FALLBACK_KEEP` | 30 | LLM 摘要失败时截断保留的消息数 |
-| `SUMMARY_MAX_TOKENS` | 2000 | 摘要输出最大 token 数 |
-| `SUMMARY_TIMEOUT_MS` | 15000 | 摘要 API 调用超时（毫秒） |
-| `MAX_BODY_SIZE` | 1MB | compact 请求体最大大小 |
-| `REQUEST_TIMEOUT_MS` | 30000 | compact HTTP 请求总超时 |
+| 参数                 | 默认值 | 说明                            |
+| -------------------- | ------ | ------------------------------- |
+| `COMPACT_THRESHOLD`  | 20     | 消息数 ≤ 此值时不压缩，直接克隆 |
+| `RECENT_KEEP`        | 10     | 压缩时保留最近 N 条消息不做摘要 |
+| `FALLBACK_KEEP`      | 30     | LLM 摘要失败时截断保留的消息数  |
+| `SUMMARY_MAX_TOKENS` | 2000   | 摘要输出最大 token 数           |
+| `SUMMARY_TIMEOUT_MS` | 15000  | 摘要 API 调用超时（毫秒）       |
+| `MAX_BODY_SIZE`      | 1MB    | compact 请求体最大大小          |
+| `REQUEST_TIMEOUT_MS` | 30000  | compact HTTP 请求总超时         |
 
 ### 4.5 并发控制
 
 同一 `previous_response_id` 的 compact 请求是幂等的：
+
 - 首次 compact → 执行摘要 → 存储结果
 - 随后相同 ID → 直接返回已有 compactId（`compactStore` 记录映射关系）
 - 映射关系 `prevId → compactId` 在内存中，随 conversationStore 一起持久化
@@ -281,6 +284,7 @@ compact(previousResponseId)
 文件：`{logsDir}/conversation-store.ndjson`
 
 每行一个 JSON 对象：
+
 ```json
 {
   "id": "resp_abc123",
@@ -305,6 +309,7 @@ compact(previousResponseId)
 ```
 
 **为什么 debounce 而不是每条立刻写？**
+
 - compact + 正常 response 在短时间内可能产生多次写入
 - debounce 合并写入减少磁盘 I/O
 - 5 秒内崩溃最多丢最后一次 response 的历史（不丢 compact 结果，因为 compact 后立刻有 response）
@@ -327,13 +332,14 @@ proxy.start() 时：
 
 ### 5.4 清理策略
 
-| 条件 | 动作 | 触发时机 |
-|------|------|---------|
-| `lastAccessAt > 24h` | 删除条目 | 启动时 + 每小时定时 |
-| 总条目数 > 50 | 删除最旧的 | 每次写入后检查 |
-| 单条消息数 > 500 | 强制触发 compact | 写入时检查 + WARN |
+| 条件                 | 动作             | 触发时机            |
+| -------------------- | ---------------- | ------------------- |
+| `lastAccessAt > 24h` | 删除条目         | 启动时 + 每小时定时 |
+| 总条目数 > 50        | 删除最旧的       | 每次写入后检查      |
+| 单条消息数 > 500     | 强制触发 compact | 写入时检查 + WARN   |
 
 **注意**：`conversationStore` 的最大条目数从现有的 `CONV_STORE_MAX=200`（仅限制条目数）改为双层限制：
+
 - **条目数** ≤ 50（降级，因为每条对话经压缩后体积可控）
 - **单条消息数** ≤ 500（新增，兜底防止无限膨胀）
 
@@ -344,6 +350,7 @@ proxy.start() 时：
 ### 6.1 事件格式
 
 **收到（Codex Desktop → Proxy）**：
+
 ```json
 {
   "type": "response.compact",
@@ -354,6 +361,7 @@ proxy.start() 时：
 ```
 
 **响应（Proxy → Codex Desktop）**：
+
 ```json
 {
   "type": "response.completed",
@@ -447,44 +455,44 @@ ws.on('message', async (raw) => {
 
 ### 8.1 新建文件
 
-| 文件 | 职责 | 预估行数 |
-|------|------|---------|
-| `electron/proxy/compact.ts` | compact 核心逻辑：阈值判断、LLM 摘要调用、回退截断、幂等控制 | ~200 |
-| `electron/proxy/conversation-store.ts` | conversationStore 持久化：ndjson 读写、恢复、清理、原子写入 | ~180 |
-| `tests/unit/compact.test.ts` | 覆盖 HTTP/WS compact、阈值、摘要调用 mock、回退、幂等、边界情况 | ~200 |
-| `tests/unit/conversation-store.test.ts` | 覆盖：读写 ndjson、启动恢复、过期清理、超量清理、损坏行跳过、原子写入 | ~150 |
+| 文件                                    | 职责                                                                  | 预估行数 |
+| --------------------------------------- | --------------------------------------------------------------------- | -------- |
+| `electron/proxy/compact.ts`             | compact 核心逻辑：阈值判断、LLM 摘要调用、回退截断、幂等控制          | ~200     |
+| `electron/proxy/conversation-store.ts`  | conversationStore 持久化：ndjson 读写、恢复、清理、原子写入           | ~180     |
+| `tests/unit/compact.test.ts`            | 覆盖 HTTP/WS compact、阈值、摘要调用 mock、回退、幂等、边界情况       | ~200     |
+| `tests/unit/conversation-store.test.ts` | 覆盖：读写 ndjson、启动恢复、过期清理、超量清理、损坏行跳过、原子写入 | ~150     |
 
 ### 8.2 修改文件
 
-| 文件 | 变更 |
-|------|------|
+| 文件                       | 变更                                                                                                                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `electron/proxy/server.ts` | ① compact HTTP handler 重写（加固错误处理+超时+大小限制）；② WS 消息循环新增 `response.compact` 分支；③ `DeepSeekProxy` 构造函数传入 `conversationStore` 实例；④ 启动时调用 `conversationStore.load()` 恢复历史 |
-| `package.json` | 版本号 1.4.0 → 1.5.0 |
-| `CHANGELOG.md` | 新增 v1.5.0 条目 |
+| `package.json`             | 版本号 1.4.0 → 1.5.0                                                                                                                                                                                            |
+| `CHANGELOG.md`             | 新增 v1.5.0 条目                                                                                                                                                                                                |
 
 ---
 
 ## 9. 边界情况矩阵
 
-| 场景 | 输入 | 预期行为 | 日志级别 |
-|------|------|---------|---------|
-| 短对话 compact | 5 条消息 | 直接克隆，不调 LLM，`compacted: false` | INFO |
-| 阈值边界 | 恰好 20 条 | 直接克隆（≤ 20 不压缩） | INFO |
-| 正常压缩 | 156 条消息 | LLM 摘要 → 11 条（1 摘要 + 10 最近），`compacted: true` | INFO |
-| 摘要 API 超时 | DeepSeek > 15s | 回退截断 → 保留最近 30 条，`compacted: true, method: "truncation"` | WARN |
-| 摘要 API 报错 | DeepSeek 返回 500 | 同上 | WARN |
-| 空历史 compact | `previous_response_id` 指向 0 条消息 | 返回新 ID + 空历史，`compacted: false` | INFO |
-| ID 不存在 | `previous_response_id` 在 store 中找不到 | 返回新 ID + 空历史（不报错），WARN 日志 | WARN |
-| 重复 compact | 同一 `previous_response_id` 两次 | 幂等返回已有 compact ID | INFO |
-| 请求体超大 | Content-Length > 1MB | 413 Payload Too Large | WARN |
-| 请求体非 JSON | body = "not json" | 400 Bad Request | WARN |
-| 请求流错误 | TCP 连接在传输中 reset | 500 + error.code = "stream_error" | ERROR |
-| 请求超时 | 30s 内未收完 body | 408 Request Timeout | WARN |
-| WS compact 并发 | 同一 WS 连发 3 个 compact | 只执行第 1 个，后 2 个等待或直接返回已有结果 | INFO |
-| 代理 stop 时 compact 进行中 | stop() 调用时正在做摘要 | 摘要仍然完成并刷盘，但不再向客户端推送结果 | INFO |
-| 启动恢复 | ndjson 文件有 50 条有效记录 | 恢复 50 条 + 删除过期/超量 | INFO |
-| ndjson 损坏行 | 第 15 行 JSON 不完整 | 跳过并 WARN，继续解析后续行 | WARN |
-| 单条对话超 500 条消息 | 历史上 600 条 | WARN 日志 + 不阻塞（下次 compact 会压缩） | WARN |
+| 场景                        | 输入                                     | 预期行为                                                           | 日志级别 |
+| --------------------------- | ---------------------------------------- | ------------------------------------------------------------------ | -------- |
+| 短对话 compact              | 5 条消息                                 | 直接克隆，不调 LLM，`compacted: false`                             | INFO     |
+| 阈值边界                    | 恰好 20 条                               | 直接克隆（≤ 20 不压缩）                                            | INFO     |
+| 正常压缩                    | 156 条消息                               | LLM 摘要 → 11 条（1 摘要 + 10 最近），`compacted: true`            | INFO     |
+| 摘要 API 超时               | DeepSeek > 15s                           | 回退截断 → 保留最近 30 条，`compacted: true, method: "truncation"` | WARN     |
+| 摘要 API 报错               | DeepSeek 返回 500                        | 同上                                                               | WARN     |
+| 空历史 compact              | `previous_response_id` 指向 0 条消息     | 返回新 ID + 空历史，`compacted: false`                             | INFO     |
+| ID 不存在                   | `previous_response_id` 在 store 中找不到 | 返回新 ID + 空历史（不报错），WARN 日志                            | WARN     |
+| 重复 compact                | 同一 `previous_response_id` 两次         | 幂等返回已有 compact ID                                            | INFO     |
+| 请求体超大                  | Content-Length > 1MB                     | 413 Payload Too Large                                              | WARN     |
+| 请求体非 JSON               | body = "not json"                        | 400 Bad Request                                                    | WARN     |
+| 请求流错误                  | TCP 连接在传输中 reset                   | 500 + error.code = "stream_error"                                  | ERROR    |
+| 请求超时                    | 30s 内未收完 body                        | 408 Request Timeout                                                | WARN     |
+| WS compact 并发             | 同一 WS 连发 3 个 compact                | 只执行第 1 个，后 2 个等待或直接返回已有结果                       | INFO     |
+| 代理 stop 时 compact 进行中 | stop() 调用时正在做摘要                  | 摘要仍然完成并刷盘，但不再向客户端推送结果                         | INFO     |
+| 启动恢复                    | ndjson 文件有 50 条有效记录              | 恢复 50 条 + 删除过期/超量                                         | INFO     |
+| ndjson 损坏行               | 第 15 行 JSON 不完整                     | 跳过并 WARN，继续解析后续行                                        | WARN     |
+| 单条对话超 500 条消息       | 历史上 600 条                            | WARN 日志 + 不阻塞（下次 compact 会压缩）                          | WARN     |
 
 ---
 
@@ -494,56 +502,56 @@ ws.on('message', async (raw) => {
 
 **compact.test.ts** — 需要 mock `node:https` 和 `conversationStore`：
 
-| 用例 | 覆盖 |
-|------|------|
-| `compact() with ≤20 messages returns clone without LLM call` | 阈值判断 |
-| `compact() with >20 messages calls LLM summary` | LLM 摘要主路径 |
-| `compact() with >20 messages, LLM timeout → fallback truncation` | 超时回退 |
-| `compact() with >20 messages, LLM 500 → fallback truncation` | API 失败回退 |
-| `compact() with 0 messages returns empty history` | 空历史 |
-| `compact() with unknown previous_response_id returns new empty ID` | ID 不存在 |
-| `compact() idempotent: same previous_response_id twice` | 幂等 |
-| `compact() summary text merged into system message` | 摘要消息结构 |
-| `compactHttpHandler() returns 400 on non-JSON body` | HTTP 输入校验 |
-| `compactHttpHandler() returns 413 on oversized body` | 请求体大小限制 |
-| `compactHttpHandler() handles stream error gracefully` | 流错误处理 |
+| 用例                                                               | 覆盖           |
+| ------------------------------------------------------------------ | -------------- |
+| `compact() with ≤20 messages returns clone without LLM call`       | 阈值判断       |
+| `compact() with >20 messages calls LLM summary`                    | LLM 摘要主路径 |
+| `compact() with >20 messages, LLM timeout → fallback truncation`   | 超时回退       |
+| `compact() with >20 messages, LLM 500 → fallback truncation`       | API 失败回退   |
+| `compact() with 0 messages returns empty history`                  | 空历史         |
+| `compact() with unknown previous_response_id returns new empty ID` | ID 不存在      |
+| `compact() idempotent: same previous_response_id twice`            | 幂等           |
+| `compact() summary text merged into system message`                | 摘要消息结构   |
+| `compactHttpHandler() returns 400 on non-JSON body`                | HTTP 输入校验  |
+| `compactHttpHandler() returns 413 on oversized body`               | 请求体大小限制 |
+| `compactHttpHandler() handles stream error gracefully`             | 流错误处理     |
 
 **conversation-store.test.ts** — 使用 `tmpdir` + `vi.mock` 路径：
 
-| 用例 | 覆盖 |
-|------|------|
-| `save() writes ndjson file` | 基本写入 |
-| `load() recovers Map from ndjson` | 启动恢复 |
-| `load() skips corrupted lines` | 损坏行跳过 |
-| `load() expires entries > 24h` | 过期清理 |
-| `load() caps at 50 entries` | 超量清理 |
-| `atomicWrite() uses temp + rename` | 原子写入 |
+| 用例                                     | 覆盖          |
+| ---------------------------------------- | ------------- |
+| `save() writes ndjson file`              | 基本写入      |
+| `load() recovers Map from ndjson`        | 启动恢复      |
+| `load() skips corrupted lines`           | 损坏行跳过    |
+| `load() expires entries > 24h`           | 过期清理      |
+| `load() caps at 50 entries`              | 超量清理      |
+| `atomicWrite() uses temp + rename`       | 原子写入      |
 | `debounceFlush() batches multiple saves` | debounce 合并 |
 
 ### 10.2 集成/手动验证
 
-| 步骤 | 操作 | 验证点 |
-|------|------|--------|
-| 1 | 启动代理 + 发送 30 轮对话模拟长上下文 | conversationStore 有 30+ 条 |
-| 2 | Codex Desktop 触发 compact（或 curl 手动） | 返回 200 + `compacted: true` |
-| 3 | 检查 ndjson 文件 | 新 compact ID 已写入 |
-| 4 | 发送下一轮对话（`previous_response_id` = 新 compact ID） | 摘要作为上下文正常工作 |
-| 5 | 重启代理 | `load()` 恢复 compact 后的历史 |
-| 6 | 再次用恢复的 ID 发请求 | 上下文仍在，不丢 |
-| 7 | 模拟摘要超时 (mock delay) | 回退截断模式，对话仍可用 |
+| 步骤 | 操作                                                     | 验证点                         |
+| ---- | -------------------------------------------------------- | ------------------------------ |
+| 1    | 启动代理 + 发送 30 轮对话模拟长上下文                    | conversationStore 有 30+ 条    |
+| 2    | Codex Desktop 触发 compact（或 curl 手动）               | 返回 200 + `compacted: true`   |
+| 3    | 检查 ndjson 文件                                         | 新 compact ID 已写入           |
+| 4    | 发送下一轮对话（`previous_response_id` = 新 compact ID） | 摘要作为上下文正常工作         |
+| 5    | 重启代理                                                 | `load()` 恢复 compact 后的历史 |
+| 6    | 再次用恢复的 ID 发请求                                   | 上下文仍在，不丢               |
+| 7    | 模拟摘要超时 (mock delay)                                | 回退截断模式，对话仍可用       |
 
 ---
 
 ## 11. 风险与缓解
 
-| 风险 | 概率 | 影响 | 缓解措施 |
-|------|------|------|---------|
-| 摘要质量不足，丢失关键信息 | 中 | 用户感知上下文断裂 | 保留最近 10 条不做摘要；摘要 prompt 强调关键事实保留 |
-| 摘要 API 调用增加延迟 | 低 | compact 耗时 2-5s（vs 当前 <1ms） | compact 是后台任务，不阻塞用户对话；超时回退保证不卡死 |
-| 摘要消耗 DeepSeek token | 中 | 每次 compact 多消耗约 2000 output + input tokens | compact 低频操作（每长对话 1-2 次）；比"无限增长导致每轮都报错"便宜 |
-| 持久化文件与日志文件争抢磁盘 | 低 | 极端场景下 I/O 抖动 | debounce 5s + 原子写入最小化 I/O 窗口；ndjson 文件远小于日志 |
-| 旧版 ndjson 格式与新版本不兼容 | 低 | 启动恢复失败 | ndjson 每行自包含，加 `version` 字段预留迁移能力 |
-| compact 过程中代理被 stop | 低 | 摘要丢失，下次 compact 重做 | stop 时不 abort 进行中的摘要（让它完成并刷盘） |
+| 风险                           | 概率 | 影响                                             | 缓解措施                                                            |
+| ------------------------------ | ---- | ------------------------------------------------ | ------------------------------------------------------------------- |
+| 摘要质量不足，丢失关键信息     | 中   | 用户感知上下文断裂                               | 保留最近 10 条不做摘要；摘要 prompt 强调关键事实保留                |
+| 摘要 API 调用增加延迟          | 低   | compact 耗时 2-5s（vs 当前 <1ms）                | compact 是后台任务，不阻塞用户对话；超时回退保证不卡死              |
+| 摘要消耗 DeepSeek token        | 中   | 每次 compact 多消耗约 2000 output + input tokens | compact 低频操作（每长对话 1-2 次）；比"无限增长导致每轮都报错"便宜 |
+| 持久化文件与日志文件争抢磁盘   | 低   | 极端场景下 I/O 抖动                              | debounce 5s + 原子写入最小化 I/O 窗口；ndjson 文件远小于日志        |
+| 旧版 ndjson 格式与新版本不兼容 | 低   | 启动恢复失败                                     | ndjson 每行自包含，加 `version` 字段预留迁移能力                    |
+| compact 过程中代理被 stop      | 低   | 摘要丢失，下次 compact 重做                      | stop 时不 abort 进行中的摘要（让它完成并刷盘）                      |
 
 ---
 

@@ -139,10 +139,7 @@ export async function compactHistory(
     );
 
     // Build compacted history: system summary + recent messages
-    const summaryMsg = buildMessages(
-      'system',
-      `[对话历史摘要] ${summaryText}`,
-    );
+    const summaryMsg = buildMessages('system', `[对话历史摘要] ${summaryText}`);
     const compacted = [summaryMsg, ...keepRecent];
 
     return {

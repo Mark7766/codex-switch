@@ -592,7 +592,6 @@ export class DeepSeekProxy extends EventEmitter {
       return;
     }
 
-
     // ─── Anthropic routes (v1.3.0 — Claude Desktop) ───────────────────────
     if (req.method === 'GET' && url.pathname === '/anthropic/v1/models') {
       handleAnthropicModels(res, this.anthropicRelayOpts());
@@ -679,8 +678,7 @@ export class DeepSeekProxy extends EventEmitter {
     // body size limit
     const contentLen = Number(req.headers['content-length'] ?? 0);
     if (contentLen > DeepSeekProxy.MAX_COMPACT_BODY) {
-      sendError(413, 'payload_too_large',
-        `请求体过大（${(contentLen / 1024).toFixed(0)} KB）`);
+      sendError(413, 'payload_too_large', `请求体过大（${(contentLen / 1024).toFixed(0)} KB）`);
       return;
     }
 
@@ -1160,8 +1158,8 @@ export class DeepSeekProxy extends EventEmitter {
       }
       // v1.5.0: handle WS compact event
       if (msg.type === 'response.compact') {
-        const prevId = (msg as { response?: { previous_response_id?: string } })
-          .response?.previous_response_id;
+        const prevId = (msg as { response?: { previous_response_id?: string } }).response
+          ?.previous_response_id;
         this.processWsCompact(ws, prevId);
         return;
       }

@@ -93,24 +93,16 @@ describe('compactHistory', () => {
     expect(callArgs.messages[0].role).toBe('system');
     expect(callArgs.messages[0].content).toContain('对话摘要助手');
     // last message should be the "请基于以上对话生成摘要" prompt
-    expect(callArgs.messages[callArgs.messages.length - 1].content).toBe(
-      '请基于以上对话生成摘要',
-    );
+    expect(callArgs.messages[callArgs.messages.length - 1].content).toBe('请基于以上对话生成摘要');
   });
 
   it('LLM timeout → fallback truncation', async () => {
     mockCallDeepSeekSync.mockImplementationOnce(
-      () =>
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 20000),
-        ),
+      () => new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 20000)),
     );
 
     const msgs = makeMessages(100);
-    const result = await compactHistory(
-      msgs,
-      defaultOpts({ summaryTimeoutMs: 50 }),
-    );
+    const result = await compactHistory(msgs, defaultOpts({ summaryTimeoutMs: 50 }));
 
     expect(result.compacted).toBe(true);
     expect(result.method).toBe('truncation');
@@ -180,10 +172,7 @@ describe('compactHistory', () => {
     });
 
     const msgs = makeMessages(80);
-    const result = await compactHistory(
-      msgs,
-      defaultOpts({ recentKeep: 5, fallbackKeep: 15 }),
-    );
+    const result = await compactHistory(msgs, defaultOpts({ recentKeep: 5, fallbackKeep: 15 }));
 
     expect(result.method).toBe('truncation');
     expect(result.compactedMessageCount).toBeLessThanOrEqual(15);
@@ -232,10 +221,7 @@ describe('extractCompactionTriggers', () => {
   });
 
   it('handles input with only compaction_trigger items', () => {
-    const input = [
-      { type: 'compaction_trigger' },
-      { type: 'compaction_trigger' },
-    ];
+    const input = [{ type: 'compaction_trigger' }, { type: 'compaction_trigger' }];
     const result = extractCompactionTriggers(input);
     expect(result.compactionTriggers).toHaveLength(2);
     expect(result.filteredInput).toHaveLength(0);
@@ -330,9 +316,7 @@ describe('extractCompactionInputItems', () => {
     const payload = Buffer.from(
       JSON.stringify({ compactedId: 'c1', timestamp: Date.now() }),
     ).toString('base64');
-    const input = [
-      { type: 'compaction', id: 'comp_1', encrypted_content: payload },
-    ];
+    const input = [{ type: 'compaction', id: 'comp_1', encrypted_content: payload }];
     const result = extractCompactionInputItems(input);
     expect(result.messages).toBeNull();
   });
@@ -341,9 +325,7 @@ describe('extractCompactionInputItems', () => {
     const payload = Buffer.from(
       JSON.stringify({ compactedId: 'c1', messages: [], timestamp: Date.now() }),
     ).toString('base64');
-    const input = [
-      { type: 'compaction', id: 'comp_1', encrypted_content: payload },
-    ];
+    const input = [{ type: 'compaction', id: 'comp_1', encrypted_content: payload }];
     const result = extractCompactionInputItems(input);
     expect(result.messages).toBeNull();
   });
