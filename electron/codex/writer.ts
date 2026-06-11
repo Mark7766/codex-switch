@@ -32,8 +32,16 @@ const TEMPLATE = (
 ): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
 # 完整配置参考: https://github.com/openai/codex
 
+model_provider = "codex-switch"
 model = "${model}"
-openai_base_url = "http://127.0.0.1:${port}/v1"
+# v1.5.1: 禁用 Response Storage 避免 compact 502 错误
+disable_response_storage = true
+
+[model_providers.codex-switch]
+name = "codex-switch"
+base_url = "http://127.0.0.1:${port}/v1"
+wire_api = "responses"
+requires_openai_auth = true
 
 # 如果你使用 DeepSeek 等非 OpenAI 服务，且 Codex 需要执行命令，可按需开启：
 # sandbox = "none"
