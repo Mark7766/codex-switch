@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Prettier check ──────────────────────────────────────────────────────────
+# Fail fast if any staged file doesn't match Prettier formatting.
+# Uses `prettier --check` on the whole project so the format:check script
+# stays the single source of truth.
+
+echo "[pre-commit] Checking Prettier formatting..."
+
+if ! pnpm format:check --log-level silent 2>/dev/null; then
+  echo ""
+  echo "⛔ Prettier formatting check failed."
+  echo "   Run 'pnpm format' to auto-fix, then re-commit."
+  exit 1
+fi
+
+echo "[pre-commit] ✓ All files formatted."

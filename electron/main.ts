@@ -245,9 +245,9 @@ function registerIpc(): void {
             result.claudeDesktop.installed &&
             !result.claudeDesktop.configApplied
           ) {
-          await writeClaudeDesktopConfig(key).catch((e) =>
-            log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
-          );
+            await writeClaudeDesktopConfig(key).catch((e) =>
+              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+            );
           }
         })
         .catch((e) => log.warn('[main] 保存 key 后检测失败：', (e as Error).message));

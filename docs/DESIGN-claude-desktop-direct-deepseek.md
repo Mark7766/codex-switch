@@ -49,21 +49,21 @@
 
 ## 二、变更范围总览
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `electron/claude/desktop-writer.ts` | **重写** | 3P profile 指向 DeepSeek 直连 |
-| `electron/proxy/anthropic-relay.ts` | **删除** | 不再需要代理转发 |
-| `electron/proxy/server.ts` | **修改** | 移除 `/anthropic/v1/*` 路由 |
-| `electron/main.ts` | **修改** | 移除 Claude Desktop 代理 wiring |
-| `electron/config/store.ts` | **修改** | 简化 ClaudeDesktopPrefs |
-| `electron/config/migrations.ts` | **修改** | 新增迁移：更新已有 profile → 直连 |
-| `electron/claude/detect.ts` | **修改** | 更新检测逻辑（不再检查 127.0.0.1） |
-| `electron/ipc/channels.ts` | **不变** | IPC 通道名保留 |
-| `electron/preload.ts` | **不变** | 无需改动 |
-| `src/components/ClaudeSettingsSection.tsx` | **修改** | 简化 Desktop 配置 UI |
-| `src/types/global.d.ts` | **修改** | 移除 modelMap 类型 |
-| `src/pages/Dashboard.tsx` | **修改** | Claude Desktop 卡片文案更新 |
-| `src/pages/Settings.tsx` | **修改** | 小幅度适配 |
+| 文件                                       | 操作     | 说明                               |
+| ------------------------------------------ | -------- | ---------------------------------- |
+| `electron/claude/desktop-writer.ts`        | **重写** | 3P profile 指向 DeepSeek 直连      |
+| `electron/proxy/anthropic-relay.ts`        | **删除** | 不再需要代理转发                   |
+| `electron/proxy/server.ts`                 | **修改** | 移除 `/anthropic/v1/*` 路由        |
+| `electron/main.ts`                         | **修改** | 移除 Claude Desktop 代理 wiring    |
+| `electron/config/store.ts`                 | **修改** | 简化 ClaudeDesktopPrefs            |
+| `electron/config/migrations.ts`            | **修改** | 新增迁移：更新已有 profile → 直连  |
+| `electron/claude/detect.ts`                | **修改** | 更新检测逻辑（不再检查 127.0.0.1） |
+| `electron/ipc/channels.ts`                 | **不变** | IPC 通道名保留                     |
+| `electron/preload.ts`                      | **不变** | 无需改动                           |
+| `src/components/ClaudeSettingsSection.tsx` | **修改** | 简化 Desktop 配置 UI               |
+| `src/types/global.d.ts`                    | **修改** | 移除 modelMap 类型                 |
+| `src/pages/Dashboard.tsx`                  | **修改** | Claude Desktop 卡片文案更新        |
+| `src/pages/Settings.tsx`                   | **修改** | 小幅度适配                         |
 
 涉及 **4 个删除/重写** + **5 个修改** + **3 个不变**。`electron/proxy/anthropic-relay.ts` 整体删除（~400 行），`electron/proxy/server.ts` 删 ~20 行路由。
 
@@ -97,11 +97,11 @@
 
 > **模型映射规则**（DeepSeek 端点根据 model name 前缀自动路由）：
 >
-> | Claude 模型前缀 | DeepSeek 模型 | 原因 |
-> |---|---|---|
-> | `claude-opus*` | `deepseek-v4-pro` | Opus 角色 → 最强模型 |
+> | Claude 模型前缀  | DeepSeek 模型       | 原因                   |
+> | ---------------- | ------------------- | ---------------------- |
+> | `claude-opus*`   | `deepseek-v4-pro`   | Opus 角色 → 最强模型   |
 > | `claude-sonnet*` | `deepseek-v4-flash` | Sonnet 角色 → 快速模型 |
-> | `claude-haiku*` | `deepseek-v4-flash` | Haiku 角色 → 快速模型 |
+> | `claude-haiku*`  | `deepseek-v4-flash` | Haiku 角色 → 快速模型  |
 >
 > `inferenceModels` 只需列出 Claude Desktop 模型选择器里显示的条目；
 > DeepSeek 的 `/anthropic/v1/messages` 端点收到请求后根据 `model` 字段自行路由。
@@ -132,12 +132,14 @@
 ### 3.2 `electron/proxy/anthropic-relay.ts` — 整体删除
 
 **删除原因**：
+
 - `handleAnthropicMessages` — SSE 转发不再需要
 - `handleAnthropicModels` — 模型列表由 profile 的 `inferenceModels` 提供
 - `handleAnthropicCountTokens` — DeepSeek 端点直接支持
 - 所有类型定义、常量、工具函数 — 无其他模块依赖
 
 **连带清理**：
+
 - `package.json` 中无需为此增加/减少依赖（`https` 模块仍被 stream.ts 使用）
 
 ### 3.3 `electron/proxy/server.ts` — 移除 Anthropic 路由
@@ -160,6 +162,7 @@
 ```
 
 **同时移除**：
+
 - `ProxyOptions.claudeDesktop` 字段
 - `anthropicRelayOpts()` 方法
 - `LogSource` 类型中的 `'claude-desktop'`（或保留但标记 deprecated）
@@ -263,35 +266,35 @@
 
 ### 3.10 不动的文件
 
-| 文件 | 原因 |
-|------|------|
-| `electron/ipc/channels.ts` | IPC 通道名语义不变（`claude:apply-all` 等仍有效） |
-| `electron/preload.ts` | 暴露的 API 不变 |
-| `electron/claude/paths.ts` | 3P config 路径不变 |
-| `electron/claude/env-writer.ts` | Claude Code CLI 逻辑不变（已经是直连） |
+| 文件                            | 原因                                              |
+| ------------------------------- | ------------------------------------------------- |
+| `electron/ipc/channels.ts`      | IPC 通道名语义不变（`claude:apply-all` 等仍有效） |
+| `electron/preload.ts`           | 暴露的 API 不变                                   |
+| `electron/claude/paths.ts`      | 3P config 路径不变                                |
+| `electron/claude/env-writer.ts` | Claude Code CLI 逻辑不变（已经是直连）            |
 
 ---
 
 ## 四、向后兼容
 
-| 场景 | 处理方式 |
-|------|---------|
-| **存量用户升级** | `migrations.ts` 自动将 profile 从 `127.0.0.1` 改写为 `api.deepseek.com` |
-| **新用户首次安装** | `buildGatewayProfile` 直接写入 DeepSeek URL + 真实 API Key |
-| **用户改 API Key** | Settings → "保存并应用" → `updateClaudeDesktopApiKey` 同步到 profile |
-| **卸载** | `removeClaudeDesktopConfig` 检查 `__codexSwitch: "managed"` 标记后删除 |
-| **Claude Desktop 未安装** | 和之前一样 — 配置静默写入 profile 文件，等用户安装后自动生效 |
+| 场景                      | 处理方式                                                                |
+| ------------------------- | ----------------------------------------------------------------------- |
+| **存量用户升级**          | `migrations.ts` 自动将 profile 从 `127.0.0.1` 改写为 `api.deepseek.com` |
+| **新用户首次安装**        | `buildGatewayProfile` 直接写入 DeepSeek URL + 真实 API Key              |
+| **用户改 API Key**        | Settings → "保存并应用" → `updateClaudeDesktopApiKey` 同步到 profile    |
+| **卸载**                  | `removeClaudeDesktopConfig` 检查 `__codexSwitch: "managed"` 标记后删除  |
+| **Claude Desktop 未安装** | 和之前一样 — 配置静默写入 profile 文件，等用户安装后自动生效            |
 
 ---
 
 ## 五、涉及的测试文件
 
-| 测试文件 | 操作 |
-|----------|------|
-| `tests/unit/anthropic-relay.test.ts` | **删除**（被测模块已删除） |
-| `tests/unit/desktop-writer.test.ts` | **修改** — 断言从 port/127.0.0.1/PLACEHOLDER_KEY 改为 apiKey/deepseek.com/__codexSwitch |
-| `tests/unit/server.test.ts` | **修改** — 移除 anthropic 路由测试 |
-| `tests/unit/env-writer.test.ts` | **不变** |
+| 测试文件                             | 操作                                                                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `tests/unit/anthropic-relay.test.ts` | **删除**（被测模块已删除）                                                                |
+| `tests/unit/desktop-writer.test.ts`  | **修改** — 断言从 port/127.0.0.1/PLACEHOLDER_KEY 改为 apiKey/deepseek.com/\_\_codexSwitch |
+| `tests/unit/server.test.ts`          | **修改** — 移除 anthropic 路由测试                                                        |
+| `tests/unit/env-writer.test.ts`      | **不变**                                                                                  |
 
 ---
 

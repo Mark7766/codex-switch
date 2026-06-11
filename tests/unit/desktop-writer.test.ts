@@ -154,9 +154,7 @@ describe('removeClaudeDesktopConfig', () => {
   it('switches both configs back to 1p and deletes profile when our marker is present', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(
-          JSON.stringify({ [CS_MARKER_KEY]: CS_MARKER_VALUE }),
-        );
+        return Promise.resolve(JSON.stringify({ [CS_MARKER_KEY]: CS_MARKER_VALUE }));
       }
       return Promise.resolve('{"deploymentMode":"3p"}');
     }) as never);
@@ -181,9 +179,7 @@ describe('removeClaudeDesktopConfig', () => {
   it('does NOT touch anything when profile lacks our marker', async () => {
     vi.mocked(fs.readFile).mockImplementation(((p: string) => {
       if (p.endsWith(`${PROFILE_ID}.json`)) {
-        return Promise.resolve(
-          JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }),
-        );
+        return Promise.resolve(JSON.stringify({ inferenceGatewayApiKey: 'sk-ant-real-user-key' }));
       }
       return Promise.resolve('{"deploymentMode":"3p"}');
     }) as never);

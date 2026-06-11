@@ -85,9 +85,10 @@ export async function runV160ClaudeDesktopMigration(apiKey: string): Promise<boo
       throw e;
     }
 
-    const currentUrl = typeof profile['inferenceGatewayBaseUrl'] === 'string'
-      ? profile['inferenceGatewayBaseUrl']
-      : '';
+    const currentUrl =
+      typeof profile['inferenceGatewayBaseUrl'] === 'string'
+        ? profile['inferenceGatewayBaseUrl']
+        : '';
     const needsMigration =
       currentUrl.includes('127.0.0.1') ||
       currentUrl.includes('localhost') ||
