@@ -113,6 +113,12 @@ export function itemsToMessages(
       continue;
     }
 
+    // compaction items are metadata, not conversation messages — skip
+    if (item.type === 'compaction' || item.type === 'compaction_trigger') {
+      i++;
+      continue;
+    }
+
     const role = normalizeRole(item.role);
     let content = '';
     if (typeof item.content === 'string') {

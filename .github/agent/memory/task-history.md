@@ -21,6 +21,61 @@
 
 ## 任务记录
 
+### [TASK-050] v1.5.4 — 修复 WS `compaction_trigger` 导致 Codex Desktop compaction 报错
+- **日期**：2026-06-11
+- **类型**：fix
+- **摘要**：Codex Desktop 在 `response.create` WS 消息的 input items 中发送 `compaction_trigger` 项目（413 items 中有 1 个），期望代理返回 `type: "compaction"` 输出项目。Codex Switch 之前：(1) `itemsToMessages()` 静默丢弃该类型、(2) 响应输出无 compaction item、(3) Codex Desktop 内部 "remote compaction v2" 扫描输出期望 1 个 compaction 结果报错 "expected exactly one compaction output item, got 0 from 2 output items"。修复：① `compact.ts` 新增 4 个辅助函数（extractCompactionTriggers / extractCompactionInputItems / buildCompactionOutputItem / decodeCompactionPayload）② `stream.ts` 新增 `extraOutputItems` 可选参数支持注入任意输出项目 ③ `server.ts` WS handler 检测 trigger → 调 compactAndStore → 生成 compaction output item → 传 streamDeepSeek → 注入 response.completed.output ④ `translate.ts` itemsToMessages 显式跳过 compaction/compaction_trigger 类型 ⑤ 支持入站 compaction item 解码恢复历史。新增 18 个测试（compact 15 + stream 3），全量 141/141 通过，typecheck + lint 零报错。
+- **变更文件**：
+  - `electron/proxy/compact.ts`（新增 4 函数 + crypto import，+~70 行）
+  - `electron/proxy/stream.ts`（新增 extraOutputItems 参数 + 发射/追加逻辑，+~20 行）
+  - `electron/proxy/server.ts`（WS handler: 提取 trigger→compactAndStore→传 stream；入站 compaction item 解码；ws.on('message') 改为 async；+~30 行）
+  - `electron/proxy/translate.ts`（显式跳过 compaction/compaction_trigger 类型，+3 行）
+  - `tests/unit/compact.test.ts`（新增 15 个测试：extractCompactionTriggers 5 + buildCompactionOutputItem 2 + extractCompactionInputItems 8）
+  - `tests/unit/stream.compaction.test.ts`（新建，3 个测试）
+- **关联 ADR**：扩展 ADR-019（v1.5.0 LLM 摘要压缩）
+- **注意事项**：
+  1. `server.ts` 仍超 400 行约束（~1550 行，历史遗留，TASK-018 / TASK-045 已有记录）
+  2. 入站 compaction item 解码使用 base64 JSON，payload 结构 `{ compactedId, messages, timestamp }`
+  3. compaction 失败是非致命的——降级为正常请求、不注入 compaction output item
+  4. 非流式 HTTP 路径未注入 compaction output item（仅过滤 trigger items）
+
+### [TASK-049] v1.5.2/v1.5.3 — 修复 config.toml 模板对齐 cc-switch 方案，解决 compact 502
+- **日期**：2026-06-11
+- **类型**：fix
+- **摘要**：排查发现 Codex Desktop compact 502 根因是 `~/.codex/config.toml` 格式问题。旧格式 `openai_base_url` 缺少三个关键字段：`wire_api = "responses"`、`requires_openai_auth = true`、`disable_response_storage = true`。v1.5.2 尝试改用 Provider 块格式但 `model_provider = "codex-switch"` 不生效。阅读 cc-switch 源码（`src-tauri/src/provider.rs`）发现必须用固定 ID `model_provider = "custom"`（Codex 识别的标准非保留 provider ID），同步增加 `model_reasoning_effort = "xhigh"`。v1.5.3 将 `writer.ts` 模板完全对齐 cc-switch 方案。用户 config.toml 已手动更新为新格式测试。
+- **变更文件**：
+  - `electron/codex/writer.ts`（TEMPLATE 改为 Provider 块格式，provider ID 改为 "custom"）
+  - `electron/proxy/server.ts`（v1.5.1: WS 调试日志）
+  - `package.json`（1.5.0 → 1.5.3）
+
+### [TASK-048] v1.5.1 — 增加 WS 调试日志排查 compact 502 问题
+- **日期**：2026-06-11
+- **类型**：fix / debug
+- **摘要**：用户设置 `model_auto_compact_token_limit=500` 测试 compact 端点，Codex Desktop 持续报 502 但代理日志无任何 compact HTTP 请求。经排查发现 Codex Desktop 全程通过 WebSocket 通信（HTTP 日志仅 3 条 curl 测试），推测 compact 请求以 WS 消息形式发送但 type 不被识别而被静默丢弃。在 server.ts WS 消息循环的 `if (msg.type !== 'response.create') return;` 之前增加 warn 级日志 `⚠ 未识别的 WS 消息 type="xxx" (已丢弃)`，输出到 ndjson 日志供诊断。bump 1.5.0 → 1.5.1，123 测试全过，已构建 DMG 等待用户安装测试。
+- **变更文件**：
+  - `electron/proxy/server.ts`（WS 消息循环增加调试日志）
+  - `package.json`（1.5.0 → 1.5.1）
+
+### [TASK-047] 编写 codex-switch 客户端接入 codex-switch-server 方案（v1.6.0）
+- **日期**：2026-06-11
+- **类型**：docs / design
+- **摘要**：在 Server 适配文档之外，补充客户端侧的完整接入方案。撰写了 `docs/DESIGN-server-integration-v1.6.0.md`，覆盖 3 大维度：① 更新检查：MirrorMode 新增 `'server'`，electron-updater feed URL 指向 Server，pickAuto 优先级调整为 server→github→ghproxy；② 遥测客户端：新建 `electron/server-client/` 模块（config + client + telemetry），TelemetryClient 实现 buffer→定时批量 POST，12 种事件类型（app_start/close、proxy_start/stop/error、model_call、config_write、tool_install/fail、update_check/download、error），明确排除消息内容/API Key/文件路径/IP；③ Settings UI：更新镜像新增"官方服务器（推荐）"、新增「数据与隐私」区块（遥测开关 + 服务器地址 + 隐私说明）、Setup 向导增加遥测 opt-out。本次任务未写代码。
+- **变更文件**：
+  - `docs/DESIGN-server-integration-v1.6.0.md`（新建）
+- **关联**：`docs/SERVER-REQUIREMENTS-for-electron-updater.md`（TASK-046）
+- **注意事项**：依赖 Server 端先完成 `/api/v1/updates/*` 端点适配；遥测默认开启可在 Setup 向导取消；macOS 签名限制（ADR-013）不变
+
+### [TASK-046] 编写 Server 适配 electron-updater 需求文档
+- **日期**：2026-06-11
+- **类型**：docs / design
+- **摘要**：用户选择方案 C（Server 适配层），让 codex-switch-server 提供兼容 electron-updater generic provider 的静态文件接口，客户端改动最小（仅新增 `server` mirror 模式）。撰写了 `docs/SERVER-REQUIREMENTS-for-electron-updater.md`，覆盖：electron-updater generic provider 协议详解（latest-mac.yml/latest.yml 格式、文件列表、差分更新机制）、Server 端需要的 3 个新端点（`GET /api/v1/updates/latest-mac.yml` / `latest.yml` / `{filename}`）、数据同步策略（GitHub Release → COS + 缓存）、yml 生成方式（推荐直接提供 GitHub 原文件）、与现有 update 端点的共存关系、客户端侧配置变更（feedUrl 指向 server）、macOS Squirrel.Mac 签名限制说明。本次任务未写代码，仅输出需求文档供 Server 端开发者执行。
+- **变更文件**：
+  - `docs/SERVER-REQUIREMENTS-for-electron-updater.md`（新建）
+- **注意事项**：
+  1. Server 端只需新增 1 个路由组（3 个 GET 端点）+ 定时同步任务，不需要改动现有 API
+  2. 客户端接入方案在文档 §4 中已说明（新增 `server` mirror 模式），留待 Server 适配完成后实现
+  3. macOS 非签名限制（ADR-013）仍然存在，server 更新对 macOS 仅限于"通知+手动下载"
+
 ### [TASK-045] 实施 v1.5.0 compact 上下文压缩完整重构（代码实现）
 - **日期**：2026-06-11
 - **类型**：feat

@@ -5,6 +5,8 @@
  * 复用 stream.ts 的 callDeepSeekSync 做非流式 API 调用。
  */
 
+import { randomBytes } from 'node:crypto';
+
 import type { ChatMessage } from './translate';
 import type { ChatRequest } from './translate';
 import { callDeepSeekSync } from './stream';
@@ -214,4 +216,115 @@ async function summarizeWithTimeout(
   });
 
   return Promise.race([apiPromise, timeoutPromise]);
+}
+
+// ── compaction trigger / output item helpers ───────────────────────────────
+
+export const COMPACTION_ITEM_TYPE = 'compaction';
+export const COMPACTION_TRIGGER_TYPE = 'compaction_trigger';
+
+/**
+ * Extract compaction_trigger items from an input array.
+ * Returns the triggers found and the filtered input with triggers removed.
+ */
+export function extractCompactionTriggers(input: unknown): {
+  compactionTriggers: Array<Record<string, unknown>>;
+  filteredInput: unknown[];
+} {
+  const compactionTriggers: Array<Record<string, unknown>> = [];
+  const filteredInput: unknown[] = [];
+
+  if (!Array.isArray(input)) return { compactionTriggers, filteredInput: [] };
+
+  for (const item of input) {
+    if (
+      item &&
+      typeof item === 'object' &&
+      (item as Record<string, unknown>).type === COMPACTION_TRIGGER_TYPE
+    ) {
+      compactionTriggers.push(item as Record<string, unknown>);
+    } else {
+      filteredInput.push(item);
+    }
+  }
+
+  return { compactionTriggers, filteredInput };
+}
+
+/**
+ * Extract compaction input items (from a previous round) from an input array.
+ * Decodes encrypted_content and returns the compacted messages.
+ */
+export function extractCompactionInputItems(input: unknown): {
+  messages: ChatMessage[] | null;
+  filteredInput: unknown[];
+} {
+  const filteredInput: unknown[] = [];
+  let decodedMessages: ChatMessage[] | null = null;
+
+  if (!Array.isArray(input)) return { messages: null, filteredInput: [] };
+
+  for (const item of input) {
+    const record = item as Record<string, unknown>;
+    if (
+      record &&
+      record.type === COMPACTION_ITEM_TYPE &&
+      typeof record.encrypted_content === 'string'
+    ) {
+      try {
+        const decoded = decodeCompactionPayload(record.encrypted_content);
+        if (decoded?.messages?.length) {
+          // Take the messages from the first valid compaction item
+          if (!decodedMessages) decodedMessages = decoded.messages;
+        }
+      } catch {
+        // Silently skip corrupted compaction items
+      }
+    } else {
+      filteredInput.push(item);
+    }
+  }
+
+  return { messages: decodedMessages, filteredInput };
+}
+
+/**
+ * Build a compaction output item matching the OpenAI Responses API spec.
+ * The encrypted_content is a base64-encoded JSON blob with messages + metadata.
+ */
+export function buildCompactionOutputItem(
+  compactResult: CompactResult & { compactedId: string },
+): Record<string, unknown> {
+  const payload = {
+    compactedId: compactResult.compactedId,
+    messages: compactResult.compactedMessages,
+    timestamp: Date.now(),
+  };
+  const encryptedContent = Buffer.from(JSON.stringify(payload)).toString('base64');
+
+  return {
+    type: COMPACTION_ITEM_TYPE,
+    id: `comp_${randomBytes(8).toString('hex')}`,
+    encrypted_content: encryptedContent,
+  };
+}
+
+// ── internal ────────────────────────────────────────────────────────────────
+
+interface CompactPayload {
+  compactedId?: string;
+  messages?: ChatMessage[];
+  timestamp?: number;
+}
+
+function decodeCompactionPayload(encoded: string): CompactPayload | null {
+  try {
+    const json = Buffer.from(encoded, 'base64').toString('utf-8');
+    const parsed = JSON.parse(json) as CompactPayload;
+    // Validate minimal shape
+    if (!parsed || !Array.isArray(parsed.messages)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }

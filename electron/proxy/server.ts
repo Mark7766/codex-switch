@@ -25,7 +25,14 @@ import {
   DEFAULT_CLAUDE_DESKTOP_MODEL_MAP,
 } from './anthropic-relay';
 import { ConversationStore } from './conversation-store';
-import { compactHistory, type CompactOptions, type CompactResult } from './compact';
+import {
+  compactHistory,
+  extractCompactionTriggers,
+  extractCompactionInputItems,
+  buildCompactionOutputItem,
+  type CompactOptions,
+  type CompactResult,
+} from './compact';
 
 const DEEPSEEK_BASE = 'api.deepseek.com';
 const REDACT_HEADERS = new Set(['authorization', 'cookie']);
@@ -1125,7 +1132,7 @@ export class DeepSeekProxy extends EventEmitter {
       };
     }
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data) => {
       if (debugWs) {
         // eslint-disable-next-line no-console
         console.log('[ws←]', data.toString().slice(0, 600));
@@ -1293,22 +1300,68 @@ export class DeepSeekProxy extends EventEmitter {
       // previous_response_id 引用上轮结果，由服务端维护完整历史。
       // 代理必须查找并恢复历史，否则每轮只看到一条新消息，导致模型完全失忆。
       const prevRespId = msg.previous_response_id;
+
+      // ── v1.5.4: handle compaction_trigger / compaction items ─────────────
+      const rawInput = Array.isArray(msg.input) ? msg.input : [];
+      let compactionOutputItem: Record<string, unknown> | null = null;
+      let workingInput = rawInput;
+
+      // 1) Extract & remove compaction_trigger items from input
+      const { compactionTriggers, filteredInput: inputWithoutTriggers } =
+        extractCompactionTriggers(workingInput);
+      workingInput = inputWithoutTriggers;
+
+      if (compactionTriggers.length > 0) {
+        this.log({
+          level: 'info',
+          source: 'ws',
+          reqId,
+          connId,
+          message: `↩ 检测到 ${compactionTriggers.length} 个 compaction_trigger，压缩历史中…`,
+        });
+        try {
+          const compacted = await this.compactAndStore(prevRespId);
+          compactionOutputItem = buildCompactionOutputItem(compacted);
+          this.log({
+            level: 'info',
+            source: 'ws',
+            reqId,
+            connId,
+            message:
+              `↩ 压缩完成 id=${compacted.compactedId} method=${compacted.method} ` +
+              `original=${compacted.originalMessageCount} compacted=${compacted.compactedMessageCount}`,
+          });
+        } catch (err) {
+          this.log({
+            level: 'warn',
+            source: 'ws',
+            reqId,
+            connId,
+            message: `↩ 压缩失败（继续正常请求）：${(err as Error).message}`,
+          });
+          compactionOutputItem = null;
+        }
+      }
+
+      // 2) Extract compaction items from input (previous round's compacted context)
+      const { messages: restoredCompactionMsgs, filteredInput: inputWithoutCompaction } =
+        extractCompactionInputItems(workingInput);
+      workingInput = inputWithoutCompaction;
+
       const storedHistory = prevRespId ? (this.conversationStore.get(prevRespId) ?? null) : null;
 
       let fullMessages: ChatMessage[];
-      if (storedHistory !== null) {
+      if (restoredCompactionMsgs !== null) {
+        // Compaction-restored history takes precedence — prepend before new messages
+        const newMessages = itemsToMessages(workingInput, this.reasoning.asMap());
+        fullMessages = [...restoredCompactionMsgs, ...newMessages];
+      } else if (storedHistory !== null) {
         // 链式模式：从 store 恢复历史 + 追加当轮新消息
-        const newMessages = itemsToMessages(
-          Array.isArray(msg.input) ? msg.input : [],
-          this.reasoning.asMap(),
-        );
+        const newMessages = itemsToMessages(workingInput, this.reasoning.asMap());
         fullMessages = [...storedHistory, ...newMessages];
       } else {
         // 全量模式 / 首轮：input 中已含完整历史，或 store 未命中（如重连）
-        const fixedInput = fixOrphanedToolResults(
-          Array.isArray(msg.input) ? msg.input : [],
-          lastToolCalls,
-        );
+        const fixedInput = fixOrphanedToolResults(workingInput, lastToolCalls);
         const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
         fullMessages = [...sysMsg, ...itemsToMessages(fixedInput, this.reasoning.asMap())];
       }
@@ -1354,6 +1407,7 @@ export class DeepSeekProxy extends EventEmitter {
         send,
         { apiKey: this.opts.apiKey, agent: this.agent },
         this.reasoning,
+        compactionOutputItem ? [compactionOutputItem] : undefined,
       )
         .then(({ outputItems, finishReason, endTurn, usage }) => {
           lastToolCalls = outputItems.filter(

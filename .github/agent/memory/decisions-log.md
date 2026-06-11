@@ -411,3 +411,15 @@ Codex Desktop 长对话后调用 `POST /v1/responses/compact` 报 502 错误。�
 - conversationStore 接口从 `Map<string, ChatMessage[]>` 升级为 `ConversationStore` 类（兼容 get/set/has/delete/size）
 - 每次 compact 发送完整对话历史到 DeepSeek API 做摘要（input tokens ≈ 对话历史大小）
 - v1.5.0 版本号
+
+#### v1.5.4 扩展：compaction_trigger / compaction item 协议对齐
+
+- **日期**：2026-06-11
+- **问题**：Codex Desktop 在 WS `response.create` 的 input items 中发送 `compaction_trigger`，期望响应 output 包含 `type: "compaction"` 项目。旧实现不处理该类型 item，导致 Codex Desktop 内部 "remote compaction v2" 报错。
+- **决策**：
+  1. 检测 input 中的 `compaction_trigger` → 复用已有 `compactAndStore()` 做 LLM 摘要 → 生成符合 OpenAI 协议的 `compaction` 输出项目（`type: "compaction"`, `encrypted_content: base64({compactedId, messages, timestamp})`）
+  2. 在 `streamDeepSeek` 新增 `extraOutputItems` 可选参数注入额外输出项目到 `response.completed.output`
+  3. 入站 `compaction` item 解码恢复对话历史（base64 → messages），补充 `previous_response_id` 机制
+  4. `itemsToMessages` 显式跳过 `compaction` / `compaction_trigger` 类型
+- **理由**：OpenAI Responses API 规范定义 `compaction` 为 opaque output item，Codex Desktop 依赖此类型判断 compaction 成功。我们的 base64 JSON payload 在 proxy 内自产自消费，对 Codex Desktop 完全透明。
+- **影响**：`compact.ts`（+4 helper）、`stream.ts`（+extraOutputItems）、`server.ts`（async ws callback + trigger handling）、`translate.ts`（explicit skip）。141/141 tests pass。
