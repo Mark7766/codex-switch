@@ -1158,7 +1158,18 @@ export class DeepSeekProxy extends EventEmitter {
         this.processWsCompact(ws, prevId);
         return;
       }
-      if (msg.type !== 'response.create') return;
+      if (msg.type !== 'response.create') {
+        // v1.5.1: 调试日志 — 捕获所有非 response.create 的 WS 消息
+        // 用于排查 Codex Desktop compact 等未被识别的消息类型
+        this.log({
+          level: 'warn',
+          source: 'ws',
+          connId,
+          reqId,
+          message: `⚠ 未识别的 WS 消息 type="${String(msg.type)}" (已丢弃)`,
+        });
+        return;
+      }
 
       this.emit('request', { source: 'ws', path: '/v1/responses', reqId });
 
