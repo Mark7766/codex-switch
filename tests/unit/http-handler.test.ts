@@ -10,7 +10,12 @@ import type { HttpHandlerDeps } from '../../electron/proxy/http-handler';
 // Mock stream.ts
 vi.mock('../../electron/proxy/stream', () => ({
   callDeepSeekSync: vi.fn(),
-  streamDeepSeek: vi.fn(),
+  streamDeepSeek: vi.fn().mockResolvedValue({
+    outputItems: [],
+    finishReason: 'stop',
+    endTurn: true,
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  }),
 }));
 
 import { callDeepSeekSync } from '../../electron/proxy/stream';

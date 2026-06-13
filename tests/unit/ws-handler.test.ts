@@ -8,7 +8,12 @@ import type { WsHandlerDeps } from '../../electron/proxy/ws-handler';
 import type { ConversationStore } from '../../electron/proxy/conversation-store';
 
 vi.mock('../../electron/proxy/stream', () => ({
-  streamDeepSeek: vi.fn(),
+  streamDeepSeek: vi.fn().mockResolvedValue({
+    outputItems: [],
+    finishReason: 'stop',
+    endTurn: true,
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  }),
 }));
 
 function mockWs(): {
