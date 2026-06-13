@@ -21,6 +21,57 @@
 
 ## 任务记录
 
+### [TASK-056] v1.7.0 Server 集成 — 完整代码实现
+- **日期**：2026-06-12
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-server-integration-v1.7.0.md` 完整实施客户端 Server 集成。① 新建 `electron/server-client/` 模块（config.ts 三级 URL 解析 + client.ts HTTP 封装 + telemetry.ts 离线感知遥测）；② `mirrors.ts` 新增 `'server'` 模式，`pickAuto` 优先级调整为 server→github→ghproxy；③ `store.ts` 新增 serverUrl/telemetryEnabled/clientId 字段 + v1.7.0 迁移；④ IPC 新增 telemetrySetEnabled/serverPing 通道；⑤ `main.ts` 初始化 ServerClient + TelemetryClient，全局埋点（app_start/close、proxy_start/stop/error、model_call、config_write、tool_install/fail、update_check/download、error 共 12 种事件）；⑥ `server.ts` 新增 ProxyOptions.onModelCall 回调，recordSuccess/recordError 自动触发；⑦ Settings 新增"体验优化计划"勾选框；⑧ 离线检测（HEAD ping 3s 超时 + 3 次失败指数退避 5min/10min/20min/上限 1h）。typecheck ✅ / lint ✅ / 152 tests ✅（新增 18 个测试）。版本 1.6.0 → 1.7.0。
+- **变更文件**：
+  - `electron/server-client/config.ts`（新建，58 行）
+  - `electron/server-client/client.ts`（新建，131 行）
+  - `electron/server-client/telemetry.ts`（新建，225 行）
+  - `tests/unit/server-client.test.ts`（新建，6 用例）
+  - `tests/unit/telemetry.test.ts`（新建，12 用例）
+  - `electron/updater/mirrors.ts`（+server 模式 + serverBaseUrl 参数）
+  - `electron/updater/index.ts`（setMirror +serverBaseUrl 参数）
+  - `electron/config/store.ts`（+3 字段 + 迁移）
+  - `electron/ipc/channels.ts`（+3 通道）
+  - `electron/preload.ts`（+3 API 方法）
+  - `electron/main.ts`（+ServerClient/TelemetryClient 初始化 + 全局埋点 + before-quit 遥测停止）
+  - `electron/proxy/server.ts`（+ProxyOptions.onModelCall + recordSuccess/recordError 回调）
+  - `src/types/global.d.ts`（+serverUrl/telemetryEnabled/clientId 类型 + updateMirror 扩展）
+  - `src/pages/Settings.tsx`（useState 类型扩展 'server'）
+  - `package.json`（1.6.0 → 1.7.0）
+  - `CHANGELOG.md`（v1.7.0 条目）
+- **关联**：TASK-054/TASK-055（v1.7.0 方案文档）、ADR-013（macOS 签名限制不变）
+- **注意事项**：
+  1. 开发模式下自动连接 localhost:8000，环境变量 CODEX_SWITCH_SERVER_URL 可覆盖
+  2. 遥测默认开启，Settings 底部可关闭；离线时静默退避，不影响代理
+  3. macOS Squirrel.Mac 自动更新限制（ADR-013）保持不变
+- **日期**：2026-06-12
+- **类型**：docs / design
+- **摘要**：在 `docs/DESIGN-server-integration-v1.7.0.md` 中完成三项设计更新：① 新增 §1.5「开发连调策略」— 三阶段（编码→本地 Server→生产 Server），Server URL 三级优先级（环境变量→用户偏好→默认值），开发模式自动连 `localhost:8000`；② 新增 §3.3.5「网络离线处理」— 遥测被明确定位为次要功能，HEAD ping 主动探测 + 被动网络错误兜底，离线退避（3 次失败 → 5min/10min/20min/上限 1h），buffer 满 200 静默丢弃；③ 全面重命名「发送匿名使用统计」→「体验优化计划」（默认勾选），Settings 新增网络状态显示（🟢/🔴），Setup 向导文案更新，错误处理矩阵扩展至 13 个边界场景。本次任务未写代码，待用户 review 后执行客户端开发。
+- **变更文件**：
+  - `docs/DESIGN-server-integration-v1.7.0.md`（新增 §1.5 + §3.3.5 + 重写 §3.3.4 / §3.6.2 / §4.1 / §5.3 / §6 / §12）
+- **关联**：TASK-054（v1.7.0 方案文档初版）
+- **注意事项**：
+  1. 代码任务待用户 review 本方案后启动
+  2. 核心设计原则：遥测是次要功能，任何网络故障静默处理，绝不阻塞代理
+  3. 离线下 track() 不入 buffer（避免内存浪费），仅在线时累积
+  4. 退避参数可调：3 次失败触发 / 5min / 10min / 20min / 上限 1h
+
+### [TASK-054] 更新 Server 集成方案文档至 v1.7.0
+- **日期**：2026-06-12
+- **类型**：docs / design
+- **摘要**：基于 codex-switch-server（v0.1.0）实际实现状态，将 `docs/DESIGN-server-integration-v1.6.0.md` 重写为 v1.7.0 版本。核心变更：① 版本号 v1.6.0 → v1.7.0（v1.6.0 已被 Claude Desktop 直连 DeepSeek 占用）；② 新增 §1.4 Server 端实现差异分析（Range 请求、后台同步、retention cleanup 3 个 gap）；③ 标注所有 Server 端 API 为 ✅ 已上线并附实现细节（5min 缓存、3 级回退、去重/限流）；④ 事件类型与 Server `VALID_EVENT_TYPES` 完全对齐（12 种）；⑤ 新增 §5.4 更新检查流程时序图；⑥ 新增 §9.3 Server 端验证清单；⑦ 新增 §11.2 上线前需确认的 Server 端事项；⑧ 版本规划全面重写：v1.6.0 已完成 → v1.7.0 本方案 → v1.8.0 tool packages → v1.9.0 macOS 签名恢复。本次任务未写代码，待用户 review 后执行客户端开发。
+- **变更文件**：
+  - `docs/DESIGN-server-integration-v1.7.0.md`（新建，基于 v1.6.0 重写）
+  - `docs/DESIGN-server-integration-v1.6.0.md`（保留作为历史参考）
+- **关联**：TASK-047（v1.6.0 原方案）、TASK-046（Server 需求文档）、TASK-053（v1.6.0 Claude Desktop 直连）
+- **注意事项**：
+  1. Server 端已基本按 SERVER-REQUIREMENTS-for-electron-updater.md 完成开发，3 个 API 端点 + telemetry 全部可用
+  2. 客户端开发待用户 review 本方案后启动
+  3. Server 端存在 3 个已知 gap：Range 请求未显式支持、后台同步未实现、retention cleanup 未实现
+
 ### [TASK-053] v1.6.0 — Claude Desktop 直连 DeepSeek（实施）
 - **日期**：2026-06-11
 - **类型**：feat / refactor

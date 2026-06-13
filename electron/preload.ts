@@ -47,6 +47,9 @@ const IPC = {
   claudeUninstallAll: 'claude:uninstall-all',
   claudeDesktopBackups: 'claude:desktop-backups',
   claudeDesktopRestore: 'claude:desktop-restore',
+  telemetrySetEnabled: 'telemetry:set-enabled',
+  telemetryGetOnline: 'telemetry:get-online',
+  serverPing: 'server:ping',
 } as const;
 
 const api = {
@@ -125,6 +128,10 @@ const api = {
   claudeDesktopBackups: () => ipcRenderer.invoke(IPC.claudeDesktopBackups),
   claudeDesktopRestore: (backupPath: string) =>
     ipcRenderer.invoke(IPC.claudeDesktopRestore, backupPath),
+  // v1.7.0 Server 集成
+  telemetrySetEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC.telemetrySetEnabled, enabled),
+  telemetryGetOnline: () => ipcRenderer.invoke(IPC.telemetryGetOnline),
+  serverPing: () => ipcRenderer.invoke(IPC.serverPing),
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);

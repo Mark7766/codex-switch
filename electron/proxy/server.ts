@@ -40,6 +40,16 @@ export interface ProxyOptions {
   blockBackgroundSuggestions?: boolean;
   /** v1.5.0: conversationStore ndjson 持久化文件路径。未提供则使用内存存储。 */
   storePath?: string;
+  /** v1.7.0: model_call 遥测回调。每次请求完成（成功或失败）时调用。 */
+  onModelCall?: (event: {
+    model: string;
+    stream: boolean;
+    duration_ms: number;
+    success: boolean;
+    input_tokens?: number;
+    output_tokens?: number;
+    error_reason?: string;
+  }) => void;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
@@ -1476,6 +1486,21 @@ export class DeepSeekProxy extends EventEmitter {
         ? { inputTokens: extras.usage.inputTokens, outputTokens: extras.usage.outputTokens }
         : {}),
     });
+    // v1.7.0 telemetry
+    if (!isBlocked) {
+      try {
+        this.opts.onModelCall?.({
+          model: model || 'unknown',
+          stream: true,
+          duration_ms: durationMs,
+          success: true,
+          input_tokens: extras?.usage?.inputTokens,
+          output_tokens: extras?.usage?.outputTokens,
+        });
+      } catch {
+        /* telemetry failure must never break the proxy */
+      }
+    }
   }
 
   private recordError(
@@ -1507,6 +1532,18 @@ export class DeepSeekProxy extends EventEmitter {
       errorReason: reason,
       errorAction: action,
     });
+    // v1.7.0 telemetry
+    try {
+      this.opts.onModelCall?.({
+        model: model || requestedModel || 'unknown',
+        stream: true,
+        duration_ms: durationMs,
+        success: false,
+        error_reason: reason.slice(0, 100),
+      });
+    } catch {
+      /* telemetry failure must never break the proxy */
+    }
   }
 
   private log(entry: Omit<ProxyLogEntry, 'ts'>): void {

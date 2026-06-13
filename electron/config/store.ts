@@ -39,9 +39,15 @@ export interface UserPreferences {
   /** 是否启用启动时自动检查更新。 */
   autoCheckUpdate: boolean;
   /** 升级镜像策略。 */
-  updateMirror: 'auto' | 'github' | 'ghproxy' | 'custom';
+  updateMirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
   /** 自定义镜像 URL（仅 updateMirror='custom' 时生效）。 */
   customMirrorUrl: string;
+  /** v1.7.0: codex-switch-server 基础 URL。留空时使用默认值。 */
+  serverUrl: string;
+  /** v1.7.0: 是否参与体验优化计划（匿名遥测上报）。默认 true。 */
+  telemetryEnabled: boolean;
+  /** v1.7.0: 客户端唯一标识，首次启动自动生成 16 位 hex。 */
+  clientId: string;
   /** 是否完成 Codex 入门向导。 */
   hasSeenOnboarding: boolean;
   /** §6 主面板"累计请求数"持久化（跨重启）。 */
@@ -99,8 +105,11 @@ const DEFAULTS: UserPreferences = {
   maxBackupsPerFile: 5,
   lastSeenVersion: '',
   autoCheckUpdate: true,
-  updateMirror: 'auto',
+  updateMirror: 'server',
   customMirrorUrl: '',
+  serverUrl: '',
+  telemetryEnabled: true,
+  clientId: '',
   hasSeenOnboarding: false,
   lifetimeRequestCount: 0,
   lifetimeUptimeSec: 0,
@@ -150,6 +159,11 @@ export function migrateIfNeeded(s: Store<UserPreferences>): void {
   if (!s.get('lifetimeFirstStartAt')) {
     const today = new Date().toISOString().slice(0, 10);
     s.set('lifetimeFirstStartAt', today);
+  }
+  // v1.7.0: 存量用户迁移到 server mirror + 遥测默认开启
+  const currentMirror = s.get('updateMirror') as string;
+  if (currentMirror === 'auto') {
+    s.set('updateMirror', 'server');
   }
 }
 

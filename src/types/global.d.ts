@@ -79,8 +79,11 @@ interface CodexSwitchApi {
     maxBackupsPerFile: number;
     lastSeenVersion: string;
     autoCheckUpdate: boolean;
-    updateMirror: 'auto' | 'github' | 'ghproxy' | 'custom';
+    updateMirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
     customMirrorUrl: string;
+    serverUrl: string;
+    telemetryEnabled: boolean;
+    clientId: string;
     hasSeenOnboarding: boolean;
     lifetimeRequestCount: number;
     lifetimeUptimeSec: number;
@@ -90,7 +93,7 @@ interface CodexSwitchApi {
     blockBackgroundSuggestions: boolean;
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
     claudeDesktop?: { enabled: boolean };
-    migrations?: { v130_claude: boolean };
+    migrations?: { v130_claude: boolean; v160_claudeDesktopDirect: boolean };
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
   applyPreferences: (
@@ -169,7 +172,7 @@ interface CodexSwitchApi {
   updateDownload: () => Promise<void>;
   updateInstall: () => Promise<void>;
   updateSetMirror: (
-    mirror: 'auto' | 'github' | 'ghproxy' | 'custom',
+    mirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom',
     custom?: string,
   ) => Promise<void>;
   onUpdateEvent: (cb: (e: UpdateEvent) => void) => () => void;
@@ -186,6 +189,10 @@ interface CodexSwitchApi {
   claudeUninstallAll: () => Promise<DetectResult>;
   claudeDesktopBackups: () => Promise<string[]>;
   claudeDesktopRestore: (backupPath: string) => Promise<void>;
+  // v1.7.0 Server 集成
+  telemetrySetEnabled: (enabled: boolean) => Promise<void>;
+  telemetryGetOnline: () => Promise<boolean>;
+  serverPing: () => Promise<boolean>;
 }
 
 /** 工具安装与配置状态。 */

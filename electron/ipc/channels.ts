@@ -67,6 +67,13 @@ export const IPC = {
   claudeDesktopBackups: 'claude:desktop-backups',
   /** 还原 Claude Desktop config 某个备份。 */
   claudeDesktopRestore: 'claude:desktop-restore',
+  // v1.7.0 Server 集成
+  /** 设置遥测开关。 */
+  telemetrySetEnabled: 'telemetry:set-enabled',
+  /** 获取遥测在线状态。 */
+  telemetryGetOnline: 'telemetry:get-online',
+  /** 检查服务器连通性。 */
+  serverPing: 'server:ping',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

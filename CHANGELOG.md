@@ -3,6 +3,26 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.0] - 2026-06-12
+
+### 新增
+- **Server 集成 — 更新检查接入 codex-switch-server。** 新增 `'server'` 镜像模式（默认首选），更新检查 feed URL 指向 `https://www.codexswtich.cloud/api/v1/updates`。`pickAuto` 探测顺序调整为 server → github → ghproxy。
+- **体验优化计划（匿名遥测上报）。** 新增 `electron/server-client/` 模块：`config.ts`（Server URL 三级优先级解析 + clientId 管理）、`client.ts`（HTTP 客户端，原生 `node:https`）、`telemetry.ts`（遥测客户端，支持离线检测、退避重试）。默认开启，可在 Settings 底部关闭。
+- **网络离线自适应。** 断网时遥测静默停止上传，HEAD ping 主动探测 + 被动错误兜底，连续 3 次失败后指数退避（5min → 10min → 20min，上限 1h）。离线下 `track()` 不入 buffer，网络恢复后自动恢复上报。遥测故障绝不阻塞代理主流程。
+- Settings → 底部新增「体验优化计划」勾选框（默认勾选）。
+
+### 变更
+- `updateMirror` 默认值从 `'auto'` 改为 `'server'`。v1.6.x 存量用户自动迁移。
+- `electron/updater/mirrors.ts`：`MirrorMode` 类型新增 `'server'`，`buildFeedUrl` 和 `pickAuto` 支持 server 参数。
+- `electron/config/store.ts`：新增 `serverUrl`、`telemetryEnabled`、`clientId` 三个字段及默认值。
+- `electron/ipc/channels.ts`：新增 `telemetry:set-enabled`、`telemetry:get-online`、`server:ping` IPC 通道。
+- `electron/proxy/server.ts`：新增 `ProxyOptions.onModelCall` 回调，每次请求完成时触发，供遥测使用。
+- `src/types/global.d.ts`：新增 `serverUrl`、`telemetryEnabled`、`clientId` 类型，`updateMirror` 扩展为含 `'server'`。
+
+### 开发连调
+- 开发模式（`!app.isPackaged`）自动连接 `http://localhost:8000/api/v1`，零配置即可本地连调。
+- 环境变量 `CODEX_SWITCH_SERVER_URL` 可覆盖 Server URL（优先级最高）。
+
 ## [1.6.0] - 2026-06-11
 
 ### 变更

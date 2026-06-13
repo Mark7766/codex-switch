@@ -1,7 +1,10 @@
 // Wait until tsc finished compiling main once, then spawn electron.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+
+const require = createRequire(import.meta.url);
 
 const mainJs = path.resolve('dist/electron/main.js');
 

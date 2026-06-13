@@ -70,9 +70,9 @@ export class UpdaterManager extends EventEmitter {
     );
   }
 
-  async setMirror(mode: MirrorMode, customPrefix?: string): Promise<void> {
-    const effective = mode === 'auto' ? await pickAuto() : mode;
-    const url = buildFeedUrl(effective, customPrefix);
+  async setMirror(mode: MirrorMode, customPrefix?: string, serverBaseUrl?: string): Promise<void> {
+    const effective = mode === 'auto' ? await pickAuto(serverBaseUrl) : mode;
+    const url = buildFeedUrl(effective, customPrefix, serverBaseUrl);
     autoUpdater.setFeedURL({ provider: 'generic', url });
   }
 

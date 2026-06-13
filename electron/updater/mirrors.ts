@@ -6,15 +6,29 @@ import https from 'node:https';
 import http from 'node:http';
 import { URL } from 'node:url';
 
-export type MirrorMode = 'auto' | 'github' | 'ghproxy' | 'custom';
+export type MirrorMode = 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
 
 const OWNER = 'Mark7766';
 const REPO = 'codex-switch';
 
-/** 拼接镜像前缀和 GitHub release base URL。 */
-export function buildFeedUrl(mode: MirrorMode, customPrefix?: string): string {
+/**
+ * 拼接 feed URL。
+ *
+ * @param mode       镜像模式
+ * @param customPrefix  custom 模式的前缀或 server 模式的 baseUrl
+ */
+export function buildFeedUrl(
+  mode: MirrorMode,
+  customPrefix?: string,
+  serverBaseUrl?: string,
+): string {
   const ghBase = `https://github.com/${OWNER}/${REPO}/releases/latest/download`;
   switch (mode) {
+    case 'server':
+      if (serverBaseUrl && serverBaseUrl.trim()) {
+        return `${serverBaseUrl.trim().replace(/\/$/, '')}/updates`;
+      }
+      return ghBase;
     case 'github':
       return ghBase;
     case 'ghproxy':
@@ -71,8 +85,12 @@ export function probe(url: string, timeoutMs = PROBE_TIMEOUT): Promise<boolean> 
   });
 }
 
-/** auto 模式：依次探测 [github, ghproxy]，挑第一个可用的。 */
-export async function pickAuto(): Promise<MirrorMode> {
+/** auto 模式：依次探测 [server, github, ghproxy]，挑第一个可用的。 */
+export async function pickAuto(serverUrl?: string): Promise<MirrorMode> {
+  if (serverUrl) {
+    const serverOk = await probe(`${serverUrl.replace(/\/$/, '')}/updates/latest-mac.yml`);
+    if (serverOk) return 'server';
+  }
   const ghFast = await probe(`https://github.com/${OWNER}/${REPO}`);
   if (ghFast) return 'github';
   const ghproxyOk = await probe(`https://ghproxy.net/https://github.com/${OWNER}/${REPO}`);

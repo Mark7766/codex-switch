@@ -36,6 +36,9 @@ import {
   runV160ClaudeDesktopMigration,
   startupApplyClaude,
 } from './config/migrations';
+import { ServerClient } from './server-client/client';
+import { TelemetryClient } from './server-client/telemetry';
+import { resolveServerUrl, generateClientId } from './server-client/config';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
@@ -47,12 +50,37 @@ const LOG_BUFFER_MAX = 500;
 const updater = new UpdaterManager();
 updater.on('event', (e: UpdateEvent) => {
   mainWindow?.webContents.send(IPC.updateOnEvent, e);
+  // v1.7.0 telemetry
+  if (e.kind === 'available') {
+    telemetry?.track('update_check', {
+      current_version: app.getVersion(),
+      has_update: true,
+      mirror_mode: getPreferences().updateMirror,
+    });
+  } else if (e.kind === 'not-available') {
+    telemetry?.track('update_check', {
+      current_version: app.getVersion(),
+      has_update: false,
+      mirror_mode: getPreferences().updateMirror,
+    });
+  } else if (e.kind === 'downloaded') {
+    telemetry?.track('update_download', {
+      from_version: app.getVersion(),
+      to_version: e.version ?? '',
+      platform: process.platform,
+      arch: process.arch,
+    });
+  }
 });
 
 let persistentLog: PersistentLog | null = null;
 let lifetimeFlushTimer: NodeJS.Timeout | null = null;
 let lifetimeFlushing = false;
 let isInstallingUpdate = false;
+
+// v1.7.0 Server 集成
+let serverClient: ServerClient | null = null;
+let telemetry: TelemetryClient | null = null;
 
 // §5 单实例锁：第二实例直接退出，主实例聚焦窗口并广播 toast。
 const gotLock = app.requestSingleInstanceLock();
@@ -77,9 +105,25 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
     blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
+    // v1.7.0 telemetry: model_call 事件
+    onModelCall: (event) => {
+      telemetry?.track('model_call', event);
+    },
   });
   proxy.on('status', (status: ProxyStatus) => {
     mainWindow?.webContents.send(IPC.proxyOnStatus, status);
+    // v1.7.0 telemetry
+    if (status === 'running') {
+      telemetry?.track('proxy_start', {
+        port: proxy?.getPort() ?? prefs.proxyPort,
+        default_model: prefs.defaultModel,
+      });
+    } else if (status === 'stopped') {
+      telemetry?.track('proxy_stop', {
+        uptime_seconds: proxy ? Math.floor(proxy.getUptimeMs() / 1000) : 0,
+        request_count: proxy?.getRequestCount() ?? 0,
+      });
+    }
   });
   proxy.on('log', (entry: ProxyLogEntry) => {
     logBuffer.push(entry);
@@ -95,6 +139,8 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
     } catch (e) {
       log.warn('记录 lastError 失败：', (e as Error).message);
     }
+    // v1.7.0 telemetry
+    telemetry?.track('proxy_error', { error_kind: info.kind, port: info.port });
   });
   return proxy;
 }
@@ -215,7 +261,13 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.prefsApply,
     async (_e, patch: Partial<UserPreferences> & { codexModel?: string }) => {
-      return applyPreferencesTransaction(patch ?? {});
+      const result = await applyPreferencesTransaction(patch ?? {});
+      // v1.7.0 telemetry
+      const keys = Object.keys(patch ?? {});
+      if (keys.length > 0) {
+        telemetry?.track('config_write', { fields_changed: keys });
+      }
+      return result;
     },
   );
 
@@ -424,8 +476,10 @@ function registerIpc(): void {
   });
   ipcMain.handle(
     IPC.updateSetMirror,
-    async (_e, mirror: 'auto' | 'github' | 'ghproxy' | 'custom', custom?: string) => {
-      await updater.setMirror(mirror, custom);
+    async (_e, mirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom', custom?: string) => {
+      const prefs = getPreferences();
+      const serverUrl = resolveServerUrl(prefs);
+      await updater.setMirror(mirror, custom, serverUrl);
       setPreferences({ updateMirror: mirror, customMirrorUrl: custom ?? '' });
     },
   );
@@ -462,10 +516,26 @@ function registerIpc(): void {
     const prefs = getPreferences();
     const result = await detectAll();
     if (prefs.claudeCli.enabled && result.claudeCli.installed) {
-      await writeClaudeCliConfig(apiKey, prefs.claudeCli.envVars);
+      try {
+        await writeClaudeCliConfig(apiKey, prefs.claudeCli.envVars);
+        telemetry?.track('tool_install', { tool: 'claude-cli' });
+      } catch (e) {
+        telemetry?.track('tool_install_fail', {
+          tool: 'claude-cli',
+          error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+        });
+      }
     }
     if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
-      await writeClaudeDesktopConfig(apiKey);
+      try {
+        await writeClaudeDesktopConfig(apiKey);
+        telemetry?.track('tool_install', { tool: 'claude-desktop' });
+      } catch (e) {
+        telemetry?.track('tool_install_fail', {
+          tool: 'claude-desktop',
+          error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+        });
+      }
     }
     return detectAll();
   });
@@ -485,6 +555,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.claudeDesktopRestore, (_e, backupPath: string) =>
     restoreClaudeDesktopBackup(backupPath),
   );
+
+  // ─── v1.7.0 Server 集成 ────────────────────────────────────────────────
+  ipcMain.handle(IPC.telemetrySetEnabled, (_e, enabled: boolean) => {
+    telemetry?.setEnabled(enabled);
+    setPreferences({ telemetryEnabled: enabled });
+  });
+  ipcMain.handle(IPC.telemetryGetOnline, () => {
+    return telemetry?.isOnline() ?? false;
+  });
+  ipcMain.handle(IPC.serverPing, async () => {
+    if (!serverClient) return false;
+    return serverClient.ping();
+  });
 }
 
 async function readHelpJson(name: string): Promise<unknown> {
@@ -540,7 +623,35 @@ function consumeUptimeDelta(currentUptimeMs: number): number {
 }
 
 app.whenReady().then(async () => {
-  // 启动持久化日志
+  const prefs = getPreferences();
+
+  // ─── v1.7.0 Server 集成：初始化客户端 ──────────────────────────────────
+  if (!prefs.clientId) {
+    setPreferences({ clientId: generateClientId() });
+  }
+  const effectivePrefs = getPreferences();
+  const serverBaseUrl = resolveServerUrl(effectivePrefs);
+  log.info(
+    '[server-client] resolved server URL: %s (isPackaged=%s)',
+    serverBaseUrl,
+    app.isPackaged,
+  );
+  serverClient = new ServerClient(serverBaseUrl);
+  telemetry = new TelemetryClient(
+    serverClient,
+    {
+      baseUrl: serverBaseUrl,
+      telemetryEnabled: effectivePrefs.telemetryEnabled ?? true,
+      clientId: effectivePrefs.clientId,
+    },
+    app.getVersion(),
+  );
+  if (effectivePrefs.telemetryEnabled) {
+    telemetry.start();
+  }
+  telemetry.track('app_start', { first_run: !effectivePrefs.hasCompletedSetup });
+
+  // ─── 持久化日志 ────────────────────────────────────────────────────────
   try {
     persistentLog = new PersistentLog({ dir: path.join(app.getPath('userData'), 'logs') });
     await persistentLog.prune();
@@ -551,7 +662,6 @@ app.whenReady().then(async () => {
   registerIpc();
   await createWindow();
 
-  const prefs = getPreferences();
   if (prefs.hasCompletedSetup && prefs.autoStartProxy) {
     try {
       const p = await ensureProxy();
@@ -583,7 +693,7 @@ app.whenReady().then(async () => {
 
   if (prefs.autoCheckUpdate) {
     try {
-      await updater.setMirror(prefs.updateMirror, prefs.customMirrorUrl);
+      await updater.setMirror(prefs.updateMirror, prefs.customMirrorUrl, serverBaseUrl);
       setTimeout(() => {
         updater.check().catch((e) => log.warn('检查更新失败：', (e as Error).message));
       }, 3000);
@@ -601,6 +711,16 @@ app.whenReady().then(async () => {
   });
 });
 
+// v1.7.0 全局异常上报
+process.on('uncaughtException', (err) => {
+  log.error('uncaughtException:', err);
+  telemetry?.track('error', { error_type: 'uncaughtException', source: err.name ?? 'Error' });
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('unhandledRejection:', reason);
+  telemetry?.track('error', { error_type: 'unhandledRejection', source: 'unhandledRejection' });
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -608,10 +728,16 @@ app.on('window-all-closed', () => {
 let quitInProgress = false;
 app.on('before-quit', (e) => {
   if (isInstallingUpdate) {
-    // 升级安装时已在 IPC.updateInstall 中做过异步清理，此处直接放行。
     return;
   }
   if (quitInProgress) return;
+
+  // v1.7.0 telemetry: 记录关闭事件
+  telemetry?.track('app_close', {
+    uptime_seconds: Math.floor(process.uptime()),
+    request_count: proxy?.getRequestCount() ?? 0,
+  });
+
   if (proxy && proxy.getStatus() !== 'stopped') {
     e.preventDefault();
     quitInProgress = true;
@@ -627,15 +753,22 @@ app.on('before-quit', (e) => {
       .finally(async () => {
         clearTimeout(hardTimer);
         try {
+          // v1.7.0: 停止遥测（仅在线时 flush）
+          await telemetry?.stop();
+        } catch {
+          /* ignore */
+        }
+        try {
           await persistentLog?.close();
         } catch {
           /* ignore */
         }
-        // 使用 exit(0) 确保进程彻底退出，避免 app.quit() 被某些残留窗口事件挂起（§13 稳定性修复）
         app.exit(0);
       });
   } else {
     if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
+    // v1.7.0: 无代理运行中，直接停止遥测
+    telemetry?.stop().catch(() => undefined);
   }
 });
 

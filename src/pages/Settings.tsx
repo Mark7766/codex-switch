@@ -21,10 +21,13 @@ export function Settings(): JSX.Element {
   const [msg, setMsg] = useState<string | null>(null);
   const [version, setVersion] = useState('');
   const [autoCheckUpdate, setAutoCheckUpdate] = useState(true);
-  const [mirror, setMirror] = useState<'auto' | 'github' | 'ghproxy' | 'custom'>('auto');
+  const [mirror, setMirror] = useState<'server' | 'auto' | 'github' | 'ghproxy' | 'custom'>(
+    'server',
+  );
   const [customMirror, setCustomMirror] = useState('');
   const [maxBackups, setMaxBackups] = useState(5);
   const [blockSuggestions, setBlockSuggestions] = useState(true);
+  const [telemetryEnabled, setTelemetryEnabled] = useState(true);
   const [showChangelog, setShowChangelog] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
@@ -42,6 +45,7 @@ export function Settings(): JSX.Element {
       setCustomMirror(prefs.customMirrorUrl);
       setMaxBackups(prefs.maxBackupsPerFile);
       setBlockSuggestions(prefs.blockBackgroundSuggestions ?? true);
+      setTelemetryEnabled(prefs.telemetryEnabled ?? true);
     })();
     const off = window.codexSwitch.onUpdateEvent((e) => {
       const ev = e as UpdateEvent;
@@ -86,6 +90,7 @@ export function Settings(): JSX.Element {
         customMirrorUrl: customMirror,
         maxBackupsPerFile: maxBackups,
         blockBackgroundSuggestions: blockSuggestions,
+        telemetryEnabled,
         codexModel: defaultModel,
       });
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
@@ -273,11 +278,12 @@ export function Settings(): JSX.Element {
             <select
               value={mirror}
               onChange={(e) =>
-                setMirror(e.target.value as 'auto' | 'github' | 'ghproxy' | 'custom')
+                setMirror(e.target.value as 'server' | 'auto' | 'github' | 'ghproxy' | 'custom')
               }
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
-              <option value="auto">自动（推荐）</option>
+              <option value="server">官方服务器（推荐）</option>
+              <option value="auto">自动</option>
               <option value="github">GitHub 直连</option>
               <option value="ghproxy">ghproxy 镜像</option>
               <option value="custom">自定义前缀</option>
@@ -320,6 +326,25 @@ export function Settings(): JSX.Element {
           <Row label="开源地址" value="github.com/Mark7766/codex-switch" />
         </dl>
       </Section>
+
+      <label className="flex items-start gap-3 text-sm text-slate-500 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={telemetryEnabled}
+          onChange={(e) => {
+            setTelemetryEnabled(e.target.checked);
+            window.codexSwitch.telemetrySetEnabled(e.target.checked);
+          }}
+          className="mt-0.5"
+        />
+        <span>
+          <span className="text-slate-400">参与体验优化计划</span>
+          <span className="block text-xs mt-0.5">
+            匿名上报使用数据，帮助我们改进产品。不会发送对话内容、API Key
+            或个人信息。仅在有网络连接时上传。
+          </span>
+        </span>
+      </label>
       {showChangelog && (
         <ChangelogModal
           open={showChangelog}
