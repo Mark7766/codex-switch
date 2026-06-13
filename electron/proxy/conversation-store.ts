@@ -14,6 +14,7 @@ import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChatMessage } from './translate';
+import log from 'electron-log';
 
 // ── types ───────────────────────────────────────────────────────────────────
 
@@ -117,8 +118,8 @@ export class ConversationStore {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      this.flush().catch(() => {
-        /* best-effort; errors logged inside flush */
+      this.flush().catch((err) => {
+        log.warn('[conversation-store] 定时刷盘失败：%s', (err as Error).message);
       });
     }, DEBOUNCE_MS);
   }
@@ -192,7 +193,9 @@ export class ConversationStore {
     // re-write if pruned
     if (capped.length !== entries.length) {
       this.markDirty();
-      this.forceFlush().catch(() => {});
+      this.forceFlush().catch((err) => {
+        log.warn('[conversation-store] 强制刷盘失败：%s', (err as Error).message);
+      });
     }
 
     return capped.length;

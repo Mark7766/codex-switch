@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 
@@ -11,7 +11,7 @@ import {
   claudeCliDir,
 } from './paths';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const BLOCK_START =
   '# --- Codex Switch: Claude Code CLI config (auto-generated, do not edit) ---';
@@ -107,8 +107,9 @@ async function writeWindowsEnvVars(apiKey: string, vars: ClaudeCliEnvVars): Prom
     ['CLAUDE_CODE_EFFORT_LEVEL', 'high'],
   ];
   for (const [key, value] of pairs) {
+    // H2: use execFile to prevent shell injection via env var values
     // setx has a 1024-char limit per value; API keys are well within that.
-    await execAsync(`setx ${key} "${value}"`);
+    await execFileAsync('setx', [key, value]);
   }
 }
 
@@ -126,7 +127,8 @@ async function removeWindowsEnvVars(): Promise<void> {
   ];
   for (const key of keys) {
     try {
-      await execAsync(`reg delete "HKCU\\Environment" /v ${key} /f`);
+      // H2: use execFile to prevent shell injection
+      await execFileAsync('reg', ['delete', 'HKCU\\Environment', '/v', key, '/f']);
     } catch {
       /* Key not present – ignore */
     }

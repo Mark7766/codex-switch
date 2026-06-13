@@ -49,3 +49,50 @@ describe('DeepSeekProxy http server', () => {
     expect(port).toBeGreaterThan(0);
   });
 });
+
+describe('DeepSeekProxy lifecycle', () => {
+  it('getStatus returns stopped when not started', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    expect(p.getStatus()).toBe('stopped');
+  });
+
+  it('getPort returns configured port when stopped', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 9999, modelMapping: {} });
+    expect(p.getPort()).toBe(9999);
+  });
+
+  it('getUptimeMs returns 0 when not started', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    expect(p.getUptimeMs()).toBe(0);
+  });
+
+  it('getRequestCount starts at 0', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    expect(p.getRequestCount()).toBe(0);
+  });
+
+  it('updateOptions merges config', () => {
+    const p = new DeepSeekProxy({
+      apiKey: '',
+      port: 0,
+      modelMapping: { 'gpt-4': 'deepseek-v4-pro' },
+    });
+    p.updateOptions({ apiKey: 'sk-new', port: 8080 });
+    // Verify options were updated
+    expect(p.getPort()).toBe(8080); // returns opts.port when stopped
+  });
+
+  it('consumeLifetimeDelta returns zeros when no activity', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    const d = p.consumeLifetimeDelta();
+    expect(d.requestsDelta).toBe(0);
+    expect(d.inputTokensDelta).toBe(0);
+  });
+
+  it('getRecentStats returns default values', () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    const s = p.getRecentStats();
+    expect(s.total).toBe(0);
+    expect(s.successRate).toBe(1);
+  });
+});

@@ -21,6 +21,22 @@
 
 ## 任务记录
 
+### [TASK-057] v1.7.0 → v1.8.0 P0 质量提升（C4 CSP + C1 Server 拆分第一阶段）
+- **日期**：2026-06-13
+- **类型**：refactor / security
+- **摘要**：按 `docs/QUALITY-AUDIT-v1.7.0.md` 执行 2 个 P0 改进：① **C4 CSP**（30 分钟）— `src/index.html` 新增 Content-Security-Policy meta 标签，限制 `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;`，一劳永逸消除 XSS 攻击面；② **C1 Server 拆分第一阶段**— 新建 `electron/proxy/compact-routes.ts`（213 行）提取 HTTP/WS compact 请求处理逻辑（handleCompactHttp/compactAndStore/processWsCompact），新建 `electron/proxy/types.ts`（104 行）统一共享类型定义，server.ts 从 1587→1400 行（减少 12%）。typecheck ✅ / 154 tests ✅。完整拆分（handleResponses/ handleWs）因风险较高留待后续迭代。未推送到远程仓库。
+- **变更文件**：
+  - `electron/proxy/compact-routes.ts`（新建，213 行）
+  - `electron/proxy/types.ts`（新建，104 行）
+  - `electron/proxy/server.ts`（1587→1400 行，compact 逻辑委托到 compact-routes.ts）
+  - `src/index.html`（新增 CSP meta 标签）
+  - `docs/QUALITY-AUDIT-v1.7.0.md`（标注质量提升目标版本 v1.8.0）
+- **关联**：TASK-056（v1.7.0 实现）、QUALITY-AUDIT-v1.7.0.md（审计报告）
+- **注意事项**：
+  1. server.ts 仍 1400 行，handleResponses（~230 行）和 handleWs（~380 行）待后续提取
+  2. compact-routes.ts 使用 getCompactDeps() 模式注入依赖，可作为后续提取的范本
+  3. 代码未推送远程仓库，等用户审查后许可
+
 ### [TASK-056] v1.7.0 Server 集成 — 完整代码实现
 - **日期**：2026-06-12
 - **类型**：feat

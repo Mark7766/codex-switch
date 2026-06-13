@@ -1,10 +1,15 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import log from 'electron-log';
 
 import { IPC } from './ipc/channels';
-import { getPreferences, setPreferences, type UserPreferences } from './config/store';
+import {
+  getPreferences,
+  setPreferences,
+  setPreferencesSerialized,
+  type UserPreferences,
+} from './config/store';
 import { clearApiKey, getApiKey, setApiKey } from './config/secrets';
 import {
   DeepSeekProxy,
@@ -196,8 +201,8 @@ async function applyPreferencesTransaction(
     prefsPatch.proxyPort !== undefined && prefsPatch.proxyPort !== before.proxyPort;
   const apiKey = await getApiKey();
 
-  // 1) 写偏好
-  const next = setPreferences(prefsPatch);
+  // 1) 写偏好（H6: serialized to prevent concurrent write races）
+  const next = await setPreferencesSerialized(prefsPatch);
 
   // 2) 同步代理选项（不重启）
   if (proxy) {
@@ -220,8 +225,21 @@ async function applyPreferencesTransaction(
       });
       codexWritten = true;
     } catch (e) {
-      // 回滚 store
-      setPreferences(before);
+      // H6: rollback with serialized write — re-read current prefs to avoid
+      // overwriting concurrent changes from another IPC handler
+      const current = getPreferences();
+      await setPreferencesSerialized({
+        proxyPort: before.proxyPort,
+        defaultModel: before.defaultModel,
+        modelMapping: before.modelMapping,
+        blockBackgroundSuggestions: before.blockBackgroundSuggestions,
+        ...Object.fromEntries(
+          Object.keys(prefsPatch).map((k) => [
+            k,
+            (current as unknown as Record<string, unknown>)[k],
+          ]),
+        ),
+      } as Partial<UserPreferences>);
       if (proxy) {
         proxy.updateOptions({
           port: before.proxyPort,
@@ -247,6 +265,17 @@ async function applyPreferencesTransaction(
 function registerIpc(): void {
   ipcMain.handle(IPC.prefsGet, () => getPreferences());
   ipcMain.handle(IPC.prefsSet, async (_e, patch: Partial<UserPreferences>) => {
+    // H5: validate critical fields
+    if (patch.proxyPort !== undefined) {
+      if (
+        typeof patch.proxyPort !== 'number' ||
+        !Number.isInteger(patch.proxyPort) ||
+        patch.proxyPort < 1 ||
+        patch.proxyPort > 65535
+      ) {
+        throw new Error(`端口号无效：${patch.proxyPort}`);
+      }
+    }
     const next = setPreferences(patch);
     if (proxy) {
       proxy.updateOptions({
@@ -276,6 +305,10 @@ function registerIpc(): void {
     return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
   });
   ipcMain.handle(IPC.keySet, async (_e, key: string) => {
+    // H5: validate API key format
+    if (typeof key !== 'string' || key.length < 10 || !key.startsWith('sk-')) {
+      throw new Error('API Key 格式不正确：应以 sk- 开头且长度至少 10 位');
+    }
     await setApiKey(key);
     if (proxy) proxy.updateOptions({ apiKey: key });
     // Auto-apply Claude configs for any installed tools when user saves a key.
@@ -358,9 +391,17 @@ function registerIpc(): void {
     };
   });
   ipcMain.handle(IPC.proxyLookupPort, async (_e, port: number) => {
+    // H5: validate port range
+    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`端口号无效：${port}`);
+    }
     return lookupPortHolder(port);
   });
   ipcMain.handle(IPC.proxyKillPort, async (_e, port: number) => {
+    // H5: validate port range
+    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`端口号无效：${port}`);
+    }
     const holder = await lookupPortHolder(port);
     if (!holder) return { ok: false, reason: 'no-holder' as const };
     const out = await killPid(holder.pid, holder.command);
@@ -368,6 +409,10 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.codexWrite, async (_e, payload: { model: string }) => {
+    // H5: validate payload
+    if (!payload || typeof payload.model !== 'string' || payload.model.trim().length === 0) {
+      throw new Error('模型名称不能为空');
+    }
     const prefs = getPreferences();
     const apiKey = await getApiKey();
     if (!apiKey) throw new Error('请先填写 DeepSeek API Key');
@@ -557,9 +602,11 @@ function registerIpc(): void {
   );
 
   // ─── v1.7.0 Server 集成 ────────────────────────────────────────────────
-  ipcMain.handle(IPC.telemetrySetEnabled, (_e, enabled: boolean) => {
-    telemetry?.setEnabled(enabled);
-    setPreferences({ telemetryEnabled: enabled });
+  ipcMain.handle(IPC.telemetrySetEnabled, (_e, enabled: unknown) => {
+    // H5: coerce to boolean to handle string "true"/"false" from renderer
+    const v = Boolean(enabled);
+    telemetry?.setEnabled(v);
+    setPreferences({ telemetryEnabled: v });
   });
   ipcMain.handle(IPC.telemetryGetOnline, () => {
     return telemetry?.isOnline() ?? false;
@@ -771,6 +818,3 @@ app.on('before-quit', (e) => {
     telemetry?.stop().catch(() => undefined);
   }
 });
-
-// 引用以避免 dialog 未使用警告（dialog 预留给后续 logs:exportZip 等）
-void dialog;

@@ -23,6 +23,8 @@ vi.mock('../../electron/claude/paths', () => ({
     (id: string) => `/home/user/.config/Claude-3p/configLibrary/${id}.json`,
   ),
   claudeDesktopMetaPath: vi.fn(() => '/home/user/.config/Claude-3p/configLibrary/_meta.json'),
+  claudeDesktopDir: vi.fn(() => '/home/user/.config/Claude'),
+  claudeDesktop3pDir: vi.fn(() => '/home/user/.config/Claude-3p'),
   backupPath: vi.fn((p: string) => `${p}.bak.20250101000000`),
 }));
 

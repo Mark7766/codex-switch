@@ -3,6 +3,30 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.8.0] - 2026-06-13
+
+### 质量提升（按 QUALITY-AUDIT-v1.7.0.md 执行）
+
+**P0 — Critical**
+- **C4 CSP**: `src/index.html` 新增 Content-Security-Policy meta 标签
+- **C1 Server 拆分**: `server.ts` 1587→641 行（-60%），提取 6 个子模块
+
+**P1 — High**
+- **H1 路径穿越**: `restoreCodexConfig`/`deleteBackup`/`restoreClaudeDesktopBackup` 新增目录白名单校验
+- **H2 命令注入**: `env-writer.ts` 的 `setx`/`reg delete` 改为 `execFile`（参数数组）
+- **H5 IPC 校验**: `keySet`/`proxyLookupPort`/`proxyKillPort`/`prefsSet`/`codexWrite` 新增类型/范围校验
+- **H6 并发竞态**: `store.ts` 新增 `writeMutex` 串行化写入 + `applyPreferencesTransaction` 精确回滚
+
+**P2 — Medium**
+- **M1 静默 catch**: 6 个文件 9 处 catch 块添加 `log.warn`/`log.debug`
+- **C2 渲染层测试**: 新增 `store.test.ts`（10 用例）+ `Settings.test.tsx`（6 用例）
+- **C3 E2E 框架**: Playwright 配置 + `smoke.test.ts` + `test:e2e` 脚本
+
+**P3 — Low**
+- **M2 死代码**: 移除 2 个未使用的 IPC 通道 + `void dialog`
+- **M3 IPC 一致性**: 新增自动验证 preload 与 channels IPC 同步的测试
+- **M5 依赖更新**: `electron-updater` 6.8.3→6.8.9，`prettier` 3.8.3→3.8.4；评估报告记录大版本风险
+
 ## [1.7.0] - 2026-06-12
 
 ### 新增

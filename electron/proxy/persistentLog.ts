@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { EOL } from 'node:os';
 import type { ProxyLogEntry } from './server';
+import log from 'electron-log';
 
 /**
  * ndjson 滚动日志：
@@ -48,7 +49,11 @@ export class PersistentLog {
 
   /** 追加一条；失败静默吞掉，不能阻塞代理。 */
   append(entry: ProxyLogEntry): void {
-    this.writing = this.writing.then(() => this.appendInternal(entry)).catch(() => undefined);
+    this.writing = this.writing
+      .then(() => this.appendInternal(entry))
+      .catch((err) => {
+        log.warn('[persistentLog] 追加日志失败：%s', (err as Error).message);
+      });
   }
 
   private async appendInternal(entry: ProxyLogEntry): Promise<void> {
@@ -136,7 +141,9 @@ export class PersistentLog {
   }
 
   async close(): Promise<void> {
-    await this.writing.catch(() => undefined);
+    await this.writing.catch((err) => {
+      log.warn('[persistentLog] 关闭文件句柄失败：%s', (err as Error).message);
+    });
     if (this.fh) {
       try {
         await this.fh.close();

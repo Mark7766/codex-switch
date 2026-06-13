@@ -118,8 +118,8 @@ export class TelemetryClient {
     }
 
     if (this.buffer.length >= FLUSH_THRESHOLD) {
-      this.flush().catch(() => {
-        /* 静默 */
+      this.flush().catch((err) => {
+        log.debug('[telemetry] track-triggered flush 失败：%s', (err as Error).message);
       });
     }
   }
@@ -285,8 +285,8 @@ export class TelemetryClient {
       this.timer = null;
       // 定时器触发时也检查是否需要 flush model_call 聚合
       this.flushModelCallAggregation();
-      this.flush().catch(() => {
-        /* 静默 */
+      this.flush().catch((err) => {
+        log.debug('[telemetry] 定时 flush 失败：%s', (err as Error).message);
       });
     }, this.nextFlushMs);
   }

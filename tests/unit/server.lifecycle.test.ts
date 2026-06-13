@@ -146,3 +146,18 @@ describe('DeepSeekProxy lifecycle (§7)', () => {
     agent.destroy();
   });
 });
+
+describe('DeepSeekProxy start stop roundtrip', () => {
+  it('can restart after stop', async () => {
+    const p = new DeepSeekProxy({ apiKey: '', port: 0, modelMapping: {} });
+    const port1 = await p.start();
+    expect(p.getStatus()).toBe('running');
+    await p.stop();
+    expect(p.getStatus()).toBe('stopped');
+    const port2 = await p.start();
+    expect(p.getStatus()).toBe('running');
+    await p.stop();
+    expect(port1).toBeGreaterThan(0);
+    expect(port2).toBeGreaterThan(0);
+  });
+});

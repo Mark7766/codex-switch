@@ -7,6 +7,8 @@ import {
   claudeDesktopConfigLibraryDir,
   claudeDesktopProfilePath,
   claudeDesktopMetaPath,
+  claudeDesktopDir,
+  claudeDesktop3pDir,
   backupPath as mkBackupPath,
 } from './paths';
 
@@ -229,8 +231,20 @@ export async function listClaudeDesktopBackups(): Promise<string[]> {
 
 /** Restore a specific backup file as the active config (matched by name). */
 export async function restoreClaudeDesktopBackup(backupFilePath: string): Promise<void> {
+  // H1: path traversal prevention — validate backup is within allowed directories
+  const resolvedBackup = path.resolve(backupFilePath);
+  const allowedDirs = [
+    path.resolve(claudeDesktopDir()) + path.sep,
+    path.resolve(claudeDesktop3pDir()) + path.sep,
+  ];
+  const withinAllowed = allowedDirs.some((dir) => resolvedBackup.startsWith(dir));
+  if (!withinAllowed) {
+    throw new Error(`拒绝访问 Claude Desktop 配置目录外的备份文件：${backupFilePath}`);
+  }
+  if (!/\.bak\.\d+$/.test(backupFilePath)) {
+    throw new Error('非法的备份文件名格式');
+  }
   const base = path.basename(backupFilePath);
-  // Strip the trailing `.bak.<digits>` to recover the original filename
   const originalName = base.replace(/\.bak\.\d+$/, '');
   const targetDir = path.dirname(backupFilePath);
   const targetPath = path.join(targetDir, originalName);

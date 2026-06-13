@@ -167,6 +167,11 @@ export function migrateIfNeeded(s: Store<UserPreferences>): void {
   }
 }
 
+// H6: write mutex — serializes preferences writes to prevent race conditions
+// between concurrent IPC handlers (e.g., applyPreferencesTransaction rollback
+// and prefsSet from another channel).
+let writeMutex: Promise<void> = Promise.resolve();
+
 export function getPreferences(): UserPreferences {
   return getStore().store;
 }
@@ -176,6 +181,17 @@ export function setPreferences(patch: Partial<UserPreferences>): UserPreferences
   const next = { ...s.store, ...patch };
   s.store = next;
   return next;
+}
+
+/** Serialized write — use when the caller needs to guarantee ordering. */
+export async function setPreferencesSerialized(
+  patch: Partial<UserPreferences>,
+): Promise<UserPreferences> {
+  return new Promise((resolve) => {
+    writeMutex = writeMutex.then(() => {
+      resolve(setPreferences(patch));
+    });
+  });
 }
 
 export function resetPreferences(): void {

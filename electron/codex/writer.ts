@@ -156,8 +156,19 @@ export async function writeCodexConfig(
 }
 
 export async function restoreCodexConfig(backupPathArg: string): Promise<string> {
-  const original = backupPathArg.replace(/\.bak\.\d+$/, '');
-  // 还原前再备份当前文件，防误操作
+  // H1: path traversal prevention — validate backup is within codexDir
+  const resolvedBackup = path.resolve(backupPathArg);
+  const allowedDir = path.resolve(codexDir()) + path.sep;
+  if (!resolvedBackup.startsWith(allowedDir)) {
+    throw new Error(`拒绝访问 codex 目录外的备份文件：${backupPathArg}`);
+  }
+  if (!/\.bak\.\d+$/.test(backupPathArg)) {
+    throw new Error('非法的备份文件名格式');
+  }
+  const original = path.resolve(backupPathArg.replace(/\.bak\.\d+$/, ''));
+  if (!original.startsWith(allowedDir)) {
+    throw new Error('拒绝还原到 codex 目录外的文件');
+  }
   await backupIfExists(original);
   await fs.copyFile(backupPathArg, original);
   if (path.basename(original) === 'auth.json') {
@@ -171,8 +182,14 @@ export async function restoreCodexConfig(backupPathArg: string): Promise<string>
 }
 
 export async function deleteBackup(backupPathArg: string): Promise<void> {
+  // H1: path traversal prevention
+  const resolvedPath = path.resolve(backupPathArg);
+  const allowedDir = path.resolve(codexDir()) + path.sep;
+  if (!resolvedPath.startsWith(allowedDir)) {
+    throw new Error(`拒绝删除 codex 目录外的文件：${backupPathArg}`);
+  }
   if (!/\.bak\.\d+$/.test(backupPathArg)) {
-    throw new Error('refuse to delete non-backup file');
+    throw new Error('非法的备份文件名格式');
   }
   await fs.unlink(backupPathArg);
 }

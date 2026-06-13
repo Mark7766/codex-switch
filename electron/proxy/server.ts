@@ -4,32 +4,29 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-import {
-  extractTools,
-  fixOrphanedToolResults,
-  fixToolMessageOrder,
-  itemsToMessages,
-  resolveModel,
-  type ChatMessage,
-  type ChatRequest,
-  type ResponsesItem,
-} from './translate';
+import { resolveModel } from './translate';
 import { ReasoningStore } from './reasoning';
-import { callDeepSeekSync, streamDeepSeek, type SseEvent } from './stream';
-import { translateError, redactSensitive, type ErrorAction } from './errors';
+
+import { type ErrorAction } from './errors';
 // v1.6.0: anthropic-relay removed — Claude Desktop now connects directly to api.deepseek.com
 import { ConversationStore } from './conversation-store';
+import { type CompactResult } from './compact';
 import {
-  compactHistory,
-  extractCompactionTriggers,
-  extractCompactionInputItems,
-  buildCompactionOutputItem,
-  type CompactOptions,
-  type CompactResult,
-} from './compact';
-
-const DEEPSEEK_BASE = 'api.deepseek.com';
-const REDACT_HEADERS = new Set(['authorization', 'cookie']);
+  handleCompactHttp,
+  compactAndStore as compactAndStoreFn,
+  processWsCompact as processWsCompactFn,
+  type CompactRouteDeps,
+} from './compact-routes';
+import { handleResponses, type HttpHandlerDeps } from './http-handler';
+import { handleWs as handleWsFn, type WsHandlerDeps } from './ws-handler';
+import { routeHttp } from './http-routes';
+import {
+  recordSuccess as recordSuccessFn,
+  recordError as recordErrorFn,
+  getRecentStats as getRecentStatsFn,
+  consumeLifetimeDelta as consumeLifetimeDeltaFn,
+  proxyLog,
+} from './stats';
 
 export interface ProxyOptions {
   apiKey: string;
@@ -215,44 +212,14 @@ export class DeepSeekProxy extends EventEmitter {
     return this.stats.total;
   }
 
-  /** 返回自上次调用以来的请求增量并清零，主进程用于持久化 lifetime 统计。 */
-  consumeLifetimeDelta(): {
-    requestsDelta: number;
-    uptimeMs: number;
-    inputTokensDelta: number;
-    outputTokensDelta: number;
-  } {
-    const d = this.stats.pendingDelta;
-    const it = this.stats.pendingInputTokensDelta;
-    const ot = this.stats.pendingOutputTokensDelta;
-    this.stats.pendingDelta = 0;
-    this.stats.pendingInputTokensDelta = 0;
-    this.stats.pendingOutputTokensDelta = 0;
-    return {
-      requestsDelta: d,
-      uptimeMs: this.getUptimeMs(),
-      inputTokensDelta: it,
-      outputTokensDelta: ot,
-    };
+  /** 返回自上次调用以来的请求增量并清零。 */
+  consumeLifetimeDelta(): ReturnType<typeof consumeLifetimeDeltaFn> {
+    return consumeLifetimeDeltaFn(this.stats, this.getUptimeMs());
   }
 
   /** 主面板"近 5 分钟"统计。 */
-  getRecentStats(windowMs = 5 * 60 * 1000): {
-    total: number;
-    successRate: number;
-    avgDurationMs: number;
-    lastError: string | null;
-  } {
-    const cutoff = Date.now() - windowMs;
-    this.stats.recent = this.stats.recent.filter((r) => r.ts >= cutoff);
-    const total = this.stats.recent.length;
-    const ok = this.stats.recent.filter((r) => r.ok).length;
-    return {
-      total,
-      successRate: total === 0 ? 1 : ok / total,
-      avgDurationMs: this.stats.total === 0 ? 0 : this.stats.totalDurationMs / this.stats.total,
-      lastError: this.stats.lastError,
-    };
+  getRecentStats(windowMs = 5 * 60 * 1000): ReturnType<typeof getRecentStatsFn> {
+    return getRecentStatsFn(this.stats, windowMs);
   }
 
   updateOptions(patch: Partial<ProxyOptions>): void {
@@ -311,8 +278,12 @@ export class DeepSeekProxy extends EventEmitter {
             });
           }
         })
-        .catch(() => {
-          /* best-effort; server still works without history */
+        .catch((err) => {
+          this.log({
+            level: 'warn',
+            source: 'proxy',
+            message: `加载对话历史失败：${(err as Error).message}`,
+          });
         });
       this.log({
         level: 'info',
@@ -435,7 +406,13 @@ export class DeepSeekProxy extends EventEmitter {
     });
     this.recoverTimer = setTimeout(() => {
       this.recoverTimer = null;
-      this.start().catch(() => undefined);
+      this.start().catch((err) => {
+        this.log({
+          level: 'warn',
+          source: 'proxy',
+          message: `自动恢复启动失败：${(err as Error).message}`,
+        });
+      });
     }, delay);
   }
 
@@ -559,1029 +536,131 @@ export class DeepSeekProxy extends EventEmitter {
     return r.model;
   }
 
-  // ─── HTTP handlers ───────────────────────────────────────────────────────
+  // ─── HTTP routing — delegated to http-routes.ts ─────────────────────────
 
   private handleHttp(req: IncomingMessage, res: ServerResponse): void {
-    const url = new URL(req.url || '/', `http://127.0.0.1:${this.actualPort}`);
-
-    if (req.method === 'GET' && url.pathname === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', port: this.actualPort }));
-      return;
-    }
-
-    if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/v1')) {
-      this.proxyModels(res);
-      return;
-    }
-
-    if (req.method === 'POST' && url.pathname === '/v1/responses') {
-      this.handleResponses(req, res);
-      return;
-    }
-
-    // ─── Context compaction (Codex Desktop background task) ───────────────
-    // v1.5.0: 完整重构 — 健壮性加固 + LLM 摘要压缩 + 持久化
-    if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
-      this.handleCompactHttp(req, res);
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+    routeHttp(req, res, {
+      actualPort: this.actualPort,
+      apiKey: this.opts.apiKey,
+      agent: this.agent,
+      handleResponses: (rq, rs) => this.handleResponses(rq, rs),
+      handleCompactHttp: (rq, rs) => this.handleCompactHttp(rq, rs),
+    });
   }
 
-  private proxyModels(res: ServerResponse): void {
-    if (!this.opts.apiKey) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing DeepSeek API key' }));
-      return;
-    }
-    https
-      .get(
-        {
-          hostname: DEEPSEEK_BASE,
-          path: '/v1/models',
-          agent: this.agent,
-          headers: {
-            Authorization: `Bearer ${this.opts.apiKey}`,
-            Accept: 'application/json',
-          },
-        },
-        (dsRes) => {
-          res.writeHead(dsRes.statusCode ?? 502, { 'Content-Type': 'application/json' });
-          dsRes.pipe(res);
-        },
-      )
-      .on('error', (e) => {
-        this.log({ level: 'error', source: 'http', message: `获取模型列表失败：${e.message}` });
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Upstream unreachable' }));
-      });
+  // ── v1.8.0: compact — delegated to compact-routes.ts ────────────────────
+
+  private getCompactDeps(): CompactRouteDeps {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const logFn = (entry: any) => this.log(entry);
+    return {
+      apiKey: this.opts.apiKey,
+      defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
+      conversationStore: this.conversationStore,
+      compactCache: this.compactCache as Map<string, CompactResult & { compactedId: string }>,
+      activeCompactions: this.activeCompactions,
+      log: logFn,
+    };
   }
 
-  // ── v1.5.0: compact ──────────────────────────────────────────────────────
-
-  private static readonly MAX_COMPACT_BODY = 1024 * 1024; // 1 MB
-  private static readonly COMPACT_TIMEOUT_MS = 30_000;
-
-  /** HTTP compact handler — robust error/timeout/size-limit. */
   private handleCompactHttp(req: IncomingMessage, res: ServerResponse): void {
-    let settled = false;
-    const ensureOnce = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
-
-    const sendError = (status: number, code: string, message: string) => {
-      ensureOnce(() => {
-        res.writeHead(status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { code, message } }));
-      });
-    };
-
-    // timeout
-    req.setTimeout(DeepSeekProxy.COMPACT_TIMEOUT_MS, () => {
-      sendError(408, 'request_timeout', 'compact 请求超时');
-      req.destroy();
-    });
-
-    // stream error
-    req.on('error', (e) => {
-      sendError(500, 'stream_error', `请求流错误：${e.message}`);
-    });
-
-    // body size limit
-    const contentLen = Number(req.headers['content-length'] ?? 0);
-    if (contentLen > DeepSeekProxy.MAX_COMPACT_BODY) {
-      sendError(413, 'payload_too_large', `请求体过大（${(contentLen / 1024).toFixed(0)} KB）`);
-      return;
-    }
-
-    let body = '';
-    req.on('data', (c: Buffer) => {
-      body += c;
-      if (body.length > DeepSeekProxy.MAX_COMPACT_BODY) {
-        sendError(413, 'payload_too_large', '请求体超过 1MB 限制');
-        req.destroy();
-      }
-    });
-
-    req.on('end', () => {
-      ensureOnce(() => {
-        this.processCompact(body, res);
-      });
-    });
+    handleCompactHttp(req, res, this.getCompactDeps());
   }
 
-  /** Parse body, extract previous_response_id, run compact, respond. */
-  private async processCompact(body: string, res: ServerResponse): Promise<void> {
-    let prevRespId: string | undefined;
-    try {
-      if (body.trim().length > 0) {
-        const parsed = JSON.parse(body) as { previous_response_id?: string };
-        prevRespId = parsed.previous_response_id;
-      }
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { code: 'bad_request', message: '请求体非 JSON' } }));
-      return;
-    }
-
-    try {
-      const result = await this.compactAndStore(prevRespId);
-
-      const respBody: Record<string, unknown> = {
-        id: result.compactedId,
-        object: 'response',
-        created_at: Math.floor(Date.now() / 1000),
-        status: 'completed',
-        model: this.opts.defaultModel ?? 'deepseek-v4-flash',
-        output: [],
-        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-        _compact: {
-          compacted: result.compacted,
-          method: result.method,
-          original_message_count: result.originalMessageCount,
-          compacted_message_count: result.compactedMessageCount,
-          summary_tokens: result.summaryTokens ?? 0,
-        },
-      };
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(respBody));
-    } catch (e) {
-      this.log({
-        level: 'error',
-        source: 'http',
-        message: `compact 处理失败：${(e as Error).message}`,
-      });
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: { code: 'compact_failed', message: (e as Error).message },
-        }),
-      );
-    }
-  }
-
-  /**
-   * 核心 compact 逻辑：加载历史 → 判断是否压缩 → 调用 LLM 摘要 / 回退截断。
-   * 返回的 compactedId 用于后续响应链。
-   */
   private async compactAndStore(
     prevRespId: string | undefined,
   ): Promise<CompactResult & { compactedId: string }> {
-    // check idempotency cache
-    const cacheKey = prevRespId ?? '__empty__';
-    const cached = this.compactCache.get(cacheKey);
-    if (cached) {
-      return { ...cached, compactedId: cached.compactedId };
-    }
-
-    const history = prevRespId ? (this.conversationStore.get(prevRespId) ?? []) : [];
-    const compactId = `resp_compact_${randomBytes(6).toString('hex')}`;
-
-    const compactOpts: CompactOptions = {
-      apiKey: this.opts.apiKey,
-      defaultModel: 'deepseek-chat',
-    };
-
-    const result = await compactHistory(history, compactOpts);
-    const merged = { ...result, compactedId: compactId };
-
-    this.conversationStore.set(compactId, merged.compactedMessages, {
-      compacted: merged.compacted,
-      compactedFrom: prevRespId ?? null,
-    });
-
-    // cache for idempotency
-    if (this.compactCache.size > 50) {
-      const oldest = this.compactCache.keys().next().value as string | undefined;
-      if (oldest !== undefined) this.compactCache.delete(oldest);
-    }
-    this.compactCache.set(cacheKey, merged);
-    // force immediate flush after compact
-    this.conversationStore.forceFlush().catch(() => {});
-
-    this.log({
-      level: 'info',
-      source: 'http',
-      message:
-        `↩ /v1/responses/compact → ${compactId} ` +
-        `(method=${merged.method}, original=${merged.originalMessageCount}, ` +
-        `compacted=${merged.compactedMessageCount}${merged.error ? `, error=${merged.error}` : ''})`,
-    });
-
-    return merged;
+    return compactAndStoreFn(prevRespId, this.getCompactDeps());
   }
 
-  /** WS compact event — async, non-blocking. */
   private processWsCompact(ws: WebSocket, prevRespId: string | undefined): void {
-    if (prevRespId && this.activeCompactions.has(prevRespId)) {
-      // already in progress — skip duplicate
-      return;
-    }
-    if (prevRespId) {
-      this.activeCompactions.add(prevRespId);
-    }
+    processWsCompactFn(ws, prevRespId, this.getCompactDeps());
+  }
 
-    this.compactAndStore(prevRespId)
-      .then((merged) => {
-        if (ws.readyState === 1) {
-          try {
-            ws.send(
-              JSON.stringify({
-                type: 'response.completed',
-                response: {
-                  id: merged.compactedId,
-                  object: 'response',
-                  status: 'completed',
-                  created_at: Math.floor(Date.now() / 1000),
-                  model: this.opts.defaultModel ?? 'deepseek-v4-flash',
-                  output: [],
-                  usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-                  _compact: {
-                    compacted: merged.compacted,
-                    method: merged.method,
-                    original_message_count: merged.originalMessageCount,
-                    compacted_message_count: merged.compactedMessageCount,
-                  },
-                },
-              }),
-            );
-          } catch {
-            /* ignore send errors */
-          }
-        }
-      })
-      .catch((err) => {
-        this.log({
-          level: 'error',
-          source: 'ws',
-          message: `WS compact 失败：${(err as Error).message}`,
-        });
-        if (ws.readyState === 1) {
-          try {
-            ws.send(
-              JSON.stringify({
-                type: 'error',
-                error: { code: 'compact_failed', message: (err as Error).message },
-              }),
-            );
-          } catch {
-            /* ignore */
-          }
-        }
-      })
-      .finally(() => {
-        if (prevRespId) {
-          this.activeCompactions.delete(prevRespId);
-        }
-      });
+  // ── deps builders ──────────────────────────────────────────────────────
+
+  private getHttpDeps(): HttpHandlerDeps {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const logFn = (entry: any) => this.log(entry);
+    return {
+      apiKey: this.opts.apiKey,
+      modelMapping: this.opts.modelMapping,
+      defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
+      agent: this.agent,
+      conversationStore: this.conversationStore,
+      reasoning: this.reasoning,
+      stats: this.stats,
+      log: logFn,
+      recordSuccess: (...args) => this.recordSuccess(...args),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recordError: (...args: any[]) => (this.recordError as any)(...args),
+      resolveAndWarn: (...args) => this.resolveAndWarn(...args),
+      emit: (event, payload) => this.emit(event, payload),
+      newReqId: () => newReqId(),
+    };
+  }
+
+  private getWsDeps(): WsHandlerDeps {
+    const httpDeps = this.getHttpDeps();
+    return {
+      ...httpDeps,
+      blockBackgroundSuggestions: this.opts.blockBackgroundSuggestions !== false,
+      isSuggestionRequest: (msg) => isBackgroundSuggestionRequest(msg),
+      processWsCompact: (ws, prevId) => this.processWsCompact(ws, prevId),
+      compactAndStore: (prevId: string | undefined) =>
+        this.compactAndStore(prevId) as unknown as Promise<{
+          compactedId: string;
+          [key: string]: unknown;
+        }>,
+    };
   }
 
   private handleResponses(req: IncomingMessage, res: ServerResponse): void {
-    const reqId = newReqId();
-    const startedAt = Date.now();
-    this.stats.total += 1;
-    this.stats.pendingDelta += 1;
-    this.emit('request', { source: 'http', path: '/v1/responses', reqId });
-
-    let body = '';
-    req.on('data', (c: Buffer) => (body += c));
-    req.on('end', () => {
-      let parsed: {
-        instructions?: string;
-        input?: unknown;
-        model?: string;
-        tools?: unknown;
-        stream?: boolean;
-        previous_response_id?: string;
-      };
-      try {
-        parsed = JSON.parse(body);
-      } catch (e) {
-        const reason = `请求解析失败：${(e as Error).message}`;
-        this.recordError(reqId, 'http', startedAt, undefined, undefined, reason, 'none', 400);
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: { message: (e as Error).message } }));
-        return;
-      }
-
-      const requestedModel = parsed.model;
-      const resolvedModel = this.resolveAndWarn(requestedModel, reqId, 'http');
-      const stream = parsed.stream === true;
-
-      this.log({
-        level: 'info',
-        source: 'http',
-        reqId,
-        phase: 'start',
-        message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=${stream}`,
-        requestedModel,
-        model: resolvedModel,
-      });
-
-      const prevRespId = parsed.previous_response_id;
-      const storedHistory = prevRespId ? (this.conversationStore.get(prevRespId) ?? null) : null;
-
-      let fullMessages: ChatMessage[];
-      if (storedHistory !== null) {
-        const newMessages = itemsToMessages(
-          Array.isArray(parsed.input) ? parsed.input : [],
-          this.reasoning.asMap(),
-        );
-        fullMessages = [...storedHistory, ...newMessages];
-      } else {
-        const sysMsg = parsed.instructions
-          ? [{ role: 'system', content: String(parsed.instructions) }]
-          : [];
-        fullMessages = [
-          ...sysMsg,
-          ...itemsToMessages(
-            Array.isArray(parsed.input) ? parsed.input : [],
-            this.reasoning.asMap(),
-          ),
-        ];
-      }
-
-      // DeepSeek rejects if any non-tool message appears between an
-      // assistant{tool_calls} and its tool results.  Reorder so that tool
-      // messages always come immediately after their matching tool_calls.
-      fullMessages = fixToolMessageOrder(fullMessages);
-      if (!fullMessages.some((m) => m.role === 'user' || m.role === 'tool')) {
-        fullMessages.push({ role: 'user', content: 'Hello' });
-      }
-
-      const chatReq: ChatRequest = { model: resolvedModel, messages: fullMessages };
-      const tools = extractTools(parsed.tools);
-      if (tools) chatReq.tools = tools;
-
-      const respId = `resp_${Date.now()}`;
-
-      if (stream) {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        const sse: SseEvent = (type, payload) =>
-          res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
-        sse('response.created', {
-          response: {
-            id: respId,
-            object: 'response',
-            created_at: Math.floor(Date.now() / 1000),
-            status: 'in_progress',
-            error: null,
-            incomplete_details: null,
-            model: chatReq.model,
-            output: [],
-          },
-        });
-        streamDeepSeek(
-          chatReq,
-          respId,
-          sse,
-          { apiKey: this.opts.apiKey, agent: this.agent },
-          this.reasoning,
-        )
-          .then(({ outputItems, finishReason, endTurn, usage }) => {
-            const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
-            this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-            this.conversationStore.markDirty();
-            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
-              endTurn,
-              finishReason,
-              usage,
-            });
-            res.end();
-          })
-          .catch((e) => {
-            const friendly = translateStreamError(e as Error);
-            this.recordError(
-              reqId,
-              'http',
-              startedAt,
-              requestedModel,
-              resolvedModel,
-              friendly.reason,
-              friendly.action,
-              friendly.statusCode,
-            );
-            res.end();
-          });
-      } else {
-        callDeepSeekSync(
-          { ...chatReq, stream: false },
-          {
-            apiKey: this.opts.apiKey,
-            agent: this.agent,
-          },
-        )
-          .then((r) => {
-            if (r.status !== 200) {
-              const f = translateError({ statusCode: r.status, body: r.body });
-              this.recordError(
-                reqId,
-                'http',
-                startedAt,
-                requestedModel,
-                resolvedModel,
-                f.reason,
-                f.action,
-                r.status,
-              );
-              res.writeHead(r.status);
-              res.end(JSON.stringify(r.body));
-              return;
-            }
-            const syncBody = r.body as {
-              choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
-              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-            };
-            const choices = syncBody.choices;
-            const msg = choices?.[0]?.message ?? {};
-            const msgId = `msg_${Date.now()}`;
-            const finishReason = choices?.[0]?.finish_reason ?? 'stop';
-            const usage = syncBody.usage
-              ? {
-                  inputTokens: syncBody.usage.prompt_tokens ?? 0,
-                  outputTokens: syncBody.usage.completion_tokens ?? 0,
-                  totalTokens: syncBody.usage.total_tokens ?? 0,
-                }
-              : undefined;
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(
-              JSON.stringify({
-                id: respId,
-                object: 'response',
-                status: 'completed',
-                model: chatReq.model,
-                output: [
-                  {
-                    id: msgId,
-                    type: 'message',
-                    status: 'completed',
-                    role: 'assistant',
-                    content: [{ type: 'output_text', text: msg.content || '', annotations: [] }],
-                  },
-                ],
-                usage: (r.body as { usage?: unknown }).usage || {},
-              }),
-            );
-
-            // Sync sync call output back to status history
-            const outputItems = [
-              {
-                id: msgId,
-                type: 'message',
-                status: 'completed',
-                role: 'assistant',
-                content: [{ type: 'output_text', text: msg.content || '', annotations: [] }],
-              },
-            ];
-            const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
-            this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-            this.conversationStore.markDirty();
-
-            this.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
-              finishReason,
-              usage,
-            });
-          })
-          .catch((e) => {
-            const f = translateError({ networkErrorMessage: (e as Error).message });
-            this.recordError(
-              reqId,
-              'http',
-              startedAt,
-              requestedModel,
-              resolvedModel,
-              f.reason,
-              f.action,
-              undefined,
-            );
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: { message: (e as Error).message } }));
-          });
-      }
-    });
+    handleResponses(req, res, this.getHttpDeps());
   }
-
-  // ─── WebSocket handler ───────────────────────────────────────────────────
+  // ─── WebSocket handler — delegated to ws-handler.ts ─────────────────────
 
   private handleWs(ws: WebSocket): void {
-    let lastToolCalls: ResponsesItem[] = [];
-    const connId = `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    this.log({ level: 'info', source: 'ws', message: `WebSocket 连接建立 conn=${connId}`, connId });
-
-    // §7-fix: WebSocket 心跳。`ws` 库的服务端不会自动发 ping，长时间无字节
-    // 流时，部分 codex CLI 版本会判定连接死亡并触发"Reconnecting…"，即便业务
-    // 请求其实是成功的（用户报告：proxy 日志全 200，但 codex 端一直重连）。
-    // 每 20s 主动 ping 一次，让客户端的 ping/pong 计时器持续刷新。
-    const heartbeat = setInterval(() => {
-      if (ws.readyState === 1) {
-        try {
-          ws.ping();
-        } catch {
-          /* ignore */
-        }
-      }
-    }, 20_000);
-
-    const debugWs = process.env.PROXY_DEBUG_WS === '1';
-    if (debugWs) {
-      const origSend = ws.send.bind(ws);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ws as any).send = (data: unknown, ...rest: unknown[]) => {
-        const s =
-          typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString() : String(data);
-        // eslint-disable-next-line no-console
-        console.log('[ws→]', s.slice(0, 400));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (origSend as any)(data, ...rest);
-      };
-    }
-
-    ws.on('message', async (data) => {
-      if (debugWs) {
-        // eslint-disable-next-line no-console
-        console.log('[ws←]', data.toString().slice(0, 600));
-      }
-      const reqId = newReqId();
-      const startedAt = Date.now();
-      let msg: {
-        type?: string;
-        input?: unknown;
-        instructions?: string;
-        model?: string;
-        tools?: unknown;
-        /** Codex 通过此字段引用上一轮响应，实现链式对话（Responses API 状态管理）。 */
-        previous_response_id?: string;
-      };
-      try {
-        msg = JSON.parse(data.toString());
-      } catch (e) {
-        this.log({
-          level: 'error',
-          source: 'ws',
-          message: `消息解析失败：${(e as Error).message}`,
-        });
-        return;
-      }
-      // v1.5.0: handle WS compact event
-      if (msg.type === 'response.compact') {
-        const prevId = (msg as { response?: { previous_response_id?: string } }).response
-          ?.previous_response_id;
-        this.processWsCompact(ws, prevId);
-        return;
-      }
-      if (msg.type !== 'response.create') {
-        // v1.5.1: 调试日志 — 捕获所有非 response.create 的 WS 消息
-        // 用于排查 Codex Desktop compact 等未被识别的消息类型
-        this.log({
-          level: 'warn',
-          source: 'ws',
-          connId,
-          reqId,
-          message: `⚠ 未识别的 WS 消息 type="${String(msg.type)}" (已丢弃)`,
-        });
-        return;
-      }
-
-      this.emit('request', { source: 'ws', path: '/v1/responses', reqId });
-
-      const requestedModel = msg.model;
-      const resolvedModel = this.resolveAndWarn(requestedModel, reqId, 'ws');
-
-      // 把 codex 实际发来的内容做摘要，便于诊断"同一个问题是否被重复打"。
-      const inputArr = Array.isArray(msg.input)
-        ? (msg.input as Array<Record<string, unknown>>)
-        : [];
-      const inputCount = inputArr.length;
-      const inputKinds: Record<string, number> = {};
-      for (const it of inputArr) {
-        const t = String(it.type ?? 'unknown');
-        inputKinds[t] = (inputKinds[t] ?? 0) + 1;
-      }
-      // 取最后一条 user/message 的文本前缀。
-      let lastUserPreview = '';
-      for (let i = inputArr.length - 1; i >= 0; i--) {
-        const it = inputArr[i] as { type?: string; role?: string; content?: unknown };
-        if (it && (it.type === 'message' || !it.type) && it.role !== 'assistant') {
-          const c = it.content;
-          if (typeof c === 'string') lastUserPreview = c;
-          else if (Array.isArray(c)) {
-            const part = c.find(
-              (p) =>
-                (p as { type?: string }).type === 'input_text' || (p as { text?: unknown }).text,
-            ) as { text?: unknown } | undefined;
-            if (part && typeof part.text === 'string') lastUserPreview = part.text;
-          }
-          if (lastUserPreview) break;
-        }
-      }
-      const toolsCount = Array.isArray(msg.tools) ? msg.tools.length : 0;
-      const inputSummary =
-        `items=${inputCount} ` +
-        `kinds={${Object.entries(inputKinds)
-          .map(([k, v]) => `${k}:${v}`)
-          .join(',')}} ` +
-        `tools=${toolsCount} ` +
-        `lastUser="${lastUserPreview.slice(0, 80).replace(/\s+/g, ' ')}"`;
-
-      this.log({
-        level: 'info',
-        source: 'ws',
-        reqId,
-        phase: 'start',
-        connId,
-        message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=true ${inputSummary}`,
-        requestedModel,
-        model: resolvedModel,
-      });
-
-      // Codex Desktop 的 "hyperpersonalized suggestions" 后台特性会在用户提问后
-      // 周期性触发 N 个独立 WS，每个又会拉起 4-7 次 tool-use 请求（用户实测一句话
-      // 触发 17+ 次调用，长时间累计上百次）。这些请求与用户当前会话无关，纯属
-      // 浪费 token。识别后直接发空 response.completed，不回源。
-      //
-      // 触发短路有两种：
-      //   1. 显式指纹（`# Overview / Generate 0 to 3 hyperpersonalized suggestions`）
-      //   2. **空 warm-up 请求**：input=[]——Codex Desktop 每次开新 WS 做后台
-      //      建议时第一帧总是这样（`instructions` 字段虽然带系统提示词，但
-      //      `input` 数组里没有任何用户/工具消息，等于"没活要干"）。挡掉这种
-      //      空帧能让整个轮询周期归零成本。codex CLI 的真实提问首帧 input.length≥1，
-      //      所以不会误伤正常使用。
-      const isEmptyWarmup = inputCount === 0;
-      const isSuggestion =
-        this.opts.blockBackgroundSuggestions !== false && isBackgroundSuggestionRequest(msg);
-      if (this.opts.blockBackgroundSuggestions !== false && (isSuggestion || isEmptyWarmup)) {
-        const reason = isSuggestion ? 'blocked-suggestion' : 'blocked-empty-input';
-        const respId = `resp_${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
-        const sendBlocked = (type: string, payload: Record<string, unknown>) => {
-          if (ws.readyState === 1) {
-            try {
-              ws.send(JSON.stringify({ type, ...payload }));
-            } catch {
-              /* ignore */
-            }
-          }
-        };
-        sendBlocked('response.created', {
-          response: {
-            id: respId,
-            object: 'response',
-            created_at: created,
-            status: 'in_progress',
-            error: null,
-            incomplete_details: null,
-            model: resolvedModel,
-            output: [],
-          },
-        });
-        sendBlocked('response.completed', {
-          response: {
-            id: respId,
-            object: 'response',
-            created_at: created,
-            status: 'completed',
-            error: null,
-            incomplete_details: null,
-            end_turn: true,
-            model: resolvedModel,
-            output: [],
-            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-          },
-        });
-        this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
-          endTurn: true,
-          finishReason: reason,
-          connId,
-        });
-        return;
-      }
-
-      // 只有真实转发给 DeepSeek 的请求才计入统计（不含被拦截的空转或 suggestion）。
-      this.stats.total += 1;
-      this.stats.pendingDelta += 1;
-
-      // OpenAI Responses API 是有状态的：Codex 每轮只发当前新消息，通过
-      // previous_response_id 引用上轮结果，由服务端维护完整历史。
-      // 代理必须查找并恢复历史，否则每轮只看到一条新消息，导致模型完全失忆。
-      const prevRespId = msg.previous_response_id;
-
-      // ── v1.5.4: handle compaction_trigger / compaction items ─────────────
-      const rawInput = Array.isArray(msg.input) ? msg.input : [];
-      let compactionOutputItem: Record<string, unknown> | null = null;
-      let workingInput = rawInput;
-
-      // 1) Extract & remove compaction_trigger items from input
-      const { compactionTriggers, filteredInput: inputWithoutTriggers } =
-        extractCompactionTriggers(workingInput);
-      workingInput = inputWithoutTriggers;
-
-      if (compactionTriggers.length > 0) {
-        this.log({
-          level: 'info',
-          source: 'ws',
-          reqId,
-          connId,
-          message: `↩ 检测到 ${compactionTriggers.length} 个 compaction_trigger，压缩历史中…`,
-        });
-        try {
-          const compacted = await this.compactAndStore(prevRespId);
-          compactionOutputItem = buildCompactionOutputItem(compacted);
-          this.log({
-            level: 'info',
-            source: 'ws',
-            reqId,
-            connId,
-            message:
-              `↩ 压缩完成 id=${compacted.compactedId} method=${compacted.method} ` +
-              `original=${compacted.originalMessageCount} compacted=${compacted.compactedMessageCount}`,
-          });
-        } catch (err) {
-          this.log({
-            level: 'warn',
-            source: 'ws',
-            reqId,
-            connId,
-            message: `↩ 压缩失败（继续正常请求）：${(err as Error).message}`,
-          });
-          compactionOutputItem = null;
-        }
-      }
-
-      // 2) Extract compaction items from input (previous round's compacted context)
-      const { messages: restoredCompactionMsgs, filteredInput: inputWithoutCompaction } =
-        extractCompactionInputItems(workingInput);
-      workingInput = inputWithoutCompaction;
-
-      const storedHistory = prevRespId ? (this.conversationStore.get(prevRespId) ?? null) : null;
-
-      let fullMessages: ChatMessage[];
-      if (restoredCompactionMsgs !== null) {
-        // Compaction-restored history takes precedence — prepend before new messages
-        const newMessages = itemsToMessages(workingInput, this.reasoning.asMap());
-        fullMessages = [...restoredCompactionMsgs, ...newMessages];
-      } else if (storedHistory !== null) {
-        // 链式模式：从 store 恢复历史 + 追加当轮新消息
-        const newMessages = itemsToMessages(workingInput, this.reasoning.asMap());
-        fullMessages = [...storedHistory, ...newMessages];
-      } else {
-        // 全量模式 / 首轮：input 中已含完整历史，或 store 未命中（如重连）
-        const fixedInput = fixOrphanedToolResults(workingInput, lastToolCalls);
-        const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
-        fullMessages = [...sysMsg, ...itemsToMessages(fixedInput, this.reasoning.asMap())];
-      }
-      // DeepSeek rejects if any non-tool message appears between an
-      // assistant{tool_calls} and its tool results.  Reorder so that tool
-      // messages always come immediately after their matching tool_calls.
-      fullMessages = fixToolMessageOrder(fullMessages);
-      if (!fullMessages.some((m) => m.role === 'user' || m.role === 'tool')) {
-        fullMessages.push({ role: 'user', content: 'Hello' });
-      }
-
-      const chatReq: ChatRequest = { model: resolvedModel, messages: fullMessages };
-      const tools = extractTools(msg.tools);
-      if (tools) chatReq.tools = tools;
-
-      const respId = `resp_${Date.now()}`;
-      const send: SseEvent = (type, payload) => {
-        if (ws.readyState === 1) {
-          try {
-            ws.send(JSON.stringify({ type, ...payload }));
-          } catch {
-            /* ignore */
-          }
-        }
-      };
-
-      send('response.created', {
-        response: {
-          id: respId,
-          object: 'response',
-          created_at: Math.floor(Date.now() / 1000),
-          status: 'in_progress',
-          error: null,
-          incomplete_details: null,
-          model: chatReq.model,
-          output: [],
-        },
-      });
-
-      streamDeepSeek(
-        chatReq,
-        respId,
-        send,
-        { apiKey: this.opts.apiKey, agent: this.agent },
-        this.reasoning,
-        compactionOutputItem ? [compactionOutputItem] : undefined,
-      )
-        .then(({ outputItems, finishReason, endTurn, usage }) => {
-          lastToolCalls = outputItems.filter(
-            (o) => (o as ResponsesItem).type === 'function_call',
-          ) as ResponsesItem[];
-          // 保存完整对话上下文（当轮 input + assistant 输出），供下轮 previous_response_id 恢复。
-          const assistantOutputMessages = itemsToMessages(outputItems, this.reasoning.asMap());
-          this.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-          this.conversationStore.markDirty();
-          this.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
-            endTurn,
-            finishReason,
-            connId,
-            usage,
-          });
-        })
-        .catch((e) => {
-          const f = translateStreamError(e as Error);
-          this.recordError(
-            reqId,
-            'ws',
-            startedAt,
-            requestedModel,
-            resolvedModel,
-            f.reason,
-            f.action,
-            f.statusCode,
-          );
-          send('error', { error: { message: f.reason, type: 'server_error' } });
-        });
-    });
-
-    ws.on('error', (e) =>
-      this.log({
-        level: 'error',
-        source: 'ws',
-        connId,
-        message: `WebSocket 错误：${e.message}`,
-      }),
-    );
-    ws.on('close', (code, reason) => {
-      clearInterval(heartbeat);
-      const r = reason && reason.length > 0 ? reason.toString() : '';
-      this.log({
-        level: 'info',
-        source: 'ws',
-        connId,
-        message: `WebSocket 关闭 conn=${connId} code=${code}${r ? ` reason=${r}` : ''}`,
-      });
-    });
+    handleWsFn(ws, this.getWsDeps());
   }
+  // ─── Stats & Logging — delegated to stats.ts ────────────────────────────
 
-  private recordSuccess(
-    reqId: string,
-    source: 'http' | 'ws',
-    startedAt: number,
-    requestedModel: string | undefined,
-    model: string,
-    statusCode: number,
-    extras?: {
-      endTurn?: boolean;
-      finishReason?: string | null;
-      connId?: string;
-      usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
-    },
-  ): void {
-    const durationMs = Date.now() - startedAt;
-    const isBlocked = (extras?.finishReason ?? '').startsWith('blocked-');
-    if (!isBlocked) {
-      this.stats.success += 1;
-      this.stats.totalDurationMs += durationMs;
-      this.stats.recent.push({ ts: Date.now(), ok: true });
-      if (extras?.usage) {
-        this.stats.pendingInputTokensDelta += extras.usage.inputTokens;
-        this.stats.pendingOutputTokensDelta += extras.usage.outputTokens;
-      }
-    }
-    const turnTag = extras
-      ? ` end_turn=${extras.endTurn} finish=${extras.finishReason ?? 'null'}`
-      : '';
-    const tokenTag =
-      !isBlocked && extras?.usage && extras.usage.totalTokens > 0
-        ? ` ↑${extras.usage.inputTokens}↓${extras.usage.outputTokens}`
-        : '';
-    this.log({
-      level: 'info',
-      source,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private recordSuccess(...args: any[]): void {
+    const [reqId, source, startedAt, requestedModel, model, statusCode, extras] = args;
+    recordSuccessFn(
+      this.stats,
+      this.opts,
+      (e) => this.emit('log', { ts: Date.now(), ...e } as ProxyLogEntry),
       reqId,
-      phase: 'success',
-      message: `✓ 请求成功 状态=${statusCode} 耗时=${durationMs}ms model=${model}${turnTag}${tokenTag}`,
-      durationMs,
+      source,
+      startedAt,
       requestedModel,
       model,
       statusCode,
-      ...(extras?.endTurn !== undefined ? { endTurn: extras.endTurn } : {}),
-      ...(extras?.finishReason !== undefined && extras.finishReason !== null
-        ? { finishReason: extras.finishReason }
-        : {}),
-      ...(extras?.connId ? { connId: extras.connId } : {}),
-      ...(extras?.usage && !isBlocked
-        ? { inputTokens: extras.usage.inputTokens, outputTokens: extras.usage.outputTokens }
-        : {}),
-    });
-    // v1.7.0 telemetry
-    if (!isBlocked) {
-      try {
-        this.opts.onModelCall?.({
-          model: model || 'unknown',
-          stream: true,
-          duration_ms: durationMs,
-          success: true,
-          input_tokens: extras?.usage?.inputTokens,
-          output_tokens: extras?.usage?.outputTokens,
-        });
-      } catch {
-        /* telemetry failure must never break the proxy */
-      }
-    }
+      extras,
+    );
   }
 
-  private recordError(
-    reqId: string,
-    source: 'http' | 'ws',
-    startedAt: number,
-    requestedModel: string | undefined,
-    model: string | undefined,
-    reason: string,
-    action: ErrorAction,
-    statusCode: number | undefined,
-  ): void {
-    const durationMs = Date.now() - startedAt;
-    this.stats.error += 1;
-    this.stats.totalDurationMs += durationMs;
-    this.stats.recent.push({ ts: Date.now(), ok: false });
-    this.stats.lastError = reason;
-    this.stats.lastErrorTs = Date.now();
-    this.log({
-      level: 'error',
-      source,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private recordError(...args: any[]): void {
+    const [reqId, source, startedAt, requestedModel, model, reason, action, statusCode] = args;
+    recordErrorFn(
+      this.stats,
+      this.opts,
+      (e) => this.emit('log', { ts: Date.now(), ...e } as ProxyLogEntry),
       reqId,
-      phase: 'error',
-      message: `✗ 请求失败 状态=${statusCode ?? '未知'} 耗时=${durationMs}ms 原因=${reason}`,
-      durationMs,
+      source,
+      startedAt,
       requestedModel,
-      ...(model !== undefined ? { model } : {}),
-      ...(statusCode !== undefined ? { statusCode } : {}),
-      errorReason: reason,
-      errorAction: action,
-    });
-    // v1.7.0 telemetry
-    try {
-      this.opts.onModelCall?.({
-        model: model || requestedModel || 'unknown',
-        stream: true,
-        duration_ms: durationMs,
-        success: false,
-        error_reason: reason.slice(0, 100),
-      });
-    } catch {
-      /* telemetry failure must never break the proxy */
-    }
+      model,
+      reason,
+      action,
+      statusCode,
+    );
   }
 
   private log(entry: Omit<ProxyLogEntry, 'ts'>): void {
-    const safe: ProxyLogEntry = {
-      ts: Date.now(),
-      ...entry,
-      message: redactSensitive(entry.message),
-    };
-    this.emit('log', safe);
+    proxyLog((e) => this.emit('log', e), entry);
   }
-}
-
-function translateStreamError(e: Error): {
-  reason: string;
-  action: ErrorAction;
-  statusCode: number | undefined;
-} {
-  // streamDeepSeek 的 reject 错误形如: "DeepSeek 400: <body>"
-  const m = e.message.match(/^DeepSeek\s+(\d+):\s*(.+)$/);
-  if (m) {
-    const status = parseInt(m[1]!, 10);
-    let bodyParsed: unknown;
-    try {
-      bodyParsed = JSON.parse(m[2]!);
-    } catch {
-      bodyParsed = { error: { message: m[2] } };
-    }
-    const f = translateError({ statusCode: status, body: bodyParsed });
-    return { reason: f.reason, action: f.action, statusCode: status };
-  }
-  const f = translateError({ networkErrorMessage: e.message });
-  return { reason: f.reason, action: f.action, statusCode: undefined };
-}
-
-export function redactHeaders(headers: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    out[k] = REDACT_HEADERS.has(k.toLowerCase()) ? '***REDACTED***' : v;
-  }
-  return out;
 }

@@ -1,10 +1,7 @@
 export const IPC = {
-  // 状态
-  proxyStatus: 'proxy:status',
   proxyStart: 'proxy:start',
   proxyStop: 'proxy:stop',
   proxyInfo: 'proxy:info',
-  proxyLog: 'proxy:log',
   proxyOnStatus: 'proxy:on-status',
   proxyOnLog: 'proxy:on-log',
   /** §7 主进程主动推送的代理错误（端口冲突 / 运行期 crash / 自动恢复失败）。 */

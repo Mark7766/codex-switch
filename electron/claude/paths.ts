@@ -8,7 +8,7 @@ import path from 'node:path';
  * macOS: ~/Library/Application Support/Claude
  * Windows: %LOCALAPPDATA%/Claude
  */
-function claudeDesktopDir(): string {
+export function claudeDesktopDir(): string {
   if (process.platform === 'darwin') {
     return path.join(os.homedir(), 'Library', 'Application Support', 'Claude');
   }
@@ -23,7 +23,7 @@ function claudeDesktopDir(): string {
  * Root directory of the Claude Desktop "3p" (third-party gateway) config.
  * Sibling of claudeDesktopDir(), with `-3p` suffix.
  */
-function claudeDesktop3pDir(): string {
+export function claudeDesktop3pDir(): string {
   if (process.platform === 'darwin') {
     return path.join(os.homedir(), 'Library', 'Application Support', 'Claude-3p');
   }
