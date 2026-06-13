@@ -19,7 +19,8 @@ import {
 } from './translate';
 import type { ReasoningStore } from './reasoning';
 import { streamDeepSeek, type SseEvent } from './stream';
-import { translateError } from './errors';
+import { translateError, isContextExceededError } from './errors';
+import { emergencyCompact } from './compact';
 import type { ConversationStore } from './conversation-store';
 import {
   extractCompactionTriggers,
@@ -368,7 +369,43 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
           usage,
         });
       })
-      .catch((e) => {
+      .catch(async (e) => {
+        // v1.8.1: context exceeded recovery — compact and retry once
+        if (isContextExceededError(e as Error) && fullMessages.length > 5) {
+          const compacted = emergencyCompact(fullMessages);
+          deps.log({
+            level: 'warn',
+            source: 'ws',
+            reqId,
+            connId,
+            message: `上下文超限，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
+          });
+          const retryReq = { ...chatReq, messages: compacted };
+          try {
+            const result = await streamDeepSeek(
+              retryReq,
+              respId,
+              send,
+              { apiKey: deps.apiKey, agent: deps.agent },
+              deps.reasoning,
+              compactionOutputItem ? [compactionOutputItem] : undefined,
+            );
+            deps.conversationStore.set(respId, [
+              ...compacted,
+              ...itemsToMessages(result.outputItems, deps.reasoning.asMap()),
+            ]);
+            deps.conversationStore.markDirty();
+            deps.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
+              endTurn: result.endTurn,
+              finishReason: result.finishReason,
+              connId,
+              usage: result.usage,
+            });
+            return;
+          } catch {
+            /* retry failed, fall through */
+          }
+        }
         const f = translateStreamError(e as Error);
         deps.recordError(
           reqId,

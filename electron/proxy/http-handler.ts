@@ -17,7 +17,8 @@ import {
 } from './translate';
 import type { ReasoningStore } from './reasoning';
 import { streamDeepSeek, callDeepSeekSync, type SseEvent } from './stream';
-import { translateError } from './errors';
+import { translateError, isContextExceededError } from './errors';
+import { emergencyCompact } from './compact';
 import type { ConversationStore } from './conversation-store';
 
 // ── deps interface ───────────────────────────────────────────────────────
@@ -181,7 +182,41 @@ export function handleResponses(
           });
           res.end();
         })
-        .catch((e) => {
+        .catch(async (e) => {
+          // v1.8.1: context exceeded recovery — compact and retry once
+          if (isContextExceededError(e as Error) && fullMessages.length > 5) {
+            const compacted = emergencyCompact(fullMessages);
+            deps.log({
+              level: 'warn',
+              source: 'http',
+              reqId,
+              message: `上下文超限，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
+            });
+            const retryReq = { ...chatReq, messages: compacted };
+            try {
+              const result = await streamDeepSeek(
+                retryReq,
+                respId,
+                sse,
+                { apiKey: deps.apiKey, agent: deps.agent },
+                deps.reasoning,
+              );
+              deps.conversationStore.set(respId, [
+                ...compacted,
+                ...itemsToMessages(result.outputItems, deps.reasoning.asMap()),
+              ]);
+              deps.conversationStore.markDirty();
+              deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+                endTurn: result.endTurn,
+                finishReason: result.finishReason,
+                usage: result.usage,
+              });
+              res.end();
+              return;
+            } catch {
+              /* retry failed, fall through to normal error */
+            }
+          }
           const friendly = translateStreamError(e as Error);
           deps.recordError(
             reqId,
@@ -268,7 +303,33 @@ export function handleResponses(
             usage,
           });
         })
-        .catch((e) => {
+        .catch(async (e) => {
+          // v1.8.1: context exceeded recovery — compact and retry once
+          if (isContextExceededError(e as Error) && fullMessages.length > 5) {
+            const compacted = emergencyCompact(fullMessages);
+            deps.log({
+              level: 'warn',
+              source: 'http',
+              reqId,
+              message: `上下文超限(sync)，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
+            });
+            try {
+              const retryResult = await callDeepSeekSync(
+                { ...chatReq, messages: compacted, stream: false },
+                { apiKey: deps.apiKey, agent: deps.agent },
+              );
+              deps.conversationStore.set(respId, compacted);
+              deps.conversationStore.markDirty();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(retryResult.body));
+              deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+                finishReason: 'stop',
+              });
+              return;
+            } catch {
+              /* retry failed, fall through */
+            }
+          }
           const f = translateError({ networkErrorMessage: (e as Error).message });
           deps.recordError(
             reqId,

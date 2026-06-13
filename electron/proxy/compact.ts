@@ -90,6 +90,45 @@ export function shouldCompact(messages: ChatMessage[], threshold?: number): bool
 }
 
 /**
+ * 粗略估算消息列表的 token 数。
+ * 中文 ~1.5 chars/token，英文 ~4 chars/token，折中取 2 chars/token。
+ * 用于在消息数阈值之前提前判断是否需要压缩。
+ */
+export function estimateTokens(messages: ChatMessage[]): number {
+  let chars = 0;
+  for (const m of messages) {
+    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+    chars += content.length;
+  }
+  return Math.ceil(chars / 2);
+}
+
+/** 当 token 数超过模型上下文窗口的 70% 时触发压缩。 */
+export function shouldCompactByTokens(
+  messages: ChatMessage[],
+  modelContextLimit = 128_000,
+): boolean {
+  return estimateTokens(messages) > modelContextLimit * 0.7;
+}
+
+/**
+ * 紧急压缩：用于 context length exceeded 错误后的自动恢复。
+ * 不做 LLM 摘要（避免再多一次 API 调用），直接截断。
+ * 保留最近 20 条 + 开头一条说明。
+ */
+export function emergencyCompact(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= 20) {
+    return messages.slice(-10);
+  }
+  const recent = messages.slice(-20);
+  const notice: ChatMessage = {
+    role: 'system',
+    content: '[对话历史已超出模型长度限制，早期内容已自动截断。如需恢复完整上下文，请开启新对话。]',
+  };
+  return [notice, ...recent];
+}
+
+/**
  * 压缩对话历史。
  *
  * 流程：

@@ -143,3 +143,18 @@ export function redactSensitive(text: string): string {
   }
   return out;
 }
+
+/**
+ * 判断是否为 DeepSeek 上下文超限错误。
+ * 用于触发紧急压缩→自动重试的容错恢复路径。
+ */
+export function isContextExceededError(e: Error): boolean {
+  const msg = (e.message ?? '').toLowerCase();
+  return (
+    msg.includes('context length') ||
+    msg.includes('too long') ||
+    msg.includes('maximum context') ||
+    msg.includes('exceed') ||
+    (msg.includes('400') && msg.includes('context'))
+  );
+}
