@@ -11,6 +11,10 @@ files:
 extraResources:
   - from: CHANGELOG.md
     to: CHANGELOG.md
+  - from: build/logo-codex.png
+    to: build/logo-codex.png
+  - from: build/logo-claude.svg
+    to: build/logo-claude.svg
   - from: docs/help
     to: docs/help
     filter: ['**/*']

@@ -81,6 +81,21 @@ export const IPC = {
   // v1.9.0 对话记录来源切换
   codexHasOriginalBackup: 'codex:has-original-backup',
   codexRestoreOriginal: 'codex:restore-original',
+  // v1.10.0 离线插件安装
+  /** 获取插件包信息。 */
+  pluginsGetPackInfo: 'plugins:get-pack-info',
+  /** 开始下载插件包（savePath 可选，默认 ~/Downloads）。 */
+  pluginsDownload: 'plugins:download',
+  /** 取消正在进行的下载。 */
+  pluginsCancelDownload: 'plugins:cancel-download',
+  /** 生成并返回安装指令文本。 */
+  pluginsGetInstallCommand: 'plugins:get-install-command',
+  /** 在文件管理器中打开下载目录。 */
+  pluginsOpenDownloadDir: 'plugins:open-download-dir',
+  /** 检查是否已有有效下载文件。 */
+  pluginsCheckExistingFile: 'plugins:check-existing-file',
+  /** 获取插件品牌 Logo（base64 data URL）。 */
+  pluginsGetLogo: 'plugins:get-logo',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

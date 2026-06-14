@@ -21,6 +21,53 @@
 
 ## 任务记录
 
+### [TASK-059] v1.10.0 离线插件安装功能 — 完整实施
+- **日期**：2026-06-15
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-codex-offline-plugins-v1.10.0.md` 完整实施离线插件安装功能。① 新建 `electron/plugins/` 模块（PluginManager：getPackInfo / downloadPack / cancelDownload / getInstallCommand），支持流式下载 + 302 重定向到 COS + 进度推送 + 静止超时；② 新建 `src/pages/Plugins.tsx` 插件页面（5 阶段：loading/info/downloading/complete/error），含安装引导指令和复制按钮；③ IPC 通道新增 5 个 channels + preload 暴露 7 个 API + 3 个事件监听；④ main.ts 集成 PluginManager 初始化和 IPC handler 注册；⑤ Dashboard 新增插件快捷卡片；⑥ App.tsx 侧边栏新增"🔌 插件"入口；⑦ 新增 `tests/unit/plugins.test.ts` 5 个测试。219/219 tests ✅，typecheck ✅，lint ✅。代码未推送，待 Server 部署生产后联调。
+- **变更文件**：
+  - `electron/plugins/types.ts`（新建，42 行）
+  - `electron/plugins/index.ts`（新建，275 行）
+  - `electron/ipc/channels.ts`（+6 行）
+  - `electron/preload.ts`（+28 行）
+  - `electron/main.ts`（+47 行：import + var + init +5 handlers）
+  - `src/pages/Plugins.tsx`（新建，255 行）
+  - `src/App.tsx`（+6 行：import + route + sidebar entry + title）
+  - `src/components/HeaderBar.tsx`（+1 行）
+  - `src/components/HelpDrawer.tsx`（+2 行）
+  - `src/pages/Dashboard.tsx`（+17 行：插件快捷卡片）
+  - `src/lib/store.ts`（+1 行：'plugins' Page 类型）
+  - `src/types/global.d.ts`（+28 行：PluginPackInfo / DownloadProgress 类型 + API 方法）
+  - `tests/unit/plugins.test.ts`（新建，75 行，5 用例）
+- **关联**：DESIGN-codex-offline-plugins-v1.10.0.md、Server `docs/superpowers/specs/2026-06-14-codex-offline-plugins.md`
+- **注意事项**：
+  1. 代码未推送远程仓库
+  2. COS 广州 302 链路联调通过：`/api/v1/plugins/pack/download` → 302 → `codex-switch-1259344349.cos.ap-guangzhou.myqcloud.com` → 36MB/1.2s 本地，生产预计 15-20s
+  3. 下载保存到 `~/Downloads/codex-offline-pack.tar.gz`，支持去重检测（已有则跳过下载直跳安装引导）
+  4. tar.gz 完整性验证通过：`codex-offline-pack/` 目录含 173 个插件
+  5. 遥测 3 事件已接入、磁盘空间检查已实现、NEW 角标 + FAQ 已补充
+
+### [TASK-060] v1.10.0 Review 修补 — P0 测试 + P1 遥测 + P2 去重/磁盘检查 + P3 UI 联动
+- **日期**：2026-06-15
+- **类型**：feat / test
+- **摘要**：按 review 指出的 4 级优先级修补 v1.10.0 实现偏差。① P0：downloadPack() 新增 5 个 mock 测试（302成功/COS故障/服务器不可达/非302/取消），getPackInfo() 新增 5 个 mock 测试（成功/超时/非零code/非法JSON/网络错误），tests/unit/plugins.test.ts 从 5→13 用例；② P1：main.ts IPC handler 中接入 3 个遥测事件（plugin_pack_info_fetch / plugin_pack_download / plugin_install_command_copy）；③ P2：PluginManager 新增 checkExistingFile() 去重检测（已有文件→跳下载直跳安装引导）+ checkDiskSpace() 磁盘检查（statfs + write-test 降级），downloadPack() 入口增加磁盘空间守卫；Plugins.tsx onMount 优先检查已有文件；④ P3：Dashboard 插件卡片 NEW 角标（hasSeenPlugins 持久化存储），Plugins.tsx 首次使用提示，Help FAQ 新增"如何安装 Codex 插件？"。227/227 tests ✅，typecheck ✅，lint ✅。本地 COS 302 联调通过（36MB/1.2s，tar.gz 完整性验证通过）。
+- **变更文件**：
+  - `tests/unit/plugins.test.ts`（重写：13 用例，mock http/https + FakeIncomingMessage.pipe()）
+  - `electron/main.ts`（+3 遥测事件 + pluginsCheckExistingFile handler）
+  - `electron/plugins/index.ts`（+checkExistingFile / checkDiskSpace / downloadPack 磁盘守卫）
+  - `electron/ipc/channels.ts`（+pluginsCheckExistingFile）
+  - `electron/preload.ts`（+pluginsCheckExistingFile API）
+  - `electron/config/store.ts`（+hasSeenPlugins 字段）
+  - `src/pages/Plugins.tsx`（onMount 去重检测、首次使用提示）
+  - `src/pages/Dashboard.tsx`（NEW 角标 + hasSeenPlugins 读取）
+  - `src/types/global.d.ts`（+hasSeenPlugins / pluginsCheckExistingFile）
+  - `tests/unit/Dashboard.test.tsx`（+getPreferences / setPreferences mock）
+  - `docs/help/faq.json`（+install-plugins 条目）
+- **关联**：TASK-059、DESIGN-codex-offline-plugins-v1.10.0.md
+- **注意事项**：
+  1. COS 302 链路已在本地验证：Server → 302 → codex-switch-1259344349.cos.ap-guangzhou.myqcloud.com/files/codex-offline-pack.tar.gz → 36MB tar.gz
+  2. 代码未推送远程仓库，等用户授权
+
 ### [TASK-058] v1.9.0 对话历史保护方案 — 完整实施
 - **日期**：2026-06-14
 - **类型**：fix / feat

@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v1.0.0（首个公开稳定版） |
+| 当前阶段 | v1.10.0（开发中，新增离线插件安装功能） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -133,6 +133,7 @@
 | 流式转发 | `electron/proxy/stream.ts` | SSE pipe，断流处理；含 `callDeepSeekSync` 非流式 API | ✅ 已完成 v0.1 |
 | 上下文压缩 | `electron/proxy/compact.ts` | LLM 摘要压缩（>20 条触发）+ 超时回退截断；v1.5.4 新增 compaction_trigger / compaction item 协议处理 | ✅ v1.5.4 |
 | 对话持久化 | `electron/proxy/conversation-store.ts` | ndjson 文件存储，atomic write，启动恢复，24h/50 条清理 | ✅ v1.5.0 |
+| 插件下载 | `electron/plugins/index.ts` | 离线插件包下载（Server API → COS 302 → 流式写入磁盘），进度推送，安装指令生成 | ✅ v1.10.0 |
 | Codex 路径 | `electron/codex/paths.ts` | 跨平台 `~/.codex` 解析 | ✅ 已完成 v0.1 |
 | Codex 写入 | `electron/codex/writer.ts` | 写 config.toml / auth.json + 备份 + 还原 | ✅ 已完成 v0.1 |
 | Codex 还原 | `electron/codex/writer.ts` | 一键还原最近的备份（合并到 writer.ts） | ✅ 已完成 v0.1 |

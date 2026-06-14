@@ -100,5 +100,11 @@
     "tag": "Claude",
     "question": "如何完全退出 Codex Switch，不留任何痕迹？",
     "answer": "进入「设置 → Claude 工具接入」，点击底部「一键卸载所有写入的配置」按钮。这会同时还原 Codex 配置文件（~/.codex/）、删除 Shell profile 中的 Codex Switch 注入块，以及还原 Claude Desktop 配置。之后退出应用即可。"
+  },
+  {
+    "id": "install-plugins",
+    "tag": "插件",
+    "question": "如何安装 Codex 插件？",
+    "answer": "Codex Switch 提供一键下载离线插件包。进入左侧「🔌 插件」页面，点击「下载插件包」（约 36MB，国内高速下载 15 秒完成），下载完成后点击「复制指令」，粘贴到 Codex 对话框中发送即可。Codex 会自动解包并安装全部 173 个精选插件。"
   }
 ]

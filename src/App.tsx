@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { Logs } from './pages/Logs';
 import { Help } from './pages/Help';
+import { Plugins } from './pages/Plugins';
 import { ChangelogModal } from './components/ChangelogModal';
 import { HeaderBar } from './components/HeaderBar';
 import { ToastStack } from './components/Toast';
@@ -102,6 +103,7 @@ export default function App(): JSX.Element {
           {page === 'settings' && <Settings />}
           {page === 'logs' && <Logs />}
           {page === 'help' && <Help />}
+          {page === 'plugins' && <Plugins />}
         </div>
       </main>
       <ChangelogModal open={showChangelog} onClose={closeChangelog} version={version} />
@@ -117,19 +119,25 @@ function titleOf(page: string): string {
   if (page === 'settings') return '设置';
   if (page === 'logs') return '日志';
   if (page === 'help') return '帮助';
+  if (page === 'plugins') return '插件';
   return 'Codex Switch';
 }
 
 interface SidebarProps {
   page: string;
-  setPage: (p: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help') => void;
+  setPage: (p: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help' | 'plugins') => void;
   status: string;
 }
 
 function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
-  const items: Array<{ id: 'dashboard' | 'settings' | 'logs'; label: string; emoji: string }> = [
+  const items: Array<{
+    id: 'dashboard' | 'settings' | 'plugins' | 'logs';
+    label: string;
+    emoji: string;
+  }> = [
     { id: 'dashboard', label: '主面板', emoji: '🏠' },
     { id: 'settings', label: '设置', emoji: '⚙️' },
+    { id: 'plugins', label: '插件', emoji: '🔌' },
     { id: 'logs', label: '日志', emoji: '📜' },
   ];
   const statusColor =

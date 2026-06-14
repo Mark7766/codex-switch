@@ -8,7 +8,7 @@ import { useAppStore } from '@/lib/store';
 interface HelpDrawerProps {
   open: boolean;
   onClose: () => void;
-  page: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help';
+  page: 'setup' | 'dashboard' | 'settings' | 'logs' | 'help' | 'plugins';
 }
 
 type Tab = 'faq' | 'onboarding' | 'diag' | 'report' | 'qa';
@@ -19,6 +19,7 @@ const PAGE_TIP: Record<HelpDrawerProps['page'], string> = {
   settings: '当前在设置：可调整端口、模型映射、备份策略和更新镜像。',
   logs: '当前在日志：每次请求都有 req_xxxxx 编号，点击展开看详情。',
   help: '当前在帮助：上手指南、常见问题和诊断报告。',
+  plugins: '当前在插件：可下载离线插件包并引导 Codex 完成安装。',
 };
 
 export function HelpDrawer({ open, onClose, page }: HelpDrawerProps): JSX.Element | null {

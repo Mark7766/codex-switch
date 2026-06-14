@@ -46,6 +46,7 @@ import {
 import { ServerClient } from './server-client/client';
 import { TelemetryClient } from './server-client/telemetry';
 import { resolveServerUrl, generateClientId } from './server-client/config';
+import { PluginManager } from './plugins/index';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
@@ -88,6 +89,8 @@ let isInstallingUpdate = false;
 // v1.7.0 Server 集成
 let serverClient: ServerClient | null = null;
 let telemetry: TelemetryClient | null = null;
+// v1.10.0 离线插件安装
+let pluginManager: PluginManager | null = null;
 
 // §5 单实例锁：第二实例直接退出，主实例聚焦窗口并广播 toast。
 const gotLock = app.requestSingleInstanceLock();
@@ -215,6 +218,12 @@ async function applyPreferencesTransaction(
       blockBackgroundSuggestions: next.blockBackgroundSuggestions,
     });
   }
+  // v1.10.0: sync PluginManager + ServerClient when serverUrl changes
+  if (prefsPatch.serverUrl !== undefined) {
+    const newUrl = resolveServerUrl(next);
+    if (serverClient) serverClient.setBaseUrl(newUrl);
+    if (pluginManager) pluginManager.setServerUrl(newUrl);
+  }
 
   // 3) 写 ~/.codex（必须有 apiKey）
   let codexWritten = false;
@@ -286,6 +295,12 @@ function registerIpc(): void {
         defaultModel: next.defaultModel,
         blockBackgroundSuggestions: next.blockBackgroundSuggestions,
       });
+    }
+    // v1.10.0: sync PluginManager + ServerClient when user changes server URL
+    if (patch.serverUrl !== undefined || patch.proxyPort !== undefined) {
+      const newUrl = resolveServerUrl(next);
+      if (serverClient) serverClient.setBaseUrl(newUrl);
+      if (pluginManager) pluginManager.setServerUrl(newUrl);
     }
     return next;
   });
@@ -638,6 +653,107 @@ function registerIpc(): void {
     proxy.setConversationCacheLimit(limit);
     setPreferences({ conversationCacheLimit: limit });
   });
+
+  // ─── v1.10.0 离线插件安装 ──────────────────────────────────────────────
+  ipcMain.handle(IPC.pluginsGetPackInfo, async () => {
+    if (!pluginManager) throw new Error('插件管理器未初始化');
+    const effectiveUrl = resolveServerUrl(getPreferences());
+    log.info('[plugins] 获取插件包信息，服务器：%s', effectiveUrl);
+    const startedAt = Date.now();
+    try {
+      const info = await pluginManager.getPackInfo();
+      telemetry?.track('plugin_pack_info_fetch', {
+        success: true,
+        duration_ms: Date.now() - startedAt,
+        version: info.version,
+        plugin_count: info.plugin_count,
+      });
+      return info;
+    } catch (e) {
+      telemetry?.track('plugin_pack_info_fetch', {
+        success: false,
+        duration_ms: Date.now() - startedAt,
+        error: (e as Error).message?.slice(0, 100) ?? 'unknown',
+      });
+      throw e;
+    }
+  });
+
+  ipcMain.handle(IPC.pluginsDownload, async (_e, savePath?: string) => {
+    if (!pluginManager) throw new Error('插件管理器未初始化');
+    const effectiveUrl = resolveServerUrl(getPreferences());
+    log.info('[plugins] 开始下载插件包，服务器：%s', effectiveUrl);
+    const effectiveSavePath = savePath || '';
+    const downloadStartedAt = Date.now();
+    telemetry?.track('plugin_pack_download', { phase: 'start' });
+    // Download runs async; progress/complete/error sent via webContents
+    pluginManager
+      .downloadPack(effectiveSavePath, (progress) => {
+        mainWindow?.webContents.send('plugins:download-progress', progress);
+      })
+      .then((filePath) => {
+        telemetry?.track('plugin_pack_download', {
+          success: true,
+          duration_ms: Date.now() - downloadStartedAt,
+          cancelled: false,
+        });
+        mainWindow?.webContents.send('plugins:download-complete', filePath);
+      })
+      .catch((err) => {
+        const msg = (err as Error).message || '下载失败';
+        telemetry?.track('plugin_pack_download', {
+          success: false,
+          duration_ms: Date.now() - downloadStartedAt,
+          cancelled: msg.includes('已取消'),
+          error: msg.slice(0, 100),
+        });
+        mainWindow?.webContents.send('plugins:download-error', msg);
+      });
+    // Return immediately; actual download is async with event push
+    return 'started';
+  });
+
+  ipcMain.handle(IPC.pluginsCancelDownload, async () => {
+    if (pluginManager) pluginManager.cancelDownload();
+  });
+
+  ipcMain.handle(IPC.pluginsGetInstallCommand, async (_e, filePath: string) => {
+    if (!pluginManager) throw new Error('插件管理器未初始化');
+    telemetry?.track('plugin_install_command_copy', {});
+    return pluginManager.getInstallCommand(filePath);
+  });
+
+  ipcMain.handle(IPC.pluginsOpenDownloadDir, async () => {
+    const downloadsPath = app.getPath('downloads');
+    shell.openPath(downloadsPath);
+  });
+
+  ipcMain.handle(IPC.pluginsCheckExistingFile, async (_e, savePath?: string) => {
+    if (!pluginManager) return null;
+    return pluginManager.checkExistingFile(savePath);
+  });
+
+  ipcMain.handle(IPC.pluginsGetLogo, async (_e, type: 'codex' | 'claude') => {
+    const filename = type === 'codex' ? 'logo-codex.png' : 'logo-claude.svg';
+    const isSvg = filename.endsWith('.svg');
+    const mime = isSvg ? 'image/svg+xml' : 'image/png';
+    const candidates = app.isPackaged
+      ? [path.join(process.resourcesPath, 'build', filename)]
+      : [
+          path.join(__dirname, '..', '..', 'build', filename),
+          path.join(process.cwd(), 'build', filename),
+        ];
+    for (const p of candidates) {
+      try {
+        const b = await fs.readFile(p);
+        return `data:${mime};base64,${b.toString('base64')}`;
+      } catch {
+        /* try next */
+      }
+    }
+    // Fallback: return empty (renderer will use emoji fallback)
+    return '';
+  });
 }
 
 async function readHelpJson(name: string): Promise<unknown> {
@@ -707,6 +823,7 @@ app.whenReady().then(async () => {
     app.isPackaged,
   );
   serverClient = new ServerClient(serverBaseUrl);
+  pluginManager = new PluginManager(serverBaseUrl);
   telemetry = new TelemetryClient(
     serverClient,
     {

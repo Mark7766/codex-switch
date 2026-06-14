@@ -52,6 +52,8 @@ export interface UserPreferences {
   conversationCacheLimit: number;
   /** 是否完成 Codex 入门向导。 */
   hasSeenOnboarding: boolean;
+  /** v1.10.0: 用户是否已经访问过插件页面（控制 NEW 角标）。 */
+  hasSeenPlugins: boolean;
   /** §6 主面板"累计请求数"持久化（跨重启）。 */
   lifetimeRequestCount: number;
   /** §6 主面板"累计运行时长（秒）"持久化（跨重启）。 */
@@ -114,6 +116,7 @@ const DEFAULTS: UserPreferences = {
   clientId: '',
   conversationCacheLimit: 1000,
   hasSeenOnboarding: false,
+  hasSeenPlugins: false,
   lifetimeRequestCount: 0,
   lifetimeUptimeSec: 0,
   lifetimeFirstStartAt: '',

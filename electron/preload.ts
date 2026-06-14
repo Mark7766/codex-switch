@@ -55,6 +55,14 @@ const IPC = {
   conversationCacheSetLimit: 'conversation-cache:set-limit',
   codexHasOriginalBackup: 'codex:has-original-backup',
   codexRestoreOriginal: 'codex:restore-original',
+  // v1.10.0 离线插件安装
+  pluginsGetPackInfo: 'plugins:get-pack-info',
+  pluginsDownload: 'plugins:download',
+  pluginsCancelDownload: 'plugins:cancel-download',
+  pluginsGetInstallCommand: 'plugins:get-install-command',
+  pluginsOpenDownloadDir: 'plugins:open-download-dir',
+  pluginsCheckExistingFile: 'plugins:check-existing-file',
+  pluginsGetLogo: 'plugins:get-logo',
 } as const;
 
 const api = {
@@ -145,6 +153,34 @@ const api = {
   // v1.9.0 对话记录来源切换
   codexHasOriginalBackup: () => ipcRenderer.invoke(IPC.codexHasOriginalBackup),
   codexRestoreOriginal: () => ipcRenderer.invoke(IPC.codexRestoreOriginal),
+  // v1.10.0 离线插件安装
+  pluginsGetPackInfo: () => ipcRenderer.invoke(IPC.pluginsGetPackInfo),
+  pluginsDownload: (savePath?: string) => ipcRenderer.invoke(IPC.pluginsDownload, savePath),
+  pluginsCancelDownload: () => ipcRenderer.invoke(IPC.pluginsCancelDownload),
+  pluginsGetInstallCommand: (filePath: string) =>
+    ipcRenderer.invoke(IPC.pluginsGetInstallCommand, filePath),
+  pluginsOpenDownloadDir: () => ipcRenderer.invoke(IPC.pluginsOpenDownloadDir),
+  pluginsCheckExistingFile: (savePath?: string) =>
+    ipcRenderer.invoke(IPC.pluginsCheckExistingFile, savePath),
+  pluginsGetLogo: (type: 'codex' | 'claude') => ipcRenderer.invoke(IPC.pluginsGetLogo, type),
+  /** 监听下载进度事件 */
+  onPluginsDownloadProgress: (cb: (p: unknown) => void) => {
+    const handler = (_: unknown, p: unknown) => cb(p);
+    ipcRenderer.on('plugins:download-progress', handler);
+    return () => ipcRenderer.removeListener('plugins:download-progress', handler);
+  },
+  /** 监听下载完成事件 */
+  onPluginsDownloadComplete: (cb: (filePath: string) => void) => {
+    const handler = (_: unknown, filePath: string) => cb(filePath);
+    ipcRenderer.on('plugins:download-complete', handler);
+    return () => ipcRenderer.removeListener('plugins:download-complete', handler);
+  },
+  /** 监听下载错误事件 */
+  onPluginsDownloadError: (cb: (error: string) => void) => {
+    const handler = (_: unknown, error: string) => cb(error);
+    ipcRenderer.on('plugins:download-error', handler);
+    return () => ipcRenderer.removeListener('plugins:download-error', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);

@@ -86,6 +86,7 @@ interface CodexSwitchApi {
     clientId: string;
     conversationCacheLimit: number;
     hasSeenOnboarding: boolean;
+    hasSeenPlugins: boolean;
     lifetimeRequestCount: number;
     lifetimeUptimeSec: number;
     lifetimeFirstStartAt: string;
@@ -200,6 +201,17 @@ interface CodexSwitchApi {
   conversationCacheSetLimit: (limit: number) => Promise<void>;
   codexHasOriginalBackup: () => Promise<boolean>;
   codexRestoreOriginal: () => Promise<boolean>;
+  // v1.10.0 离线插件安装
+  pluginsGetPackInfo: () => Promise<PluginPackInfo>;
+  pluginsDownload: (savePath?: string) => Promise<string>;
+  pluginsCancelDownload: () => Promise<void>;
+  pluginsGetInstallCommand: (filePath: string) => Promise<string>;
+  pluginsOpenDownloadDir: () => Promise<void>;
+  pluginsCheckExistingFile: (savePath?: string) => Promise<string | null>;
+  pluginsGetLogo: (type: 'codex' | 'claude') => Promise<string>;
+  onPluginsDownloadProgress: (cb: (p: DownloadProgress) => void) => () => void;
+  onPluginsDownloadComplete: (cb: (filePath: string) => void) => () => void;
+  onPluginsDownloadError: (cb: (error: string) => void) => () => void;
 }
 
 /** 工具安装与配置状态。 */
@@ -221,4 +233,25 @@ interface DetectResult {
 
 interface Window {
   codexSwitch: CodexSwitchApi;
+}
+
+// ── v1.10.0 离线插件安装 ──────────────────────────────────────────────────
+
+interface PluginPackInfo {
+  version: string;
+  filename: string;
+  size: number;
+  size_mb: number;
+  plugin_count: number;
+  description: string;
+  updated_at: string;
+  download_url: string;
+}
+
+interface DownloadProgress {
+  bytesDownloaded: number;
+  totalBytes: number;
+  percent: number;
+  speedBytesPerSec: number;
+  remainingSeconds: number;
 }

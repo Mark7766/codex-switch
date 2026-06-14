@@ -3,6 +3,29 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.10.0] - 2026-06-15
+
+### 重磅新增：离线插件一键安装 🎉
+
+> 这是 Codex 用户安装后的 **Top 1 痛点**：插件市场强依赖 GitHub/npm 等境外资源，国内用户根本刷不出来。现在只需点两下——下载 → 复制一条指令粘贴到 Codex——173 个精选插件全部就位。
+
+- **173 个精选离线插件包**。涵盖 Claude Code 集成、代码格式化、Git 辅助、中文优化等，由 codex-switch-server 维护更新
+- **国内 COS 广州高速下载**。36 MB 约 15-20 秒完成（2 MB/s），比直连 GitHub 快 50 倍以上
+- **零门槛体验**。侧边栏新增「🔌 插件」入口 → 点击下载 → 复制指令 → 粘贴到 Codex 对话框中 → Codex 自动完成安装
+- **智能去重**。已下载过的用户再次进入直接跳到安装引导，不浪费流量
+- **下载保护**。磁盘空间不足提前提示、30 秒静止超时自动中断、取消即清理临时文件
+- **Dashboard NEW 角标**。首次使用引导，进入一次后自动消失
+
+### 新增
+- **插件页面**（`src/pages/Plugins.tsx`）。5 阶段状态机：加载 → 浏览 → 下载中（进度条+速度+剩余时间）→ 完成引导 → 错误恢复
+- **PluginManager 核心模块**（`electron/plugins/`）。Server API 调用 → 302 重定向到 COS → 流式 pipe 写入磁盘 → 500ms 进度推送
+- **插件遥测**。`plugin_pack_info_fetch` / `plugin_pack_download` / `plugin_install_command_copy` 三个事件，追踪下载漏斗转化率
+- **Dashboard 插件快捷卡片**。「🔌 Codex 插件 · 173 个精选插件可一键安装 → 下载并安装」
+- **Help FAQ 新增**。「如何安装 Codex 插件？」——标签「插件」
+
+### 修复
+- 修复 `plugins:get-install-command` IPC handler 被重复注册导致应用启动时窗口无法显示的崩溃 bug
+
 ## [1.9.1] - 2026-06-14
 
 ### 修复
