@@ -137,7 +137,13 @@ jobs:
 
       - name: Package (electron-builder, unsigned dry-run on PRs)
         # electron-builder 会根据 --${target} 和 --${arch} 产出对应架构的 .dmg / NSIS .exe
-        run: pnpm exec electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        run: |
+          # Force single-arch build: yml mac.target[].arch=[x64,arm64] is not
+          # overridden by --arm64/--x64 CLI flags alone on macOS ARM64 runner.
+          # We temporarily rewrite the yml to only build the current matrix arch.
+          sed -i.bak 's/arch: \[x64, arm64\]/arch: [${{ matrix.arch }}]/g' electron-builder.yml
+          pnpm exec electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+          mv electron-builder.yml.bak electron-builder.yml
         shell: bash
         env:
           # 正式发布的签名凭据通过 release workflow 注入；CI 仅做无签名构建验证
