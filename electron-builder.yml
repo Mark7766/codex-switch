@@ -55,6 +55,7 @@ dmg:
   writeUpdateInfo: true
   format: UDZO
   sign: false
+  background: null
 publish:
   provider: github
   owner: Mark7766
