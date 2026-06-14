@@ -154,7 +154,8 @@ describe('ConversationStore', () => {
       },
     ]);
 
-    const s = new ConversationStore({ filePath });
+    // v1.9.0: default maxAgeMs is Infinity; pass explicit 24h for this test
+    const s = new ConversationStore({ filePath, maxAgeMs: 24 * 60 * 60 * 1000 });
     const count = await s.load();
     expect(count).toBe(1);
     expect(s.has('fresh')).toBe(true);

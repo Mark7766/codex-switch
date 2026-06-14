@@ -370,9 +370,11 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
         });
       })
       .catch(async (e) => {
-        // v1.8.1: context exceeded recovery — compact and retry once
-        if (isContextExceededError(e as Error) && fullMessages.length > 5) {
+        // v1.9.0: context exceeded recovery — compact, save, and retry
+        if (isContextExceededError(e as Error) && fullMessages.length > 3) {
           const compacted = emergencyCompact(fullMessages);
+          deps.conversationStore.set(respId, compacted);
+          deps.conversationStore.markDirty();
           deps.log({
             level: 'warn',
             source: 'ws',
@@ -402,8 +404,14 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
               usage: result.usage,
             });
             return;
-          } catch {
-            /* retry failed, fall through */
+          } catch (retryErr) {
+            deps.log({
+              level: 'error',
+              source: 'ws',
+              reqId,
+              connId,
+              message: `上下文超限重试仍失败：${(retryErr as Error).message}，已保存压缩状态，请开启新对话`,
+            });
           }
         }
         const f = translateStreamError(e as Error);

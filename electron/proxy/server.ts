@@ -222,6 +222,21 @@ export class DeepSeekProxy extends EventEmitter {
     return getRecentStatsFn(this.stats, windowMs);
   }
 
+  /** v1.9.0: 返回对话缓存统计信息。 */
+  getConversationCacheStats(): { count: number; oldestTimestamp: number | null } {
+    return this.conversationStore.getStats();
+  }
+
+  /** v1.9.0: 用户主动清空对话缓存。 */
+  async clearConversationCache(): Promise<void> {
+    await this.conversationStore.clearAll();
+  }
+
+  /** v1.9.0: 更新对话缓存最大条目数。 */
+  setConversationCacheLimit(n: number): void {
+    this.conversationStore.setMaxEntries(n);
+  }
+
   updateOptions(patch: Partial<ProxyOptions>): void {
     this.opts = { ...this.opts, ...patch };
   }
@@ -422,6 +437,8 @@ export class DeepSeekProxy extends EventEmitter {
       this.cancelAutoRecover();
     }
     this.intentionalStop = true;
+    // v1.9.0: 停止前强制刷盘，避免 debounce 5s 内的对话历史丢失
+    await this.conversationStore.forceFlush().catch(() => {});
     if (!this.server) {
       this.actualPort = 0;
       this.startedAt = 0;

@@ -183,9 +183,13 @@ export function handleResponses(
           res.end();
         })
         .catch(async (e) => {
-          // v1.8.1: context exceeded recovery — compact and retry once
-          if (isContextExceededError(e as Error) && fullMessages.length > 5) {
+          // v1.9.0: context exceeded recovery — compact, save, and retry
+          if (isContextExceededError(e as Error) && fullMessages.length > 3) {
             const compacted = emergencyCompact(fullMessages);
+            // Save compacted state BEFORE retry — even if retry fails,
+            // the next request won't start from the bloated 62-message state
+            deps.conversationStore.set(respId, compacted);
+            deps.conversationStore.markDirty();
             deps.log({
               level: 'warn',
               source: 'http',
@@ -213,8 +217,14 @@ export function handleResponses(
               });
               res.end();
               return;
-            } catch {
-              /* retry failed, fall through to normal error */
+            } catch (retryErr) {
+              deps.log({
+                level: 'error',
+                source: 'http',
+                reqId,
+                message: `上下文超限重试仍失败：${(retryErr as Error).message}，已保存压缩状态，请开启新对话`,
+              });
+              /* fall through to normal error */
             }
           }
           const friendly = translateStreamError(e as Error);

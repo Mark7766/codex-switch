@@ -29,6 +29,13 @@ export function Settings(): JSX.Element {
   const [blockSuggestions, setBlockSuggestions] = useState(true);
   const [telemetryEnabled, setTelemetryEnabled] = useState(true);
   const [showChangelog, setShowChangelog] = useState(false);
+  // v1.9.0 对话缓存
+  const [cacheStats, setCacheStats] = useState<{ count: number; oldestTimestamp: number | null }>({
+    count: 0,
+    oldestTimestamp: null,
+  });
+  const [cacheLimit, setCacheLimit] = useState(1000);
+  const [hasOriginalBak, setHasOriginalBak] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +53,13 @@ export function Settings(): JSX.Element {
       setMaxBackups(prefs.maxBackupsPerFile);
       setBlockSuggestions(prefs.blockBackgroundSuggestions ?? true);
       setTelemetryEnabled(prefs.telemetryEnabled ?? true);
+      setCacheLimit(prefs.conversationCacheLimit ?? 1000);
+      try {
+        setCacheStats(await window.codexSwitch.conversationCacheStats());
+        setHasOriginalBak(await window.codexSwitch.codexHasOriginalBackup());
+      } catch {
+        /* ignore */
+      }
     })();
     const off = window.codexSwitch.onUpdateEvent((e) => {
       const ev = e as UpdateEvent;
@@ -259,6 +273,38 @@ export function Settings(): JSX.Element {
         />
       </Section>
 
+      {hasOriginalBak && (
+        <Section title="对话记录来源">
+          <div className="text-sm space-y-3">
+            <p className="text-slate-400">
+              当前使用 Codex Switch 代理，新对话通过 DeepSeek。 如需查看之前在 OpenAI
+              上的对话记录，可切换到 OpenAI 官方。
+            </p>
+            <button
+              onClick={async () => {
+                try {
+                  await window.codexSwitch.codexRestoreOriginal();
+                  pushToast({
+                    kind: 'success',
+                    message:
+                      '已切换到 OpenAI 官方配置，重启 Codex Desktop 后生效。切换不会删除任何对话。',
+                  });
+                } catch (e) {
+                  pushToast({ kind: 'error', message: '切换失败：' + (e as Error).message });
+                }
+              }}
+              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 rounded text-xs"
+            >
+              切换到 OpenAI 官方
+            </button>
+            <p className="text-xs text-slate-500">
+              ℹ️ 切换不会删除任何对话——只是在 OpenAI 服务器和 Codex Switch 代理之间切换。
+              之前的对话始终完好保存在原来的服务器上。
+            </p>
+          </div>
+        </Section>
+      )}
+
       <Section title="Claude 工具接入">
         <ClaudeSettingsSection />
       </Section>
@@ -318,6 +364,48 @@ export function Settings(): JSX.Element {
       {msg && (
         <div className="text-sm text-slate-300 bg-slate-800/60 px-3 py-2 rounded-md">{msg}</div>
       )}
+
+      <Section title="对话缓存">
+        <div className="text-sm space-y-3">
+          <div className="flex items-center justify-between text-slate-400">
+            <span>
+              已缓存 {cacheStats.count} 条对话记录
+              {cacheStats.oldestTimestamp
+                ? `，最早记录：${new Date(cacheStats.oldestTimestamp).toLocaleDateString()}`
+                : ''}
+            </span>
+          </div>
+          <label className="flex items-center justify-between">
+            <span>缓存上限</span>
+            <input
+              type="number"
+              min={100}
+              max={10000}
+              value={cacheLimit}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10) || 1000;
+                setCacheLimit(v);
+                window.codexSwitch.conversationCacheSetLimit(v);
+              }}
+              className="w-24 px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-right"
+            />
+          </label>
+          <p className="text-xs text-slate-500">
+            达到上限时自动保留最近 {cacheLimit} 条。对话内容同时保存在 Codex Desktop
+            中，清空缓存不会丢失历史对话。
+          </p>
+          <button
+            onClick={async () => {
+              await window.codexSwitch.conversationCacheClear();
+              setCacheStats({ count: 0, oldestTimestamp: null });
+              pushToast({ kind: 'success', message: '已清空对话缓存' });
+            }}
+            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs"
+          >
+            清空全部缓存
+          </button>
+        </div>
+      </Section>
 
       <Section title="关于">
         <dl className="text-sm space-y-1.5">

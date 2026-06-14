@@ -20,6 +20,15 @@ export function Dashboard(): JSX.Element {
   const [detectResult, setDetectResult] = useState<DetectResult | null>(null);
   const [detectBusy, setDetectBusy] = useState(false);
   const [justApplied, setJustApplied] = useState(false);
+  const [showRecoveryHint, setShowRecoveryHint] = useState(false);
+
+  useEffect(() => {
+    // v1.9.0: 检查是否存在原始配置备份，显示恢复提示
+    window.codexSwitch
+      .codexHasOriginalBackup()
+      .then(setShowRecoveryHint)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setInterval(async () => {
@@ -99,6 +108,20 @@ export function Dashboard(): JSX.Element {
   return (
     <div className="p-10 max-w-3xl">
       <h1 className="text-2xl font-semibold mb-6">主面板</h1>
+      {showRecoveryHint && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4 flex items-start justify-between">
+          <p className="text-sm text-amber-200">
+            💡 找不到之前的对话了？设置 → 对话记录来源 → 切换到 OpenAI
+            官方即可找回。对话没有丢失——它们保存在 OpenAI 服务器上。
+          </p>
+          <button
+            onClick={() => setShowRecoveryHint(false)}
+            className="text-xs text-amber-400 hover:text-amber-200 ml-4 shrink-0"
+          >
+            知道了
+          </button>
+        </div>
+      )}
       <div className="bg-slate-800/50 rounded-xl p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>

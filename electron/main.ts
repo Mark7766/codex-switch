@@ -23,6 +23,8 @@ import {
   writeCodexConfig,
   deleteBackup,
   cleanAllBackups,
+  hasOriginalBackup,
+  restoreOriginalConfig,
 } from './codex/writer';
 import { UpdaterManager, type UpdateEvent } from './updater';
 import { redactSensitive } from './proxy/errors';
@@ -534,6 +536,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.codexBackupDelete, async (_e, p: string) => ({
     deleted: await deleteBackup(p),
   }));
+  // v1.9.0 对话记录来源切换
+  ipcMain.handle(IPC.codexHasOriginalBackup, () => hasOriginalBackup());
+  ipcMain.handle(IPC.codexRestoreOriginal, async () => {
+    await restoreOriginalConfig();
+    return true;
+  });
 
   // ─── 持久化日志 ───────────────────────────────────────────────────────
   ipcMain.handle(IPC.logsLoadPersisted, async (_e, limit?: number) => {
@@ -614,6 +622,21 @@ function registerIpc(): void {
   ipcMain.handle(IPC.serverPing, async () => {
     if (!serverClient) return false;
     return serverClient.ping();
+  });
+
+  // ─── v1.9.0 对话缓存 ────────────────────────────────────────────────────
+  ipcMain.handle(IPC.conversationCacheStats, async () => {
+    if (!proxy) return { count: 0, oldestTimestamp: null };
+    return proxy.getConversationCacheStats();
+  });
+  ipcMain.handle(IPC.conversationCacheClear, async () => {
+    if (!proxy) return;
+    await proxy.clearConversationCache();
+  });
+  ipcMain.handle(IPC.conversationCacheSetLimit, async (_e, limit: number) => {
+    if (!proxy) return;
+    proxy.setConversationCacheLimit(limit);
+    setPreferences({ conversationCacheLimit: limit });
   });
 }
 

@@ -52,6 +52,7 @@ beforeEach(() => {
     onUpdateEvent: vi.fn().mockReturnValue(() => {}),
     claudeDetect: vi.fn().mockResolvedValue({}),
     claudeApplyAll: vi.fn().mockResolvedValue({}),
+    codexHasOriginalBackup: vi.fn().mockResolvedValue(false),
     getVersion: vi.fn().mockResolvedValue('1.8.0'),
     loadPersistedLogs: vi.fn().mockResolvedValue([]),
     getLogsStats: vi.fn().mockResolvedValue({ files: 1, totalBytes: 1024 }),

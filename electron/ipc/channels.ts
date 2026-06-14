@@ -71,6 +71,16 @@ export const IPC = {
   telemetryGetOnline: 'telemetry:get-online',
   /** 检查服务器连通性。 */
   serverPing: 'server:ping',
+  // v1.9.0 对话缓存
+  /** 获取对话缓存统计。 */
+  conversationCacheStats: 'conversation-cache:stats',
+  /** 清空对话缓存。 */
+  conversationCacheClear: 'conversation-cache:clear',
+  /** 设置缓存上限。 */
+  conversationCacheSetLimit: 'conversation-cache:set-limit',
+  // v1.9.0 对话记录来源切换
+  codexHasOriginalBackup: 'codex:has-original-backup',
+  codexRestoreOriginal: 'codex:restore-original',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

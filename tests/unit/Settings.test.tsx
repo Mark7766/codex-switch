@@ -59,6 +59,10 @@ const mockApi = {
   claudeUninstallAll: vi.fn().mockResolvedValue({}),
   claudeUninstallDesktop: vi.fn().mockResolvedValue({}),
   claudeDesktopBackups: vi.fn().mockResolvedValue([]),
+  conversationCacheStats: vi.fn().mockResolvedValue({ count: 3, oldestTimestamp: Date.now() }),
+  conversationCacheClear: vi.fn().mockResolvedValue(undefined),
+  conversationCacheSetLimit: vi.fn().mockResolvedValue(undefined),
+  codexHasOriginalBackup: vi.fn().mockResolvedValue(false),
 };
 
 beforeEach(() => {

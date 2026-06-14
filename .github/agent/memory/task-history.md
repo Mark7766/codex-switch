@@ -21,6 +21,32 @@
 
 ## 任务记录
 
+### [TASK-058] v1.9.0 对话历史保护方案 — 完整实施
+- **日期**：2026-06-14
+- **类型**：fix / feat
+- **摘要**：按 `docs/DESIGN-conversation-preservation.md` 完整实施 4 项措施。① **stop 前刷盘**（`server.ts` stopInternal 开头加 `await forceFlush()`）消除 5s debounce 数据丢失；② **用户可控缓存**（MAX_AGE→Infinity, MAX_ENTRIES 50→1000, Settings 新增「对话缓存」统计+上限+清空）；③ **对话来源切换**（install-original 永久保留, Settings 显示 OpenAI↔代理开关, 首次写入自动备份原始配置）；④ **Dashboard 恢复提示**（amber 可关闭提示条引导用户找回对话）。版本 1.8.1→1.9.0。214 tests ✅。代码未推送。
+- **变更文件**：
+  - `electron/proxy/server.ts`（+forceFlush +3 方法）
+  - `electron/proxy/conversation-store.ts`（MAX_AGE=Infinity, MAX_ENTRIES=1000, +getStats/+clearAll/+setMaxEntries）
+  - `electron/codex/writer.ts`（+backupOriginalIfMissing/+hasOriginalBackup/+restoreOriginalConfig, prune/list 过滤 install-original）
+  - `electron/config/store.ts`（+conversationCacheLimit）
+  - `electron/ipc/channels.ts`（+5 通道）
+  - `electron/preload.ts`（+5 API）
+  - `electron/main.ts`（+5 handler + import）
+  - `src/pages/Settings.tsx`（+对话缓存区块 + 对话来源切换）
+  - `src/pages/Dashboard.tsx`（+恢复提示条）
+  - `src/types/global.d.ts`（+5 类型）
+  - `tests/unit/conversation-store.test.ts`（适配 Infinity 默认值）
+  - `tests/unit/writer.test.ts`（适配 install-original 过滤）
+  - `tests/unit/Dashboard.test.tsx`（+mock）
+  - `tests/unit/Settings.test.tsx`（+mock）
+  - `package.json`（1.8.1→1.9.0）
+- **关联**：DESIGN-conversation-preservation.md（方案文档）
+- **注意事项**：
+  1. 代码未推送远程仓库，等待用户审查后许可
+  2. install-original 备份永久保留不滚动删除
+  3. 对话来源切换仅在有原始备份时显示
+
 ### [TASK-057] v1.7.0 → v1.8.0 P0 质量提升（C4 CSP + C1 Server 拆分第一阶段）
 - **日期**：2026-06-13
 - **类型**：refactor / security

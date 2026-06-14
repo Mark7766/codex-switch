@@ -48,6 +48,8 @@ export interface UserPreferences {
   telemetryEnabled: boolean;
   /** v1.7.0: 客户端唯一标识，首次启动自动生成 16 位 hex。 */
   clientId: string;
+  /** v1.9.0: 对话缓存最大条目数，默认 1000。用户可在设置中调整。 */
+  conversationCacheLimit: number;
   /** 是否完成 Codex 入门向导。 */
   hasSeenOnboarding: boolean;
   /** §6 主面板"累计请求数"持久化（跨重启）。 */
@@ -110,6 +112,7 @@ const DEFAULTS: UserPreferences = {
   serverUrl: '',
   telemetryEnabled: true,
   clientId: '',
+  conversationCacheLimit: 1000,
   hasSeenOnboarding: false,
   lifetimeRequestCount: 0,
   lifetimeUptimeSec: 0,

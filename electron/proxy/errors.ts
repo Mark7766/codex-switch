@@ -155,6 +155,9 @@ export function isContextExceededError(e: Error): boolean {
     msg.includes('too long') ||
     msg.includes('maximum context') ||
     msg.includes('exceed') ||
+    msg.includes('对话过长') ||
+    msg.includes('上下文限制') ||
+    msg.includes('超过模型') ||
     (msg.includes('400') && msg.includes('context'))
   );
 }

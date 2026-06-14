@@ -63,15 +63,64 @@ async function readFileOrNull(p: string): Promise<string | null> {
   }
 }
 
-async function backupIfExists(filePath: string): Promise<string | null> {
+async function backupIfExists(filePath: string, suffix?: string): Promise<string | null> {
   try {
     await fs.access(filePath);
   } catch {
     return null;
   }
-  const target = backupPath(filePath);
+  const target = suffix ? `${filePath}.bak.${suffix}` : backupPath(filePath);
   await fs.copyFile(filePath, target);
   return target;
+}
+
+/** v1.9.0: 首次安装时保存原始配置，标记为 install-original，永久保留。 */
+export async function backupOriginalIfMissing(): Promise<void> {
+  const configPath = configTomlPath();
+  const authPath = authJsonPath();
+  const configBak = `${configPath}.bak.install-original`;
+  const authBak = `${authPath}.bak.install-original`;
+  try {
+    await fs.access(configBak);
+  } catch {
+    await backupIfExists(configPath, 'install-original');
+  }
+  try {
+    await fs.access(authBak);
+  } catch {
+    await backupIfExists(authPath, 'install-original');
+  }
+}
+
+/** v1.9.0: 检查是否存在首次安装时的原始配置备份。 */
+export async function hasOriginalBackup(): Promise<boolean> {
+  try {
+    await fs.access(`${configTomlPath()}.bak.install-original`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** v1.9.0: 还原原始配置，切换到 OpenAI 模式。 */
+export async function restoreOriginalConfig(): Promise<void> {
+  const configPath = configTomlPath();
+  const authPath = authJsonPath();
+  // 先备份当前代理配置
+  await backupIfExists(configPath);
+  await backupIfExists(authPath);
+  // 还原原始配置
+  await fs.copyFile(`${configPath}.bak.install-original`, configPath);
+  try {
+    await fs.copyFile(`${authPath}.bak.install-original`, authPath);
+  } catch {
+    // auth.json may not have been backed up
+  }
+  try {
+    await fs.chmod(authPath, 0o600);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** 列出某文件所有备份（按时间倒序，最新在前）。 */
@@ -86,7 +135,7 @@ export async function listBackupsFor(filePath: string): Promise<string[]> {
   }
   const prefix = `${base}.bak.`;
   return entries
-    .filter((n) => n.startsWith(prefix))
+    .filter((n) => n.startsWith(prefix) && !n.endsWith('.install-original'))
     .map((n) => path.join(dir, n))
     .sort()
     .reverse();
@@ -130,6 +179,8 @@ export async function writeCodexConfig(
   input: WriteCodexConfigInput,
 ): Promise<WriteCodexConfigResult> {
   await fs.mkdir(codexDir(), { recursive: true });
+  // v1.9.0: 首次写入前备份原始配置（标记为 install-original）
+  await backupOriginalIfMissing();
   const configPath = configTomlPath();
   const authPath = authJsonPath();
   const keep = Math.max(0, input.maxBackupsPerFile ?? 5);
@@ -204,7 +255,7 @@ export async function cleanAllBackups(): Promise<string[]> {
   }
   const removed: string[] = [];
   for (const n of entries) {
-    if (/\.bak\.\d+$/.test(n)) {
+    if (/\.bak\.\d+$/.test(n) && !n.endsWith('.install-original')) {
       const full = path.join(dir, n);
       try {
         await fs.unlink(full);
@@ -226,12 +277,12 @@ export async function listBackups(): Promise<{ config: string[]; auth: string[] 
     return { config: [], auth: [] };
   }
   const config = entries
-    .filter((n) => n.startsWith('config.toml.bak.'))
+    .filter((n) => n.startsWith('config.toml.bak.') && !n.endsWith('.install-original'))
     .map((n) => path.join(dir, n))
     .sort()
     .reverse();
   const auth = entries
-    .filter((n) => n.startsWith('auth.json.bak.'))
+    .filter((n) => n.startsWith('auth.json.bak.') && !n.endsWith('.install-original'))
     .map((n) => path.join(dir, n))
     .sort()
     .reverse();

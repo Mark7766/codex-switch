@@ -84,6 +84,7 @@ interface CodexSwitchApi {
     serverUrl: string;
     telemetryEnabled: boolean;
     clientId: string;
+    conversationCacheLimit: number;
     hasSeenOnboarding: boolean;
     lifetimeRequestCount: number;
     lifetimeUptimeSec: number;
@@ -193,6 +194,12 @@ interface CodexSwitchApi {
   telemetrySetEnabled: (enabled: boolean) => Promise<void>;
   telemetryGetOnline: () => Promise<boolean>;
   serverPing: () => Promise<boolean>;
+  // v1.9.0 对话缓存
+  conversationCacheStats: () => Promise<{ count: number; oldestTimestamp: number | null }>;
+  conversationCacheClear: () => Promise<void>;
+  conversationCacheSetLimit: (limit: number) => Promise<void>;
+  codexHasOriginalBackup: () => Promise<boolean>;
+  codexRestoreOriginal: () => Promise<boolean>;
 }
 
 /** 工具安装与配置状态。 */

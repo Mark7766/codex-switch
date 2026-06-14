@@ -50,6 +50,11 @@ const IPC = {
   telemetrySetEnabled: 'telemetry:set-enabled',
   telemetryGetOnline: 'telemetry:get-online',
   serverPing: 'server:ping',
+  conversationCacheStats: 'conversation-cache:stats',
+  conversationCacheClear: 'conversation-cache:clear',
+  conversationCacheSetLimit: 'conversation-cache:set-limit',
+  codexHasOriginalBackup: 'codex:has-original-backup',
+  codexRestoreOriginal: 'codex:restore-original',
 } as const;
 
 const api = {
@@ -132,6 +137,14 @@ const api = {
   telemetrySetEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC.telemetrySetEnabled, enabled),
   telemetryGetOnline: () => ipcRenderer.invoke(IPC.telemetryGetOnline),
   serverPing: () => ipcRenderer.invoke(IPC.serverPing),
+  // v1.9.0 对话缓存
+  conversationCacheStats: () => ipcRenderer.invoke(IPC.conversationCacheStats),
+  conversationCacheClear: () => ipcRenderer.invoke(IPC.conversationCacheClear),
+  conversationCacheSetLimit: (limit: number) =>
+    ipcRenderer.invoke(IPC.conversationCacheSetLimit, limit),
+  // v1.9.0 对话记录来源切换
+  codexHasOriginalBackup: () => ipcRenderer.invoke(IPC.codexHasOriginalBackup),
+  codexRestoreOriginal: () => ipcRenderer.invoke(IPC.codexRestoreOriginal),
 };
 
 contextBridge.exposeInMainWorld('codexSwitch', api);

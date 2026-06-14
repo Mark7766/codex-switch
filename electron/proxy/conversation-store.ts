@@ -29,8 +29,8 @@ export interface StoreEntry {
 
 // ── defaults ────────────────────────────────────────────────────────────────
 
-const DEFAULT_MAX_ENTRIES = 50;
-const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
+const DEFAULT_MAX_ENTRIES = 1000;
+const DEFAULT_MAX_AGE_MS = Infinity; // v1.9.0: 不做基于时间的自动清理
 const DEBOUNCE_MS = 5000;
 
 // ── ConversationStore ────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ export class ConversationStore {
   private readonly map = new Map<string, StoreEntry>();
   private readonly dirty = new Set<string>();
   private readonly filePath: string;
-  private readonly maxEntries: number;
+  private maxEntries: number;
   private readonly maxAgeMs: number;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing: Promise<void> | null = null;
@@ -106,6 +106,35 @@ export class ConversationStore {
   /** Debounced flush — safe to call after every mutation. */
   markDirty(): void {
     this.scheduleFlush();
+  }
+
+  /** v1.9.0: 返回缓存统计信息，供 Settings UI 展示。 */
+  getStats(): { count: number; oldestTimestamp: number | null } {
+    let oldest: number | null = null;
+    for (const entry of this.map.values()) {
+      if (oldest === null || entry.lastAccessAt < oldest) {
+        oldest = entry.lastAccessAt;
+      }
+    }
+    return { count: this.map.size, oldestTimestamp: oldest };
+  }
+
+  /** v1.9.0: 用户主动清空全部缓存。 */
+  async clearAll(): Promise<void> {
+    this.clearTimer();
+    this.map.clear();
+    this.dirty.clear();
+    // 写入空文件以覆盖旧数据
+    try {
+      await writeFile(this.filePath, '', 'utf-8');
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  /** 更新最大条目数（用户可在设置中调整）。 */
+  setMaxEntries(n: number): void {
+    this.maxEntries = Math.max(10, n);
   }
 
   /** Force immediate flush (call after compact to guarantee persistence). */

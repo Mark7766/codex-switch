@@ -82,6 +82,33 @@ function stripTrailingAssistant(messages: ChatMessage[]): ChatMessage[] {
   return result;
 }
 
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Remove orphaned function_call_output messages whose preceding function_call
+ * was dropped during truncation.  DeepSeek requires every tool message to have
+ * a matching tool_calls in the same conversation.
+ */
+function removeOrphanedTools(messages: ChatMessage[]): ChatMessage[] {
+  // Collect valid call_ids from assistant{tool_calls} messages
+  const validCallIds = new Set<string>();
+  for (const m of messages) {
+    if (Array.isArray(m.tool_calls)) {
+      for (const t of m.tool_calls) {
+        validCallIds.add(t.id);
+      }
+    }
+  }
+  // If no tool_calls survived truncation, remove ALL tool messages —
+  // they are all orphans.  If some survived, only keep tools that match.
+  return messages.filter((m) => {
+    if (m.role === 'tool') {
+      return typeof m.tool_call_id === 'string' && validCallIds.has(m.tool_call_id);
+    }
+    return true;
+  });
+}
+
 // ── public API ──────────────────────────────────────────────────────────────
 
 /** 判断是否需要压缩。messages.length > threshold 时返回 true。 */
@@ -112,20 +139,45 @@ export function shouldCompactByTokens(
 }
 
 /**
- * 紧急压缩：用于 context length exceeded 错误后的自动恢复。
- * 不做 LLM 摘要（避免再多一次 API 调用），直接截断。
- * 保留最近 20 条 + 开头一条说明。
+ * 紧急压缩：基于 token 数（而非消息条数）截断。
+ * 从最新消息向旧消息累加 token，超过 limit 后丢弃更早的消息。
+ * 默认限 800K tokens（~80% 的 1M 上下文窗口），保底至少保留 1 条。
  */
 export function emergencyCompact(messages: ChatMessage[]): ChatMessage[] {
-  if (messages.length <= 20) {
-    return messages.slice(-10);
+  const TOKEN_LIMIT = 800_000;
+  const kept: ChatMessage[] = [];
+  let tokens = 0;
+
+  // Walk backwards from newest, accumulate until we hit the limit
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+    const content =
+      typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '');
+    const msgTokens = Math.ceil(content.length / 2);
+
+    if (tokens + msgTokens > TOKEN_LIMIT && kept.length >= 1) {
+      // Stop — we've hit the limit and have at least 1 message
+      break;
+    }
+    tokens += msgTokens;
+    kept.unshift(msg);
   }
-  const recent = messages.slice(-20);
+
+  const dropped = messages.length - kept.length;
+  if (dropped === 0) return messages; // nothing to drop
+
+  // Clean orphaned tool messages: after token-based truncation, tool messages
+  // whose preceding function_call was dropped become invalid.  Remove them.
+  const cleaned = removeOrphanedTools(kept);
+
   const notice: ChatMessage = {
     role: 'system',
-    content: '[对话历史已超出模型长度限制，早期内容已自动截断。如需恢复完整上下文，请开启新对话。]',
+    content:
+      `[对话历史已超出模型长度限制。已自动截断：丢弃最早 ${messages.length - cleaned.length} 条消息，` +
+      `保留最近 ${cleaned.length} 条（约 ${Math.round(tokens / 1000)}K tokens）。` +
+      '如需恢复完整上下文，请开启新对话。]',
   };
-  return [notice, ...recent];
+  return [notice, ...cleaned];
 }
 
 /**

@@ -3,6 +3,30 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.9.1] - 2026-06-14
+
+### 修复
+- **上下文超限自动恢复 Token 化**。`emergencyCompact` 从按消息条数截断改为按 token 数截断（800K 上限），解决大代码块对话中单条消息 30 万+ token 导致压缩后仍超限的问题。
+- **孤儿 tool 消息自动清理**。新增 `removeOrphanedTools` 函数，token 截断后自动移除失去对应 `tool_calls` 的孤立 `tool` 消息，修复 DeepSeek 返回 "tool must be a response to a preceding tool_calls" 错误。
+- **中文错误识别**。`isContextExceededError` 新增"对话过长"、"上下文限制"、"超过模型"中文模式匹配。
+- **压缩状态保存提前**。恢复逻辑改为先保存 compacted 状态再重试，即使重试失败下轮请求也不会重复从原始超大对话开始。
+
+## [1.9.0] - 2026-06-14
+
+### 新增
+- **对话历史保护方案**（多用户反馈，P0）。详见 `docs/DESIGN-conversation-preservation.md`。
+  - 代理停止前强制刷盘，消除 5 秒 debounce 窗口内的对话数据丢失
+  - 对话缓存默认不清除（MAX_AGE→永久，MAX_ENTRIES 50→1000），用户可在设置中调整上限或手动清空
+  - Settings → 新增「对话缓存」区块：显示已缓存条数、最早记录时间、缓存上限、清空按钮
+- **对话记录来源切换**。首次安装时自动备份原始配置（`install-original`），永久保留。
+  - Settings → 新增「对话记录来源」开关：一键在 OpenAI 官方 ↔ Codex Switch 代理之间切换
+  - 切换不会删除任何对话——用户随时可找回 OpenAI 上的历史对话
+- **Dashboard 恢复提示**。首次使用后若存在原始配置备份，显示可关闭的 amber 提示条引导用户找回对话。
+
+### 修复
+- **上下文超限自动恢复增强**（v1.8.1 补充）。`isContextExceededError` 新增中文模式识别（"对话过长"、"上下文限制"、"超过模型"），覆盖 DeepSeek 中文错误信息。
+- `conversation-store` 自动清理逻辑移除（24h/50 条静默删除 → 用户手动控制）
+
 ## [1.8.0] - 2026-06-13
 
 ### 质量提升（按 QUALITY-AUDIT-v1.7.0.md 执行）
