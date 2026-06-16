@@ -224,7 +224,9 @@ export class PluginManager {
     target: 'cowork' | 'code' = 'cowork',
   ): string {
     if (type === 'codex') {
-      return `你帮安装一下离线插件安装包 ${filePath} ，我要把这些插件都加载到codex里`;
+      return `你帮安装一下离线插件安装包 ${filePath} ，我要把这些插件都加载到codex里。
+
+安装完成后，请帮我注册所有 Codex 插件中的技能到活跃技能列表。找到 ~/.codex/plugins/cache/ 下的 openai-primary-runtime/ 的 4 个核心技能和 openai-curated/ 下所有插件的 skills 子目录，创建 symlink 到 ~/.codex/skills/，命名用 插件名__技能名 防重名。过滤掉需要外部账号的 SaaS 插件（Notion、Slack、Jira、Linear 等），只保留通用开发类。完成后告诉我注册了多少个。`;
     }
     if (target === 'code') return this.getClaudeCodeCommand(filePath, selectedPlugins);
     return this.getClaudeCoworkCommand(filePath, selectedPlugins);

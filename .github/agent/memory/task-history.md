@@ -21,6 +21,19 @@
 
 ## 任务记录
 
+### [TASK-063] v1.12.1 Codex 插件技能注册提示词优化
+- **日期**：2026-06-17
+- **类型**：feat
+- **摘要**：Codex 插件安装提示词末尾追加技能注册步骤——安装完成后创建 symlink 到 `~/.codex/skills/`，命名规则 `插件名__技能名`，过滤 SaaS 插件，完成后反馈注册数量。解决"装完插件技能列表为空"的问题。
+- **变更文件**：`electron/plugins/index.ts`（getInstallCommand 追加技能注册段落）
+- **版本**：1.12.0→1.12.1
+
+### [TASK-062] v1.12.0 Claude 扩展一键安装 + v1.11.0 邀请好友 — 完整实施
+- **日期**：2026-06-17
+- **类型**：feat
+- **摘要**：① Claude 扩展安装：Plugins.tsx Claude tab 从占位变为完整下载+安装流程，硬编码 92 个插件清单，默认 Cowork + Claude Code 可选按钮，全链路 type 参数透传；② 邀请好友：侧边栏新增社区区域（早期成员/推荐给朋友/社区计数），致谢弹窗+复制推荐语，Server IP+时间窗口匹配归属；③ 自动更新：Settings 新增自动下载开关，UpdateBadge 三态重写，macOS 原生 https 下载 DMG。227/227 tests ✅，已发布 v1.12.0。
+- **变更文件**：`electron/plugins/claude-plugins.ts`（新增）、`electron/plugins/index.ts`（+type/target）、`electron/updater/index.ts`（+macOS DMG 下载）、`src/App.tsx`（侧边栏重写）、`src/pages/Plugins.tsx`（Claude tab）、`src/components/UpdateBadge.tsx`（三态）、CHANGELOG.md 等 20 个文件
+
 ### [TASK-061] v1.11.0 自动更新 + 一键安装 — 完整实施
 - **日期**：2026-06-16
 - **类型**：feat
