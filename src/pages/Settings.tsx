@@ -21,6 +21,7 @@ export function Settings(): JSX.Element {
   const [msg, setMsg] = useState<string | null>(null);
   const [version, setVersion] = useState('');
   const [autoCheckUpdate, setAutoCheckUpdate] = useState(true);
+  const [autoDownload, setAutoDownload] = useState(true);
   const [mirror, setMirror] = useState<'server' | 'auto' | 'github' | 'ghproxy' | 'custom'>(
     'server',
   );
@@ -48,6 +49,7 @@ export function Settings(): JSX.Element {
       setBackups(await window.codexSwitch.codexBackups());
       setVersion(await window.codexSwitch.getVersion());
       setAutoCheckUpdate(prefs.autoCheckUpdate);
+      setAutoDownload(prefs.autoDownload ?? true);
       setMirror(prefs.updateMirror);
       setCustomMirror(prefs.customMirrorUrl);
       setMaxBackups(prefs.maxBackupsPerFile);
@@ -100,6 +102,7 @@ export function Settings(): JSX.Element {
         defaultModel,
         autoStartProxy: autoStart,
         autoCheckUpdate,
+        autoDownload,
         updateMirror: mirror,
         customMirrorUrl: customMirror,
         maxBackupsPerFile: maxBackups,
@@ -317,6 +320,19 @@ export function Settings(): JSX.Element {
               type="checkbox"
               checked={autoCheckUpdate}
               onChange={(e) => setAutoCheckUpdate(e.target.checked)}
+            />
+          </label>
+          {/* v1.11.0: 自动下载开关。macOS 仅下载 DMG 到下载文件夹，Windows 全自动安装。 */}
+          <label className="flex items-center justify-between">
+            <span>
+              {/Mac OS X|Macintosh/.test(navigator.userAgent)
+                ? '自动下载新版本（完成后通知你打开安装）'
+                : '自动下载并安装新版本'}
+            </span>
+            <input
+              type="checkbox"
+              checked={autoDownload}
+              onChange={(e) => setAutoDownload(e.target.checked)}
             />
           </label>
           <label className="flex items-center justify-between">

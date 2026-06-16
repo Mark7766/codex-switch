@@ -1,11 +1,15 @@
 /**
- * electron-updater 封装。
- * - 启动时按用户偏好选择 feed（github / ghproxy / custom / auto）
- * - 暴露 checkForUpdates / downloadUpdate / quitAndInstall
+ * electron-updater 封装 — v1.11.0 增强。
+ * - 启动时按用户偏好选择 feed（github / ghproxy / custom / auto / server）
+ * - 支持自动下载：Windows 走 Squirrel.Mac (NSIS)，macOS 走原生 https 下载 DMG
  * - 通过 EventEmitter 把 download-progress / update-downloaded 透出给 UI
  */
 import { EventEmitter } from 'node:events';
 import { app, shell } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import https from 'node:https';
+import http from 'node:http';
 import { autoUpdater } from 'electron-updater';
 
 import { buildFeedUrl, pickAuto, type MirrorMode } from './mirrors';
@@ -28,13 +32,131 @@ export interface UpdateEvent {
   total?: number;
 }
 
+/** Download DMG to ~/Downloads, emit progress events. */
+async function downloadMacDmg(
+  downloadUrl: string,
+  version: string,
+  emit: (e: UpdateEvent) => void,
+): Promise<string> {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const filename = `Codex-Switch-${version}-mac-${arch}.dmg`;
+  const savePath = path.join(app.getPath('downloads'), filename);
+
+  return new Promise((resolve, reject) => {
+    // Step 1: request download URL, follow redirect to COS
+    const parsed = new URL(downloadUrl);
+    const mod = parsed.protocol === 'https:' ? https : http;
+
+    const req = mod.get(downloadUrl, { timeout: 10_000, rejectUnauthorized: true }, (res) => {
+      const loc = res.headers.location;
+      res.resume();
+
+      const finalUrl =
+        (res.statusCode === 302 || res.statusCode === 301) && loc ? loc : downloadUrl;
+
+      // Step 2: stream download
+      const fileStream = fs.createWriteStream(savePath, { flags: 'w' });
+      let received = 0;
+      let lastBytes = 0;
+      let lastTime = Date.now();
+
+      const parsedFinal = new URL(finalUrl);
+      const modFinal = parsedFinal.protocol === 'https:' ? https : http;
+
+      const dlReq = modFinal.get(
+        finalUrl,
+        { timeout: 10 * 60_000, rejectUnauthorized: true },
+        (dlRes) => {
+          if (dlRes.statusCode !== 200) {
+            fileStream.close();
+            try {
+              fs.unlinkSync(savePath);
+            } catch {
+              /* ok */
+            }
+            reject(new Error(`Download failed: HTTP ${dlRes.statusCode}`));
+            return;
+          }
+
+          dlRes.on('data', (chunk: Buffer) => {
+            received += chunk.length;
+          });
+
+          const interval = setInterval(() => {
+            const now = Date.now();
+            const elapsed = (now - lastTime) / 1000;
+            const delta = received - lastBytes;
+            const speed = elapsed > 0 ? delta / elapsed : 0;
+            const pct = dlRes.headers['content-length']
+              ? Math.round((received / parseInt(dlRes.headers['content-length'], 10)) * 100)
+              : 0;
+
+            emit({
+              kind: 'download-progress',
+              percent: pct,
+              bytesPerSecond: Math.round(speed),
+              transferred: received,
+              total: dlRes.headers['content-length']
+                ? parseInt(dlRes.headers['content-length'], 10)
+                : undefined,
+            });
+
+            lastBytes = received;
+            lastTime = now;
+          }, 500);
+
+          dlRes.pipe(fileStream);
+
+          fileStream.on('finish', () => {
+            clearInterval(interval);
+            emit({ kind: 'download-progress', percent: 100, bytesPerSecond: 0 });
+            emit({ kind: 'downloaded', version });
+            resolve(savePath);
+          });
+
+          fileStream.on('error', (e) => {
+            clearInterval(interval);
+            try {
+              fs.unlinkSync(savePath);
+            } catch {
+              /* ok */
+            }
+            reject(e);
+          });
+        },
+      );
+
+      dlReq.on('error', reject);
+      dlReq.on('timeout', () => {
+        dlReq.destroy();
+        fileStream.close();
+        reject(new Error('Download timed out'));
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Redirect request timed out'));
+    });
+  });
+}
+
 export class UpdaterManager extends EventEmitter {
   private wired = false;
+  private serverBaseUrl = '';
+  private autoDownload = false;
+  private downloadedMacDmg: string | null = null;
 
   constructor() {
     super();
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
+  }
+
+  /** Set server base URL (for macOS DMG download path construction). */
+  setServerUrl(url: string): void {
+    this.serverBaseUrl = url.replace(/\/$/, '');
   }
 
   private wire(): void {
@@ -43,13 +165,33 @@ export class UpdaterManager extends EventEmitter {
     autoUpdater.on('checking-for-update', () =>
       this.emit('event', { kind: 'checking' } satisfies UpdateEvent),
     );
-    autoUpdater.on('update-available', (info) =>
+    autoUpdater.on('update-available', (info) => {
       this.emit('event', {
         kind: 'available',
         version: info.version,
         notes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
-      } satisfies UpdateEvent),
-    );
+      } satisfies UpdateEvent);
+
+      // v1.11.0: auto-download if enabled
+      if (!this.autoDownload) return;
+
+      if (process.platform === 'win32') {
+        autoUpdater.downloadUpdate().catch(() => {});
+      } else if (process.platform === 'darwin' && this.serverBaseUrl) {
+        const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+        const downloadUrl = `${this.serverBaseUrl}/updates/Codex-Switch-${info.version}-mac-${arch}.dmg`;
+        downloadMacDmg(downloadUrl, info.version, (e) => this.emit('event', e))
+          .then((filePath) => {
+            this.downloadedMacDmg = filePath;
+          })
+          .catch((err) => {
+            this.emit('event', {
+              kind: 'error',
+              message: `自动下载失败：${(err as Error).message}`,
+            } satisfies UpdateEvent);
+          });
+      }
+    });
     autoUpdater.on('update-not-available', () =>
       this.emit('event', { kind: 'not-available' } satisfies UpdateEvent),
     );
@@ -74,14 +216,16 @@ export class UpdaterManager extends EventEmitter {
     const effective = mode === 'auto' ? await pickAuto(serverBaseUrl) : mode;
     const url = buildFeedUrl(effective, customPrefix, serverBaseUrl);
     autoUpdater.setFeedURL({ provider: 'generic', url });
+    this.serverBaseUrl = (serverBaseUrl || '').replace(/\/$/, '');
   }
 
-  /** 静默检查（不下载）。 */
-  async check(): Promise<void> {
+  /** 检查更新。如果 autoDownload=true，发现新版本后自动下载。 */
+  async check(autoDownload = false): Promise<void> {
     if (!app.isPackaged) {
       this.emit('event', { kind: 'not-available' } satisfies UpdateEvent);
       return;
     }
+    this.autoDownload = autoDownload;
     this.wire();
     try {
       await autoUpdater.checkForUpdates();
@@ -92,7 +236,8 @@ export class UpdaterManager extends EventEmitter {
 
   async download(): Promise<void> {
     if (!app.isPackaged) return;
-    // macOS 未签名构建无法走 Squirrel.Mac 原子升级（签名验证必败），改为浏览器下载 dmg + 手动拖拽安装。
+    // macOS 未签名：已由 check(autoDownload=true) 走原生 https 下载。
+    // 如果用户手动走到这里，打开浏览器下载页。
     if (process.platform === 'darwin') {
       await shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest');
       this.emit('event', { kind: 'manual-download' } satisfies UpdateEvent);
@@ -108,6 +253,16 @@ export class UpdaterManager extends EventEmitter {
 
   install(): void {
     if (!app.isPackaged) return;
+    // macOS：退出应用并打开已下载的 DMG 文件
+    if (process.platform === 'darwin') {
+      if (this.downloadedMacDmg) {
+        app.quit();
+        shell.openPath(this.downloadedMacDmg);
+      } else {
+        shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest');
+      }
+      return;
+    }
     autoUpdater.quitAndInstall();
   }
 }

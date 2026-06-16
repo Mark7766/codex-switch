@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Setup } from './pages/Setup';
 import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
@@ -150,11 +149,69 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
         : status === 'error'
           ? '出错'
           : '已停止';
+
+  // v1.11.0 community
+  const [communityCount, setCommunityCount] = useState(0);
+  const [isEarlyMember, setIsEarlyMember] = useState(false);
+  const [joinedDate, setJoinedDate] = useState('');
+  const [inviteCount, setInviteCount] = useState(0);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareText, setShareText] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    window.codexSwitch
+      .communityGetCount()
+      .then(setCommunityCount)
+      .catch(() => {});
+    window.codexSwitch
+      .communityGetProfile()
+      .then((p) => {
+        if (p) {
+          setIsEarlyMember(p.is_early_member ?? false);
+          setInviteCount(p.invite_count ?? 0);
+        }
+      })
+      .catch(() => {});
+    // 获取加入日期（本地 lifetimeFirstStartAt，已有字段）
+    window.codexSwitch
+      .getPreferences()
+      .then((prefs) => {
+        const date = prefs.lifetimeFirstStartAt;
+        if (date) setJoinedDate(date);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleShare(): Promise<void> {
+    const text = await window.codexSwitch.shareGetText();
+    setShareText(text);
+    setShowShareModal(true);
+    setCopied(false);
+  }
+
+  async function handleCopyShare(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(shareText);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = shareText;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   return (
     <aside className="w-56 bg-slate-950 border-r border-slate-800 flex flex-col">
       <div className="px-5 py-6 border-b border-slate-800">
         <div className="text-xl font-semibold tracking-tight">Codex Switch</div>
-        <div className="text-xs text-slate-400 mt-1">让 Codex 连上 DeepSeek</div>
+        <div className="text-xs text-slate-400 mt-1">让 AI 编程触手可及</div>
       </div>
       <nav className="flex-1 p-3 space-y-1">
         {items.map((it) => (
@@ -170,12 +227,60 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
           </button>
         ))}
       </nav>
-      <div className="p-4 border-t border-slate-800 text-xs">
-        <div className="flex items-center gap-2 text-slate-300">
+      <div className="px-4 py-3 border-t border-slate-800 text-xs space-y-2">
+        {isEarlyMember && (
+          <div className="text-slate-500">
+            🎖 早期成员
+            {joinedDate && <div className="text-slate-400 mt-0.5">加入于 {joinedDate}</div>}
+            {inviteCount > 0 && (
+              <div className="text-slate-400 mt-0.5">{inviteCount} 位朋友通过你加入</div>
+            )}
+          </div>
+        )}
+        <button
+          onClick={handleShare}
+          className="w-full text-left text-slate-400 hover:text-slate-200 transition"
+        >
+          💚 推荐给朋友
+        </button>
+        {communityCount > 0 && (
+          <div className="text-slate-500">和 {communityCount} 位朋友一起使用</div>
+        )}
+        <div className="flex items-center gap-2 text-slate-300 pt-1">
           <span className={`inline-block w-2 h-2 rounded-full ${statusColor}`}></span>
           代理 {statusText}
         </div>
       </div>
+
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+            <div className="text-center mb-4">
+              <div className="text-2xl mb-2">💚</div>
+              <h3 className="text-base font-semibold text-slate-100">
+                感谢你把 Codex Switch 推荐给朋友
+              </h3>
+              <p className="text-sm text-slate-400 mt-1">
+                每多一个人用上 Codex 或者 Claude，都是因为你。
+              </p>
+            </div>
+            <button
+              onClick={handleCopyShare}
+              className={`w-full py-2 rounded-md text-sm font-medium transition ${
+                copied ? 'bg-green-600 text-white' : 'bg-brand-600 hover:bg-brand-500 text-white'
+              }`}
+            >
+              {copied ? '✅ 已复制' : '📋 复制推荐语'}
+            </button>
+            <button
+              onClick={() => setShowShareModal(false)}
+              className="w-full mt-2 py-2 text-sm text-slate-400 hover:text-slate-200 transition"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

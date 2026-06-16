@@ -79,6 +79,7 @@ interface CodexSwitchApi {
     maxBackupsPerFile: number;
     lastSeenVersion: string;
     autoCheckUpdate: boolean;
+    autoDownload: boolean;
     updateMirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
     customMirrorUrl: string;
     serverUrl: string;
@@ -202,14 +203,31 @@ interface CodexSwitchApi {
   codexHasOriginalBackup: () => Promise<boolean>;
   codexRestoreOriginal: () => Promise<boolean>;
   // v1.10.0 离线插件安装
-  pluginsGetPackInfo: () => Promise<PluginPackInfo>;
-  pluginsDownload: (savePath?: string) => Promise<string>;
+  pluginsGetPackInfo: (type?: 'codex' | 'claude') => Promise<PluginPackInfo>;
+  pluginsDownload: (savePath?: string, type?: 'codex' | 'claude') => Promise<string>;
   pluginsCancelDownload: () => Promise<void>;
-  pluginsGetInstallCommand: (filePath: string) => Promise<string>;
+  pluginsGetInstallCommand: (
+    filePath: string,
+    type?: 'codex' | 'claude',
+    selectedPlugins?: string[],
+    target?: 'cowork' | 'code',
+  ) => Promise<string>;
   pluginsOpenDownloadDir: () => Promise<void>;
-  pluginsCheckExistingFile: (savePath?: string) => Promise<string | null>;
+  pluginsCheckExistingFile: (
+    savePath?: string,
+    type?: 'codex' | 'claude',
+  ) => Promise<string | null>;
   pluginsGetLogo: (type: 'codex' | 'claude') => Promise<string>;
   onPluginsDownloadProgress: (cb: (p: DownloadProgress) => void) => () => void;
+  // v1.11.0 邀请好友
+  shareGetText: () => Promise<string>;
+  communityGetCount: () => Promise<number>;
+  communityGetProfile: () => Promise<{
+    client_number?: number;
+    is_early_member?: boolean;
+    joined_date?: string;
+    invite_count?: number;
+  } | null>;
   onPluginsDownloadComplete: (cb: (filePath: string) => void) => () => void;
   onPluginsDownloadError: (cb: (error: string) => void) => () => void;
 }

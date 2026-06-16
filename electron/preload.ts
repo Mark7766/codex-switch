@@ -63,6 +63,9 @@ const IPC = {
   pluginsOpenDownloadDir: 'plugins:open-download-dir',
   pluginsCheckExistingFile: 'plugins:check-existing-file',
   pluginsGetLogo: 'plugins:get-logo',
+  shareGetText: 'share:get-text',
+  communityGetCount: 'community:get-count',
+  communityGetProfile: 'community:get-profile',
 } as const;
 
 const api = {
@@ -154,15 +157,25 @@ const api = {
   codexHasOriginalBackup: () => ipcRenderer.invoke(IPC.codexHasOriginalBackup),
   codexRestoreOriginal: () => ipcRenderer.invoke(IPC.codexRestoreOriginal),
   // v1.10.0 离线插件安装
-  pluginsGetPackInfo: () => ipcRenderer.invoke(IPC.pluginsGetPackInfo),
-  pluginsDownload: (savePath?: string) => ipcRenderer.invoke(IPC.pluginsDownload, savePath),
+  pluginsGetPackInfo: (type?: 'codex' | 'claude') =>
+    ipcRenderer.invoke(IPC.pluginsGetPackInfo, type),
+  pluginsDownload: (savePath?: string, type?: 'codex' | 'claude') =>
+    ipcRenderer.invoke(IPC.pluginsDownload, savePath, type),
   pluginsCancelDownload: () => ipcRenderer.invoke(IPC.pluginsCancelDownload),
-  pluginsGetInstallCommand: (filePath: string) =>
-    ipcRenderer.invoke(IPC.pluginsGetInstallCommand, filePath),
+  pluginsGetInstallCommand: (
+    filePath: string,
+    type?: 'codex' | 'claude',
+    selectedPlugins?: string[],
+    target?: 'cowork' | 'code',
+  ) => ipcRenderer.invoke(IPC.pluginsGetInstallCommand, filePath, type, selectedPlugins, target),
   pluginsOpenDownloadDir: () => ipcRenderer.invoke(IPC.pluginsOpenDownloadDir),
-  pluginsCheckExistingFile: (savePath?: string) =>
-    ipcRenderer.invoke(IPC.pluginsCheckExistingFile, savePath),
+  pluginsCheckExistingFile: (savePath?: string, type?: 'codex' | 'claude') =>
+    ipcRenderer.invoke(IPC.pluginsCheckExistingFile, savePath, type),
   pluginsGetLogo: (type: 'codex' | 'claude') => ipcRenderer.invoke(IPC.pluginsGetLogo, type),
+  // v1.11.0 邀请好友
+  shareGetText: () => ipcRenderer.invoke(IPC.shareGetText),
+  communityGetCount: () => ipcRenderer.invoke(IPC.communityGetCount),
+  communityGetProfile: () => ipcRenderer.invoke(IPC.communityGetProfile),
   /** 监听下载进度事件 */
   onPluginsDownloadProgress: (cb: (p: unknown) => void) => {
     const handler = (_: unknown, p: unknown) => cb(p);

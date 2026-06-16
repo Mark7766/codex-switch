@@ -38,6 +38,8 @@ export interface UserPreferences {
   lastSeenVersion: string;
   /** 是否启用启动时自动检查更新。 */
   autoCheckUpdate: boolean;
+  /** v1.11.0: 是否自动下载新版本（默认 true）。关闭后仅检查不下载。 */
+  autoDownload: boolean;
   /** 升级镜像策略。 */
   updateMirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
   /** 自定义镜像 URL（仅 updateMirror='custom' 时生效）。 */
@@ -109,6 +111,7 @@ const DEFAULTS: UserPreferences = {
   maxBackupsPerFile: 5,
   lastSeenVersion: '',
   autoCheckUpdate: true,
+  autoDownload: true,
   updateMirror: 'server',
   customMirrorUrl: '',
   serverUrl: '',

@@ -655,13 +655,14 @@ function registerIpc(): void {
   });
 
   // ─── v1.10.0 离线插件安装 ──────────────────────────────────────────────
-  ipcMain.handle(IPC.pluginsGetPackInfo, async () => {
+  ipcMain.handle(IPC.pluginsGetPackInfo, async (_e, type?: 'codex' | 'claude') => {
     if (!pluginManager) throw new Error('插件管理器未初始化');
     const effectiveUrl = resolveServerUrl(getPreferences());
-    log.info('[plugins] 获取插件包信息，服务器：%s', effectiveUrl);
+    const packType = type || 'codex';
+    log.info('[plugins] 获取插件包信息，type=%s，服务器：%s', packType, effectiveUrl);
     const startedAt = Date.now();
     try {
-      const info = await pluginManager.getPackInfo();
+      const info = await pluginManager.getPackInfo(packType);
       telemetry?.track('plugin_pack_info_fetch', {
         success: true,
         duration_ms: Date.now() - startedAt,
@@ -679,18 +680,23 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle(IPC.pluginsDownload, async (_e, savePath?: string) => {
+  ipcMain.handle(IPC.pluginsDownload, async (_e, savePath?: string, type?: 'codex' | 'claude') => {
     if (!pluginManager) throw new Error('插件管理器未初始化');
+    const packType = type || 'codex';
     const effectiveUrl = resolveServerUrl(getPreferences());
-    log.info('[plugins] 开始下载插件包，服务器：%s', effectiveUrl);
+    log.info('[plugins] 开始下载插件包，type=%s，服务器：%s', packType, effectiveUrl);
     const effectiveSavePath = savePath || '';
     const downloadStartedAt = Date.now();
-    telemetry?.track('plugin_pack_download', { phase: 'start' });
+    telemetry?.track('plugin_pack_download', { phase: 'start', type: packType });
     // Download runs async; progress/complete/error sent via webContents
     pluginManager
-      .downloadPack(effectiveSavePath, (progress) => {
-        mainWindow?.webContents.send('plugins:download-progress', progress);
-      })
+      .downloadPack(
+        effectiveSavePath,
+        (progress) => {
+          mainWindow?.webContents.send('plugins:download-progress', progress);
+        },
+        packType,
+      )
       .then((filePath) => {
         telemetry?.track('plugin_pack_download', {
           success: true,
@@ -717,21 +723,37 @@ function registerIpc(): void {
     if (pluginManager) pluginManager.cancelDownload();
   });
 
-  ipcMain.handle(IPC.pluginsGetInstallCommand, async (_e, filePath: string) => {
-    if (!pluginManager) throw new Error('插件管理器未初始化');
-    telemetry?.track('plugin_install_command_copy', {});
-    return pluginManager.getInstallCommand(filePath);
-  });
+  ipcMain.handle(
+    IPC.pluginsGetInstallCommand,
+    async (
+      _e,
+      filePath: string,
+      type?: 'codex' | 'claude',
+      selectedPlugins?: string[],
+      target?: 'cowork' | 'code',
+    ) => {
+      if (!pluginManager) throw new Error('插件管理器未初始化');
+      telemetry?.track('plugin_install_command_copy', {
+        type: type ?? 'codex',
+        target: target ?? 'cowork',
+        count: selectedPlugins?.length ?? 0,
+      });
+      return pluginManager.getInstallCommand(filePath, type, selectedPlugins, target);
+    },
+  );
 
   ipcMain.handle(IPC.pluginsOpenDownloadDir, async () => {
     const downloadsPath = app.getPath('downloads');
     shell.openPath(downloadsPath);
   });
 
-  ipcMain.handle(IPC.pluginsCheckExistingFile, async (_e, savePath?: string) => {
-    if (!pluginManager) return null;
-    return pluginManager.checkExistingFile(savePath);
-  });
+  ipcMain.handle(
+    IPC.pluginsCheckExistingFile,
+    async (_e, savePath?: string, type?: 'codex' | 'claude') => {
+      if (!pluginManager) return null;
+      return pluginManager.checkExistingFile(savePath, type || 'codex');
+    },
+  );
 
   ipcMain.handle(IPC.pluginsGetLogo, async (_e, type: 'codex' | 'claude') => {
     const filename = type === 'codex' ? 'logo-codex.png' : 'logo-claude.svg';
@@ -753,6 +775,54 @@ function registerIpc(): void {
     }
     // Fallback: return empty (renderer will use emoji fallback)
     return '';
+  });
+
+  // ─── v1.11.0 邀请好友 ─────────────────────────────────────────────────
+  ipcMain.handle(IPC.shareGetText, async () => {
+    const clientId = getPreferences().clientId;
+    const ref = clientId || 'unknown';
+    return `让 AI 编程触手可及
+
+不用翻墙，不用注册海外账号，
+Codex Switch 帮你突破网络限制，
+在国内流畅使用 Codex 和 Claude。
+
+✅ 无需翻墙，本地安全
+✅ 接入 DeepSeek，免费快速
+✅ 一键安装 173 个精选插件
+
+上手指南：https://www.codexswtich.cloud/guide?ref=${ref}`;
+  });
+
+  ipcMain.handle(IPC.communityGetCount, async () => {
+    if (!serverClient) return 0;
+    try {
+      const res = await serverClient.get('/client/community');
+      const data = res.data as { code?: number; data?: { active_users?: number } };
+      return data?.data?.active_users ?? 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  ipcMain.handle(IPC.communityGetProfile, async () => {
+    const clientId = getPreferences().clientId;
+    if (!clientId || !serverClient) return null;
+    try {
+      const res = await serverClient.get(`/client/${clientId}/profile`);
+      const data = res.data as {
+        code?: number;
+        data?: {
+          client_number?: number;
+          is_early_member?: boolean;
+          joined_date?: string;
+          invite_count?: number;
+        };
+      };
+      return data?.data ?? null;
+    } catch {
+      return null;
+    }
   });
 }
 
@@ -881,9 +951,12 @@ app.whenReady().then(async () => {
   if (prefs.autoCheckUpdate) {
     try {
       await updater.setMirror(prefs.updateMirror, prefs.customMirrorUrl, serverBaseUrl);
+      // v1.11.0: 启动后 5s 自动检查，传入 autoDownload 决定是否自动下载
       setTimeout(() => {
-        updater.check().catch((e) => log.warn('检查更新失败：', (e as Error).message));
-      }, 3000);
+        updater
+          .check(Boolean(prefs.autoDownload))
+          .catch((e) => log.warn('检查更新失败：', (e as Error).message));
+      }, 5000);
     } catch (e) {
       log.warn('更新初始化失败：', (e as Error).message);
     }
@@ -892,6 +965,16 @@ app.whenReady().then(async () => {
   lifetimeFlushTimer = setInterval(() => {
     flushLifetime().catch(() => undefined);
   }, 30_000);
+
+  // v1.11.0: 每 6 小时自动检查更新
+  if (prefs.autoCheckUpdate) {
+    setInterval(() => {
+      // 仅在代理空闲时检查（无进行中的请求）
+      if (!proxy || proxy.getRecentStats().total === 0) {
+        updater.check(Boolean(getPreferences().autoDownload)).catch(() => {});
+      }
+    }, 6 * 3600_000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

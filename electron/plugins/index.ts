@@ -14,6 +14,7 @@ import { URL } from 'node:url';
 import type { ClientRequest } from 'node:http';
 
 import type { PluginPackInfo, ServerPackResponse, DownloadProgress } from './types';
+import { ALL_CLAUDE_PLUGINS, getRecommendedPlugins } from './claude-plugins';
 
 // ── constants ───────────────────────────────────────────────────────────────
 
@@ -39,8 +40,10 @@ function parseTarget(rawUrl: string): {
   };
 }
 
-function defaultSavePath(): string {
-  return path.join(app.getPath('downloads'), 'codex-offline-pack.tar.gz');
+function defaultSavePath(type: 'codex' | 'claude' = 'codex'): string {
+  const filename =
+    type === 'claude' ? 'claude-offline-plugins.tar.gz' : 'codex-offline-pack.tar.gz';
+  return path.join(app.getPath('downloads'), filename);
 }
 
 // ── PluginManager ───────────────────────────────────────────────────────────
@@ -62,8 +65,8 @@ export class PluginManager {
   // ── public API ──────────────────────────────────────────────────────────
 
   /** Fetch plugin pack metadata from server. */
-  async getPackInfo(): Promise<PluginPackInfo> {
-    const url = `${this.serverBaseUrl}/plugins/pack`;
+  async getPackInfo(type: 'codex' | 'claude' = 'codex'): Promise<PluginPackInfo> {
+    const url = `${this.serverBaseUrl}/plugins/pack?type=${type}`;
     const { hostname, port, path: reqPath, isHttps } = parseTarget(url);
 
     return new Promise((resolve, reject) => {
@@ -108,8 +111,12 @@ export class PluginManager {
    * Handles 302 redirect from server → COS automatically.
    * Progress is reported via `onProgress` every ~500ms.
    */
-  async downloadPack(savePath: string, onProgress: (p: DownloadProgress) => void): Promise<string> {
-    const effectivePath = savePath || defaultSavePath();
+  async downloadPack(
+    savePath: string,
+    onProgress: (p: DownloadProgress) => void,
+    type: 'codex' | 'claude' = 'codex',
+  ): Promise<string> {
+    const effectivePath = savePath || defaultSavePath(type);
     const dir = path.dirname(effectivePath);
 
     // ── pre-flight checks ──────────────────────────────────────────────
@@ -133,7 +140,7 @@ export class PluginManager {
     const signal = this.abortController.signal;
 
     // Step 1: request server download endpoint, get 302 → COS URL
-    const cosUrl = await this.resolveDownloadRedirect(signal);
+    const cosUrl = await this.resolveDownloadRedirect(signal, type);
     if (signal.aborted) throw new Error('下载已取消');
 
     // Step 2: stream COS → file with progress
@@ -146,12 +153,14 @@ export class PluginManager {
    * Check if a valid plugin pack already exists at the given path.
    * Returns the path if valid, null otherwise.
    */
-  checkExistingFile(savePath?: string): string | null {
-    const p = savePath || defaultSavePath();
+  checkExistingFile(savePath?: string, type: 'codex' | 'claude' = 'codex'): string | null {
+    const p = savePath || defaultSavePath(type);
     try {
       const stat = fs.statSync(p);
-      // 36MB tar.gz ±10% tolerance for COS/CDN variance
-      if (stat.isFile() && stat.size > 30_000_000 && stat.size < 45_000_000) {
+      // Codex: 36MB tar.gz ±10% / Claude: 165MB tar.gz ±10%
+      const minSize = type === 'claude' ? 140_000_000 : 30_000_000;
+      const maxSize = type === 'claude' ? 190_000_000 : 45_000_000;
+      if (stat.isFile() && stat.size > minSize && stat.size < maxSize) {
         return p;
       }
     } catch {
@@ -202,11 +211,84 @@ export class PluginManager {
   }
 
   /**
-   * Generate the human-language install command the user pastes
-   * into Codex to install the downloaded pack.
+   * Generate install command for the downloaded pack.
+   * @param filePath Absolute path to the downloaded tar.gz
+   * @param type 'codex' | 'claude'
+   * @param selectedPlugins Plugin names to install (Claude only, defaults to recommended 20)
+   * @param target 'cowork' (default) | 'code' — only applies to Claude
    */
-  getInstallCommand(filePath: string): string {
-    return `你帮安装一下离线插件安装包 ${filePath} ，我要把这些插件都加载到codex里`;
+  getInstallCommand(
+    filePath: string,
+    type: 'codex' | 'claude' = 'codex',
+    selectedPlugins?: string[],
+    target: 'cowork' | 'code' = 'cowork',
+  ): string {
+    if (type === 'codex') {
+      return `你帮安装一下离线插件安装包 ${filePath} ，我要把这些插件都加载到codex里`;
+    }
+    if (target === 'code') return this.getClaudeCodeCommand(filePath, selectedPlugins);
+    return this.getClaudeCoworkCommand(filePath, selectedPlugins);
+  }
+
+  private getClaudeCoworkCommand(filePath: string, selectedPlugins?: string[]): string {
+    const names =
+      selectedPlugins && selectedPlugins.length > 0
+        ? selectedPlugins
+        : getRecommendedPlugins().map((p) => p.name);
+    const count = names.length;
+    const list = this.formatPluginList(names);
+    return `我刚上传了 ${filePath}，请帮我把里面精选的 ${count} 个 skill 装到 Cowork。
+
+步骤：
+1. ls /sessions/*/mnt/uploads/*.tar.gz 找到文件
+2. tar tzf <找到的文件> | grep "SKILL.md" 列出所有 skill
+3. 只装以下 ${count} 个：
+
+${list}
+
+4. 对每个 skill：tar xzf <文件> -O <路径>/SKILL.md 读取 → 去掉 YAML frontmatter → mcp__cowork__save_skill 保存`;
+  }
+
+  private getClaudeCodeCommand(filePath: string, _selectedPlugins?: string[]): string {
+    // Claude Code installs ALL plugins (not just recommended 20)
+    const allCount = ALL_CLAUDE_PLUGINS.length;
+    return `我刚下载了 ${filePath}，帮我把里面的全部 skill 装到 Claude Code 里。
+
+里面有 ${allCount} 个 skill，来自官方 marketplace 和 Superpowers 社区。
+
+步骤：
+1. tar xzf ${filePath} -C /tmp/claude-plugins/
+2. 扫描所有 SKILL.md 并安装：把每个 skill 目录复制到 ~/.claude/skills/<name>/
+3. 安装完成后验证：ls ~/.claude/skills/ | wc -l
+
+SKILL.md 开头的 YAML frontmatter（--- ... ---）需要去掉，只保留正文。`;
+  }
+
+  private formatPluginList(names: string[]): string {
+    const spNames = getRecommendedPlugins()
+      .slice(0, 14)
+      .map((p) => p.name);
+    const allSpSelected = spNames.every((n) => names.includes(n));
+    const otherNames = names.filter((n) => !spNames.includes(n));
+
+    let result = '';
+    if (allSpSelected) {
+      result += `Superpowers（14 个）：
+   brainstorming, writing-plans, executing-plans,
+   test-driven-development, systematic-debugging,
+   subagent-driven-development, verification-before-completion,
+   requesting-code-review, receiving-code-review,
+   finishing-a-development-branch, using-git-worktrees,
+   dispatching-parallel-agents, writing-skills, using-superpowers\n`;
+    }
+    if (otherNames.length > 0) {
+      const entries = ALL_CLAUDE_PLUGINS.filter((p) => otherNames.includes(p.name));
+      result += `\n精品扩展（${otherNames.length} 个）：
+   ${entries.map((e) => e.name).join(', ')}\n`;
+      result += `\n路径：
+${entries.map((e) => `   ${e.name} → ${e.path}/SKILL.md`).join('\n')}\n`;
+    }
+    return result || names.join(', ');
   }
 
   // ── private helpers ─────────────────────────────────────────────────────
@@ -215,8 +297,11 @@ export class PluginManager {
    * GET /api/v1/plugins/pack/download → follow 302 → return COS URL.
    * Throws if server doesn't return a 302.
    */
-  private resolveDownloadRedirect(signal: AbortSignal): Promise<string> {
-    const url = `${this.serverBaseUrl}/plugins/pack/download`;
+  private resolveDownloadRedirect(
+    signal: AbortSignal,
+    type: 'codex' | 'claude' = 'codex',
+  ): Promise<string> {
+    const url = `${this.serverBaseUrl}/plugins/pack/download?type=${type}`;
     const { hostname, port, path: reqPath, isHttps } = parseTarget(url);
 
     return new Promise((resolve, reject) => {

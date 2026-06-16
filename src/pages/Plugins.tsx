@@ -69,16 +69,31 @@ export function Plugins(): JSX.Element {
   // On mount: check for existing download, then load pack info
   useEffect(() => {
     async function init(): Promise<void> {
+      const type = pluginType === 'codex' ? 'codex' : 'claude';
       // 1. Check if already downloaded
       try {
-        const existing = await window.codexSwitch.pluginsCheckExistingFile();
+        const existing = await window.codexSwitch.pluginsCheckExistingFile(
+          undefined,
+          type === 'claude' ? 'claude' : 'codex',
+        );
         if (existing) {
           setFilePath(existing);
-          const cmd = await window.codexSwitch.pluginsGetInstallCommand(existing);
+          let cmd: string;
+          if (type === 'claude') {
+            cmd = await window.codexSwitch.pluginsGetInstallCommand(
+              existing,
+              'claude',
+              undefined,
+              'cowork',
+            );
+          } else {
+            cmd = await window.codexSwitch.pluginsGetInstallCommand(existing);
+          }
           setCommand(cmd);
-          // Still load pack info for display (plugin count, description)
           try {
-            const info = await window.codexSwitch.pluginsGetPackInfo();
+            const info = await window.codexSwitch.pluginsGetPackInfo(
+              type === 'claude' ? 'claude' : undefined,
+            );
             setPackInfo(info);
           } catch {
             /* pack info is optional when file exists */
@@ -92,7 +107,9 @@ export function Plugins(): JSX.Element {
 
       // 2. No existing file — load pack info for download
       try {
-        const info = await window.codexSwitch.pluginsGetPackInfo();
+        const info = await window.codexSwitch.pluginsGetPackInfo(
+          type === 'claude' ? 'claude' : undefined,
+        );
         setPackInfo(info);
         setPhase('info');
       } catch (e) {
@@ -101,7 +118,7 @@ export function Plugins(): JSX.Element {
       }
     }
     init();
-  }, []);
+  }, [pluginType]);
 
   // Listen for download events
   useEffect(() => {
@@ -112,9 +129,11 @@ export function Plugins(): JSX.Element {
     const unsubComplete = window.codexSwitch.onPluginsDownloadComplete((fp) => {
       setFilePath(fp);
       setPhase('complete');
-      // Fetch the install command
+      // Fetch the install command for the active tab
+      const type = pluginType === 'claude' ? 'claude' : 'codex';
+      const target = pluginType === 'claude' ? 'cowork' : undefined;
       window.codexSwitch
-        .pluginsGetInstallCommand(fp)
+        .pluginsGetInstallCommand(fp, type, undefined, target)
         .then(setCommand)
         .catch(() => {
           setCommand(`你帮安装一下离线插件安装包 ${fp} ，我要把这些插件都加载到codex里`);
@@ -129,17 +148,18 @@ export function Plugins(): JSX.Element {
       unsubComplete();
       unsubError();
     };
-  }, []);
+  }, [pluginType]);
 
   const handleDownload = useCallback(() => {
     setPhase('downloading');
     setError(null);
     setProgress(null);
-    window.codexSwitch.pluginsDownload().catch((e) => {
+    const type = pluginType === 'claude' ? 'claude' : 'codex';
+    window.codexSwitch.pluginsDownload(undefined, type).catch((e) => {
       setError((e as Error).message || '下载启动失败');
       setPhase('error');
     });
-  }, []);
+  }, [pluginType]);
 
   const handleCancel = useCallback(() => {
     window.codexSwitch.pluginsCancelDownload();
@@ -150,6 +170,26 @@ export function Plugins(): JSX.Element {
   const handleOpenDir = useCallback(() => {
     window.codexSwitch.pluginsOpenDownloadDir();
   }, []);
+
+  const handleCopyClaudeCodeCommand = useCallback(async () => {
+    if (!filePath) return;
+    // Claude Code installs all 170+ plugins
+    const cmd = await window.codexSwitch.pluginsGetInstallCommand(filePath, 'claude', [], 'code');
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = cmd;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [filePath]);
 
   const handleCopy = useCallback(async () => {
     if (!command) return;
@@ -225,33 +265,12 @@ export function Plugins(): JSX.Element {
     </div>
   );
 
-  // ── Claude placeholder ──────────────────────────────────────────────────
+  // ── Claude: use same phases as Codex, with different content ──────────
+  // The phase states (loading/info/downloading/complete/error) are shared.
+  // For Claude, the info/complete cards show Claude-specific content.
+  // For loading/error/downloading, the existing Codex UI is reused.
 
-  if (pluginType === 'claude') {
-    return (
-      <div className="p-6 max-w-xl mx-auto">
-        {TabBar}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-8 text-center">
-          <div className="mb-4 flex justify-center">
-            {logoDataUrls.claude ? (
-              <img src={logoDataUrls.claude} alt="Claude" className="w-12 h-12" />
-            ) : (
-              <span className="text-4xl">🧠</span>
-            )}
-          </div>
-          <h2 className="text-lg font-semibold text-slate-200 mb-2">Claude 插件安装</h2>
-          <p className="text-sm text-slate-400 mb-4 leading-relaxed">
-            Claude Desktop / Claude Code CLI 的离线插件安装功能正在开发中，
-            预计在后续版本上线。届时将支持与 Codex 插件同样的一键下载体验。
-          </p>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-700/50 rounded-full text-xs text-slate-400">
-            <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-            即将上线
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Cluade uses shared phases — when pluginType is 'claude', we customize info and complete only
 
   // ── loading ──────────────────────────────────────────────────────────────
 
@@ -368,13 +387,21 @@ export function Plugins(): JSX.Element {
               <span className="flex-shrink-0 w-6 h-6 bg-slate-700 rounded-full flex items-center justify-center text-xs font-bold text-slate-200">
                 1
               </span>
-              <span>打开 Codex（Desktop 或 CLI）</span>
+              <span>
+                {pluginType === 'claude'
+                  ? '打开 Claude Desktop，切换到 Cowork 模式'
+                  : '打开 Codex（Desktop 或 CLI）'}
+              </span>
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-slate-700 rounded-full flex items-center justify-center text-xs font-bold text-slate-200">
                 2
               </span>
-              <span>在 Codex 对话框中输入以下指令：</span>
+              <span>
+                {pluginType === 'claude'
+                  ? '在 Cowork 对话框中输入以下指令：'
+                  : '在 Codex 对话框中输入以下指令：'}
+              </span>
             </li>
           </ol>
 
@@ -398,11 +425,28 @@ export function Plugins(): JSX.Element {
                 3
               </span>
               <span>
-                Codex 会自动解包并安装全部 {packInfo?.plugin_count ?? 173} 个插件，等待完成即可 ✅
+                {pluginType === 'claude'
+                  ? `Cowork 会逐个安装 20 个精选 skill，每个 skill 点一次 Save 即可 ✅`
+                  : `Codex 会自动解包并安装全部 ${packInfo?.plugin_count ?? 173} 个插件，等待完成即可 ✅`}
               </span>
             </li>
           </ol>
         </div>
+
+        {/* v1.12.0: Claude Code — installs ALL 170+ plugins */}
+        {pluginType === 'claude' && (
+          <div className="border-t border-slate-700 pt-4">
+            <p className="text-xs text-slate-500 mb-2">
+              💻 Claude Code 用户？点击下方按钮，粘贴到 Claude Code 即可安装全部 170+ 个 skill
+            </p>
+            <button
+              onClick={handleCopyClaudeCodeCommand}
+              className="w-full py-2 border border-slate-600 text-slate-300 rounded-md hover:bg-slate-700 transition text-sm"
+            >
+              📋 复制 Claude Code 安装指令（全部 170+ 个）
+            </button>
+          </div>
+        )}
 
         {/* actions */}
         <div className="flex gap-3">
@@ -431,13 +475,21 @@ export function Plugins(): JSX.Element {
       {/* pack info card */}
       <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-6">
         <div className="flex items-center gap-3 mb-4">
-          {logoDataUrls.codex ? (
+          {pluginType === 'claude' ? (
+            logoDataUrls.claude ? (
+              <img src={logoDataUrls.claude} alt="Claude" className="w-9 h-9" />
+            ) : (
+              <span className="text-3xl">🧠</span>
+            )
+          ) : logoDataUrls.codex ? (
             <img src={logoDataUrls.codex} alt="Codex" className="w-9 h-9" />
           ) : (
             <span className="text-3xl">🔌</span>
           )}
           <div>
-            <h2 className="text-xl font-semibold text-slate-100">安装 Codex 插件</h2>
+            <h2 className="text-xl font-semibold text-slate-100">
+              {pluginType === 'claude' ? '安装 Claude 扩展' : '安装 Codex 插件'}
+            </h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {packInfo?.filename} v{packInfo?.version}
             </p>
@@ -446,8 +498,10 @@ export function Plugins(): JSX.Element {
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-slate-900/50 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-green-400">{packInfo?.plugin_count ?? '…'}</div>
-            <div className="text-xs text-slate-400 mt-1">精选插件</div>
+            <div className="text-2xl font-bold text-green-400">
+              {pluginType === 'claude' ? '20' : (packInfo?.plugin_count ?? '…')}
+            </div>
+            <div className="text-xs text-slate-400 mt-1">精选</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-3 text-center">
             <div className="text-2xl font-bold text-blue-400">{packInfo?.size_mb ?? '…'} MB</div>
@@ -465,11 +519,14 @@ export function Plugins(): JSX.Element {
           onClick={handleDownload}
           className="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition"
         >
-          下载插件包（{packInfo?.size_mb ?? '?'} MB）
+          {pluginType === 'claude' ? '下载 Claude 扩展包' : '下载插件包'}（
+          {packInfo?.size_mb ?? '?'} MB）
         </button>
 
         <p className="text-xs text-slate-500 mt-3 text-center">
-          下载完成后，只需复制一条指令粘贴到 Codex 中即可完成安装
+          {pluginType === 'claude'
+            ? '下载完成后，复制指令粘贴到 Claude Desktop Cowork 中即可完成安装'
+            : '下载完成后，只需复制一条指令粘贴到 Codex 中即可完成安装'}
         </p>
       </div>
 
@@ -483,9 +540,16 @@ export function Plugins(): JSX.Element {
       {/* tip */}
       <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-4 text-xs text-slate-400 leading-relaxed">
         💡 <span className="text-slate-300">提示：</span>
-        插件包包含 Claude Code 集成、代码格式化、Git 辅助、中文优化等{' '}
-        {packInfo?.plugin_count ?? '多'} 个精选插件。安装后可在 Codex
-        的插件面板中看到所有已加载的插件。
+        {pluginType === 'claude'
+          ? '包含 Superpowers 全系列、前端设计、代码审查等 20 个精选扩展。'
+          : '插件包包含 Claude Code 集成、代码格式化、Git 辅助、中文优化等 '}
+        {pluginType !== 'claude' && (
+          <>
+            {packInfo?.plugin_count ?? '多'} 个精选插件。安装后可在 Codex
+            的插件面板中看到所有已加载的插件。
+          </>
+        )}
+        {pluginType === 'claude' && <>安装后在 Claude Desktop Cowork 中即可使用。</>}
       </div>
     </div>
   );

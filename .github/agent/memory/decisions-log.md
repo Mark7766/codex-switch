@@ -38,6 +38,28 @@
 
 ## 决策记录
 
+### ADR-022: v1.11.0 — macOS 自动更新走原生 https 下载 DMG，不走 Squirrel.Mac
+
+- **日期**：2026-06-16
+- **状态**：✅ 已采纳
+- **决策者**：AI Agent
+
+#### 背景
+v1.11.0 自动更新功能需要在 macOS 上自动下载新版本。由于 macOS 构建未签名（`identity: null`），Squirrel.Mac 的 `downloadUpdate()` 会触发签名校验失败（ADR-013），不能用于自动下载。但**下载 DMG 文件本身不需要 Squirrel.Mac**——用 Node.js 原生 `https.get()` 即可。
+
+#### 决策
+> macOS 自动下载走**原生 https 流式下载**，和插件包下载同模式。Server 返回 302 到 COS 广州 → 客户端 `https.get()` + stream pipe → 保存到 `~/Downloads/Codex-Switch-<ver>-mac-<arch>.dmg`。安装时 `app.quit()` 退出应用 + `shell.openPath(dmg)` 打开文件。
+
+#### 理由
+1. Squirrel.Mac 的签名限制只影响"原子替换安装"这一步，不影响文件下载
+2. 原生 https 下载和 PluginManager 完全一致，代码复用
+3. 下载完成后用户双击拖拽覆盖安装（macOS 标准操作），接受度高于"去浏览器下载"
+4. Windows 端保持 `electron-updater.downloadUpdate()` + `quitAndInstall()`，全自动
+
+#### 影响
+- `electron/updater/index.ts` 重写，新增 `downloadMacDmg()` 函数（~90 行）
+- macOS 端不再触发 `manual-download` 事件（浏览器跳转），改为正常的 `download-progress` + `downloaded` 事件流
+
 ### ADR-021: v1.10.0 — 离线插件安装采用"下载 + 自然语言引导"方案
 
 - **日期**：2026-06-15

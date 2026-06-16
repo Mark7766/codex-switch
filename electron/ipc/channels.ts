@@ -96,6 +96,13 @@ export const IPC = {
   pluginsCheckExistingFile: 'plugins:check-existing-file',
   /** 获取插件品牌 Logo（base64 data URL）。 */
   pluginsGetLogo: 'plugins:get-logo',
+  // v1.11.0 邀请好友
+  /** 获取分享文案（已填入邀请码）。 */
+  shareGetText: 'share:get-text',
+  /** 获取社区活跃用户数。 */
+  communityGetCount: 'community:get-count',
+  /** 获取当前用户的邀请统计。 */
+  communityGetProfile: 'community:get-profile',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

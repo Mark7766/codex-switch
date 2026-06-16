@@ -21,6 +21,24 @@
 
 ## 任务记录
 
+### [TASK-061] v1.11.0 自动更新 + 一键安装 — 完整实施
+- **日期**：2026-06-16
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-update-notification-v1.11.0.md` 实施自动更新功能。① `electron/config/store.ts` 新增 `autoDownload: boolean` 字段（默认 true）；② `electron/updater/index.ts` 重写：`check(autoDownload)` 按平台自动下载——Windows 走 `autoUpdater.downloadUpdate()`（NSIS），macOS 走原生 `https.get()` 下载 DMG 到 `~/Downloads`（不走 Squirrel.Mac 签名）；`install()` 按平台分流——Windows `quitAndInstall()`，macOS `app.quit()` + `shell.openPath(dmg)`；③ `electron/main.ts` 启动 5s 后传入 `autoDownload` 检查 + 新增 6h 定时器（代理空闲时检查）；④ `src/components/UpdateBadge.tsx` 重写为三态（idle/downloading/downloaded）+ 平台感知点击；⑤ `src/pages/Settings.tsx` 新增「自动下载新版本」勾选框，平台文案自适应。227/227 tests ✅，typecheck ✅，lint ✅。代码未推送，未部署。
+- **变更文件**：
+  - `electron/config/store.ts`（+3 行）
+  - `electron/updater/index.ts`（重写：+120 行 macOS DMG 下载逻辑）
+  - `electron/main.ts`（+10 行：autoDownload 参数 + 6h 定时器）
+  - `src/components/UpdateBadge.tsx`（重写：三态 + 平台点击）
+  - `src/pages/Settings.tsx`（+14 行：autoDownload 勾选框）
+  - `src/types/global.d.ts`（+1 行）
+- **关联**：DESIGN-update-notification-v1.11.0.md
+- **注意事项**：
+  1. macOS DMG 下载使用原生 https 流式 pipe，500ms 进度推送，和插件包下载同模式
+  2. macOS 安装需先 `app.quit()` 再 `shell.openPath(dmg)`，因为运行中的应用无法被覆盖
+  3. 定时检查仅在代理空闲时触发，避免占用带宽影响 Codex 对话
+  4. 代码未推送远程仓库
+
 ### [TASK-059] v1.10.0 离线插件安装功能 — 完整实施
 - **日期**：2026-06-15
 - **类型**：feat
