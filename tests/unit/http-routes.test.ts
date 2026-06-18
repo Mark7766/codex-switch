@@ -35,7 +35,6 @@ const deps = {
   apiKey: '',
   agent: {} as never,
   handleResponses: vi.fn(),
-  handleCompactHttp: vi.fn(),
 };
 
 describe('routeHttp', () => {
@@ -58,10 +57,11 @@ describe('routeHttp', () => {
     expect(deps.handleResponses).toHaveBeenCalled();
   });
 
-  it('routes /v1/responses/compact to handleCompactHttp', () => {
+  it('returns { compaction: null } for /v1/responses/compact (v1.13.0)', () => {
     const res = mockRes();
     routeHttp(mockReq('POST', '/v1/responses/compact'), res as unknown as ServerResponse, deps);
-    expect(deps.handleCompactHttp).toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toBe(JSON.stringify({ compaction: null }));
   });
 
   it('returns 404 for unknown paths', () => {

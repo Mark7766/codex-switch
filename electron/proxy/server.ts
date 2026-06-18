@@ -4,19 +4,12 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-import { resolveModel } from './translate';
+import { resolveModel, type ChatMessage } from './translate';
 import { ReasoningStore } from './reasoning';
 
 import { type ErrorAction } from './errors';
 // v1.6.0: anthropic-relay removed — Claude Desktop now connects directly to api.deepseek.com
-import { ConversationStore } from './conversation-store';
-import { type CompactResult } from './compact';
-import {
-  handleCompactHttp,
-  compactAndStore as compactAndStoreFn,
-  processWsCompact as processWsCompactFn,
-  type CompactRouteDeps,
-} from './compact-routes';
+// v1.13.0: conversationStore (ndjson) replaced by in-memory LRU — same strategy as cc-switch.
 import { handleResponses, type HttpHandlerDeps } from './http-handler';
 import { handleWs as handleWsFn, type WsHandlerDeps } from './ws-handler';
 import { routeHttp } from './http-routes';
@@ -35,8 +28,6 @@ export interface ProxyOptions {
   defaultModel?: string;
   /** 拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求，避免一句提问被诱发 N 个后台会话。 */
   blockBackgroundSuggestions?: boolean;
-  /** v1.5.0: conversationStore ndjson 持久化文件路径。未提供则使用内存存储。 */
-  storePath?: string;
   /** v1.7.0: model_call 遥测回调。每次请求完成（成功或失败）时调用。 */
   onModelCall?: (event: {
     model: string;
@@ -47,6 +38,8 @@ export interface ProxyOptions {
     output_tokens?: number;
     error_reason?: string;
   }) => void;
+  /** v1.13.0: 内存缓存最大条目数，默认 500。 */
+  cacheMaxEntries?: number;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
@@ -149,18 +142,13 @@ export class DeepSeekProxy extends EventEmitter {
   private actualPort = 0;
   private readonly reasoning = new ReasoningStore();
   /**
-   * responseId → 完整对话 messages（发给 DeepSeek 的输入 + assistant 输出）。
-   * 解决 Codex 通过 `previous_response_id` 链式对话时代理丢失历史的"失忆"问题：
-   * Codex Responses API 客户端每轮只发当前新消息并附带 previous_response_id，
-   * 服务端（即本代理）需要自行维护历史并在下轮时恢复完整上下文。
+   * v1.13.0: 纯内存 LRU 缓存 (responseId → messages)。
    *
-   * v1.5.0: 改用 ConversationStore（支持 ndjson 持久化 + 自动清理）。
+   * 不再持久化到 ndjson。缓存命中直接返回；未命中时从 Codex 的 sessions/ JSONL
+   * 按需加载（由 http-handler / ws-handler 通过 deps 自行 fallback）。
    */
-  private readonly conversationStore: ConversationStore;
-  /** WS compact 进行中集合，防止同一 ID 并发 compact。 */
-  private readonly activeCompactions = new Set<string>();
-  /** compact id → result 幂等缓存（同一 previous_response_id 返回已有结果）。 */
-  private readonly compactCache = new Map<string, CompactResult>();
+  private readonly conversationCache = new Map<string, ChatMessage[]>();
+  private readonly cacheMaxEntries: number;
   private readonly agent = new https.Agent({ rejectUnauthorized: true });
   private startedAt = 0;
   /** 串行化 start / stop / restart 调用，避免并发竞态（§7 C2/C5）。 */
@@ -188,9 +176,7 @@ export class DeepSeekProxy extends EventEmitter {
   constructor(opts: ProxyOptions) {
     super();
     this.opts = opts;
-    this.conversationStore = new ConversationStore({
-      filePath: opts.storePath,
-    });
+    this.cacheMaxEntries = opts.cacheMaxEntries ?? 500;
   }
 
   getStatus(): ProxyStatus {
@@ -222,19 +208,20 @@ export class DeepSeekProxy extends EventEmitter {
     return getRecentStatsFn(this.stats, windowMs);
   }
 
-  /** v1.9.0: 返回对话缓存统计信息。 */
+  /** v1.13.0: 返回内存缓存统计信息。 */
   getConversationCacheStats(): { count: number; oldestTimestamp: number | null } {
-    return this.conversationStore.getStats();
+    return { count: this.conversationCache.size, oldestTimestamp: null };
   }
 
-  /** v1.9.0: 用户主动清空对话缓存。 */
+  /** v1.13.0: 清空内存缓存。 */
   async clearConversationCache(): Promise<void> {
-    await this.conversationStore.clearAll();
+    this.conversationCache.clear();
   }
 
-  /** v1.9.0: 更新对话缓存最大条目数。 */
+  /** v1.13.0: 更新缓存最大条目数。 */
   setConversationCacheLimit(n: number): void {
-    this.conversationStore.setMaxEntries(n);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this as unknown as Record<string, unknown>).cacheMaxEntries = Math.max(10, n);
   }
 
   updateOptions(patch: Partial<ProxyOptions>): void {
@@ -281,25 +268,6 @@ export class DeepSeekProxy extends EventEmitter {
       this.startedAt = Date.now();
       this.setStatus('running');
       this.attachRuntimeMonitor();
-      // v1.5.0: load persisted conversation history
-      this.conversationStore
-        .load()
-        .then((count) => {
-          if (count > 0) {
-            this.log({
-              level: 'info',
-              source: 'proxy',
-              message: `已恢复 ${count} 条对话历史`,
-            });
-          }
-        })
-        .catch((err) => {
-          this.log({
-            level: 'warn',
-            source: 'proxy',
-            message: `加载对话历史失败：${(err as Error).message}`,
-          });
-        });
       this.log({
         level: 'info',
         source: 'proxy',
@@ -437,8 +405,6 @@ export class DeepSeekProxy extends EventEmitter {
       this.cancelAutoRecover();
     }
     this.intentionalStop = true;
-    // v1.9.0: 停止前强制刷盘，避免 debounce 5s 内的对话历史丢失
-    await this.conversationStore.forceFlush().catch(() => {});
     if (!this.server) {
       this.actualPort = 0;
       this.startedAt = 0;
@@ -561,40 +527,20 @@ export class DeepSeekProxy extends EventEmitter {
       apiKey: this.opts.apiKey,
       agent: this.agent,
       handleResponses: (rq, rs) => this.handleResponses(rq, rs),
-      handleCompactHttp: (rq, rs) => this.handleCompactHttp(rq, rs),
     });
   }
 
-  // ── v1.8.0: compact — delegated to compact-routes.ts ────────────────────
-
-  private getCompactDeps(): CompactRouteDeps {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const logFn = (entry: any) => this.log(entry);
-    return {
-      apiKey: this.opts.apiKey,
-      defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
-      conversationStore: this.conversationStore,
-      compactCache: this.compactCache as Map<string, CompactResult & { compactedId: string }>,
-      activeCompactions: this.activeCompactions,
-      log: logFn,
-    };
-  }
-
-  private handleCompactHttp(req: IncomingMessage, res: ServerResponse): void {
-    handleCompactHttp(req, res, this.getCompactDeps());
-  }
-
-  private async compactAndStore(
-    prevRespId: string | undefined,
-  ): Promise<CompactResult & { compactedId: string }> {
-    return compactAndStoreFn(prevRespId, this.getCompactDeps());
-  }
-
-  private processWsCompact(ws: WebSocket, prevRespId: string | undefined): void {
-    processWsCompactFn(ws, prevRespId, this.getCompactDeps());
-  }
-
   // ── deps builders ──────────────────────────────────────────────────────
+
+  /** v1.13.0: 内存 LRU set helper — 自动 LRU 淘汰。 */
+  private cacheSet(id: string, messages: ChatMessage[]): Map<string, ChatMessage[]> {
+    this.conversationCache.set(id, messages);
+    while (this.conversationCache.size > this.cacheMaxEntries) {
+      const oldest = this.conversationCache.keys().next().value as string | undefined;
+      if (oldest !== undefined) this.conversationCache.delete(oldest);
+    }
+    return this.conversationCache;
+  }
 
   private getHttpDeps(): HttpHandlerDeps {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -604,7 +550,11 @@ export class DeepSeekProxy extends EventEmitter {
       modelMapping: this.opts.modelMapping,
       defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
       agent: this.agent,
-      conversationStore: this.conversationStore,
+      conversationCache: {
+        get: (id) => this.conversationCache.get(id),
+        set: (id, msgs) => this.cacheSet(id, msgs),
+        has: (id) => this.conversationCache.has(id),
+      },
       reasoning: this.reasoning,
       stats: this.stats,
       log: logFn,
@@ -623,12 +573,6 @@ export class DeepSeekProxy extends EventEmitter {
       ...httpDeps,
       blockBackgroundSuggestions: this.opts.blockBackgroundSuggestions !== false,
       isSuggestionRequest: (msg) => isBackgroundSuggestionRequest(msg),
-      processWsCompact: (ws, prevId) => this.processWsCompact(ws, prevId),
-      compactAndStore: (prevId: string | undefined) =>
-        this.compactAndStore(prevId) as unknown as Promise<{
-          compactedId: string;
-          [key: string]: unknown;
-        }>,
     };
   }
 

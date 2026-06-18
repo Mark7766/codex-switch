@@ -5,7 +5,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleWs } from '../../electron/proxy/ws-handler';
 import type { WsHandlerDeps } from '../../electron/proxy/ws-handler';
-import type { ConversationStore } from '../../electron/proxy/conversation-store';
 
 vi.mock('../../electron/proxy/stream', () => ({
   streamDeepSeek: vi.fn().mockResolvedValue({
@@ -45,11 +44,11 @@ function makeDeps(overrides?: Partial<WsHandlerDeps>): WsHandlerDeps {
     defaultModel: 'deepseek-v4-flash',
     blockBackgroundSuggestions: true,
     agent: {} as never,
-    conversationStore: {
+    conversationCache: {
       get: vi.fn().mockReturnValue(null),
-      set: vi.fn(),
-      markDirty: vi.fn(),
-    } as unknown as ConversationStore,
+      set: vi.fn().mockReturnValue(new Map()),
+      has: vi.fn().mockReturnValue(false),
+    },
     reasoning: { asMap: vi.fn().mockReturnValue({}) } as unknown as WsHandlerDeps['reasoning'],
     stats: { total: 0, pendingDelta: 0, pendingInputTokensDelta: 0, pendingOutputTokensDelta: 0 },
     log: vi.fn(),
@@ -59,8 +58,6 @@ function makeDeps(overrides?: Partial<WsHandlerDeps>): WsHandlerDeps {
     emit: vi.fn(),
     newReqId: () => 'ws_test',
     isSuggestionRequest: vi.fn().mockReturnValue(true),
-    processWsCompact: vi.fn(),
-    compactAndStore: vi.fn(),
     ...overrides,
   };
 }
@@ -74,7 +71,7 @@ describe('handleWs', () => {
     expect(deps.log).toHaveBeenCalledWith(expect.objectContaining({ level: 'error' }));
   });
 
-  it('routes response.compact to processWsCompact', () => {
+  it('response.compact returns empty compaction stub (v1.13.0)', () => {
     const ws = mockWs();
     const deps = makeDeps();
     handleWs(ws as unknown as Parameters<typeof handleWs>[0], deps);
@@ -83,7 +80,9 @@ describe('handleWs', () => {
         JSON.stringify({ type: 'response.compact', response: { previous_response_id: 'prev1' } }),
       ),
     );
-    expect(deps.processWsCompact).toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'response.completed', response: { compaction: null } }),
+    );
   });
 
   it('blocks suggestion requests', () => {
@@ -141,35 +140,21 @@ describe('handleWs', () => {
     expect(ws.on).toHaveBeenCalledWith('close', expect.any(Function));
   });
 
-  it('tracks compaction trigger in log', async () => {
+  it('silently skips compaction_trigger items (v1.13.0)', async () => {
     const ws = mockWs();
-    const deps = makeDeps({
-      isSuggestionRequest: vi.fn().mockReturnValue(false),
-      compactAndStore: vi.fn().mockResolvedValue({
-        compactedId: 'comp123',
-        compactedMessages: [],
-        compacted: true,
-        method: 'llm_summary',
-        originalMessageCount: 30,
-        compactedMessageCount: 15,
-      }),
-    });
+    const deps = makeDeps({ isSuggestionRequest: vi.fn().mockReturnValue(false) });
     handleWs(ws as unknown as Parameters<typeof handleWs>[0], deps);
     ws._triggerMessage(
       Buffer.from(
         JSON.stringify({
           type: 'response.create',
           input: [{ type: 'compaction_trigger' }],
-          previous_response_id: 'prev1',
         }),
       ),
     );
-    // trigger is extracted, log should mention compaction
+    // v1.13.0: compaction_trigger 被静默跳过，不产生 compact 日志
     await new Promise((r) => setTimeout(r, 10));
-    expect(deps.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining('检测到'),
-      }),
-    );
+    // streamDeepSeek 应被调用（compaction_trigger 被过滤后继续正常请求）
+    expect(ws.send).toHaveBeenCalled();
   });
 });

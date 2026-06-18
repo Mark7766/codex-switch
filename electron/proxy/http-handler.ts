@@ -16,10 +16,9 @@ import {
   type ChatRequest,
 } from './translate';
 import type { ReasoningStore } from './reasoning';
+import { readSessionHistoryAsChatMessages } from '../codex/session-reader';
 import { streamDeepSeek, callDeepSeekSync, type SseEvent } from './stream';
 import { translateError, isContextExceededError } from './errors';
-import { emergencyCompact } from './compact';
-import type { ConversationStore } from './conversation-store';
 
 // ── deps interface ───────────────────────────────────────────────────────
 
@@ -28,7 +27,8 @@ export interface HttpHandlerDeps {
   modelMapping: Record<string, string>;
   defaultModel: string;
   agent: https.Agent;
-  conversationStore: ConversationStore;
+  /** v1.13.0: 内存 LRU 缓存 (responseId → messages)。get/set/has 接口。 */
+  conversationCache: Pick<Map<string, ChatMessage[]>, 'get' | 'set' | 'has'>;
   reasoning: ReasoningStore;
   stats: {
     total: number;
@@ -67,11 +67,11 @@ export interface HttpHandlerDeps {
 
 // ── handler ──────────────────────────────────────────────────────────────
 
-export function handleResponses(
+export async function handleResponses(
   req: IncomingMessage,
   res: ServerResponse,
   deps: HttpHandlerDeps,
-): void {
+): Promise<void> {
   const reqId = deps.newReqId();
   const startedAt = Date.now();
   deps.stats.total += 1;
@@ -80,7 +80,7 @@ export function handleResponses(
 
   let body = '';
   req.on('data', (c: Buffer) => (body += c));
-  req.on('end', () => {
+  req.on('end', async () => {
     let parsed: {
       instructions?: string;
       input?: unknown;
@@ -114,7 +114,20 @@ export function handleResponses(
     });
 
     const prevRespId = parsed.previous_response_id;
-    const storedHistory = prevRespId ? (deps.conversationStore.get(prevRespId) ?? null) : null;
+    let storedHistory = prevRespId ? (deps.conversationCache.get(prevRespId) ?? null) : null;
+
+    // v1.13.0: 缓存未命中 → Codex JSONL fallback
+    if (storedHistory === null && prevRespId) {
+      try {
+        const fromCodex = await readSessionHistoryAsChatMessages(prevRespId);
+        if (fromCodex.length > 0) {
+          storedHistory = fromCodex;
+          deps.conversationCache.set(prevRespId, fromCodex);
+        }
+      } catch {
+        // Codex JSONL 不可用，继续走新对话路径
+      }
+    }
 
     let fullMessages: ChatMessage[];
     if (storedHistory !== null) {
@@ -173,8 +186,7 @@ export function handleResponses(
       )
         .then(({ outputItems, finishReason, endTurn, usage }) => {
           const assistantOutputMessages = itemsToMessages(outputItems, deps.reasoning.asMap());
-          deps.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-          deps.conversationStore.markDirty();
+          deps.conversationCache.set(respId, [...fullMessages, ...assistantOutputMessages]);
           deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
             endTurn,
             finishReason,
@@ -183,49 +195,37 @@ export function handleResponses(
           res.end();
         })
         .catch(async (e) => {
-          // v1.9.0: context exceeded recovery — compact, save, and retry
+          // v1.13.0: 不做 emergencyCompact 重试。上下文超限时直接翻译为中文提示。
           if (isContextExceededError(e as Error) && fullMessages.length > 3) {
-            const compacted = emergencyCompact(fullMessages);
-            // Save compacted state BEFORE retry — even if retry fails,
-            // the next request won't start from the bloated 62-message state
-            deps.conversationStore.set(respId, compacted);
-            deps.conversationStore.markDirty();
             deps.log({
               level: 'warn',
               source: 'http',
               reqId,
-              message: `上下文超限，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
+              message: `上下文超限（${fullMessages.length} 条消息），` + '建议使用 /new 开启新对话',
             });
-            const retryReq = { ...chatReq, messages: compacted };
-            try {
-              const result = await streamDeepSeek(
-                retryReq,
-                respId,
-                sse,
-                { apiKey: deps.apiKey, agent: deps.agent },
-                deps.reasoning,
-              );
-              deps.conversationStore.set(respId, [
-                ...compacted,
-                ...itemsToMessages(result.outputItems, deps.reasoning.asMap()),
-              ]);
-              deps.conversationStore.markDirty();
-              deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
-                endTurn: result.endTurn,
-                finishReason: result.finishReason,
-                usage: result.usage,
-              });
-              res.end();
-              return;
-            } catch (retryErr) {
-              deps.log({
-                level: 'error',
-                source: 'http',
-                reqId,
-                message: `上下文超限重试仍失败：${(retryErr as Error).message}，已保存压缩状态，请开启新对话`,
-              });
-              /* fall through to normal error */
-            }
+            const f = {
+              reason:
+                '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
+                '建议使用 /new 开启新对话继续。',
+              action: 'none' as const,
+            };
+            deps.recordError(
+              reqId,
+              'http',
+              startedAt,
+              requestedModel,
+              resolvedModel,
+              f.reason,
+              f.action,
+              413,
+            );
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { code: 'context_length_exceeded', message: f.reason },
+              }),
+            );
+            return;
           }
           const friendly = translateStreamError(e as Error);
           deps.recordError(
@@ -305,8 +305,7 @@ export function handleResponses(
             },
           ];
           const assistantOutputMessages = itemsToMessages(outputItems, deps.reasoning.asMap());
-          deps.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-          deps.conversationStore.markDirty();
+          deps.conversationCache.set(respId, [...fullMessages, ...assistantOutputMessages]);
 
           deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
             finishReason,
@@ -314,33 +313,17 @@ export function handleResponses(
           });
         })
         .catch(async (e) => {
-          // v1.8.1: context exceeded recovery — compact and retry once
-          if (isContextExceededError(e as Error) && fullMessages.length > 5) {
-            const compacted = emergencyCompact(fullMessages);
-            deps.log({
-              level: 'warn',
-              source: 'http',
-              reqId,
-              message: `上下文超限(sync)，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
-            });
-            try {
-              const retryResult = await callDeepSeekSync(
-                { ...chatReq, messages: compacted, stream: false },
-                { apiKey: deps.apiKey, agent: deps.agent },
-              );
-              deps.conversationStore.set(respId, compacted);
-              deps.conversationStore.markDirty();
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify(retryResult.body));
-              deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
-                finishReason: 'stop',
-              });
-              return;
-            } catch {
-              /* retry failed, fall through */
-            }
-          }
-          const f = translateError({ networkErrorMessage: (e as Error).message });
+          // v1.13.0: 不做 emergencyCompact；上下文超限时翻译为中文提示。
+          // 与 cc-switch 策略一致：不自己实现 compact，让用户 /new 开新对话。
+          const ctxExceeded = isContextExceededError(e as Error);
+          const f = ctxExceeded
+            ? {
+                reason:
+                  '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
+                  '建议使用 /new 开启新对话继续。',
+                action: 'none' as const,
+              }
+            : translateError({ networkErrorMessage: (e as Error).message });
           deps.recordError(
             reqId,
             'http',

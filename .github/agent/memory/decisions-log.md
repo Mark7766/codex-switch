@@ -38,6 +38,47 @@
 
 ## 决策记录
 
+### ADR-023: v1.13.0 — 删除 LLM compact + ndjson 持久化，改用纯内存 LRU + Codex JSONL fallback
+
+- **日期**：2026-06-19
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v1.5.0 引入了自己的 LLM 摘要压缩（`compact.ts`, ~418行）和 ndjson 持久化缓存（`conversation-store.ts`, ~264行）。对标分析发现：
+
+1. **cc-switch**：512 条纯内存，无 compact、无持久化。写 `model_context_window=1M` + 禁用 `enable_request_compression` 避免 404。
+2. **Codex++**：读 Codex SQLite 元数据，无 compact、无持久化。同样是写 config 配置项。
+3. Codex 的 `/v1/responses/compact` 返回 `encrypted_content`（OpenAI 专有 latent 表示），DeepSeek 不支持，经代理必 404。
+
+用户决定和 cc-switch/Codex++ 对齐：不自己实现 compact，写 config 让 Codex 不触发，超限时给用户清晰中文提示。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 保留 LLM compact + ndjson（当前） | 功能完整 | 维护 ~700 行 compact/ndjson 代码；compact 结果污染缓存一致性；摘要不当会让用户无从排查 |
+| B. 纯内存 LRU + Codex JSONL fallback（和 cc-switch 对齐） | 删除 ~2000 行代码；缓存不丢数据（Codex JSONL 永久保有）；超限时用户明确知道发生了什么 | 重启后缓存清空需从 Codex JSONL 重新加载（~10ms/次） |
+
+#### 决策
+> 选择 **方案 B**：删除 `conversation-store.ts`、`compact.ts`、`compact-routes.ts`。代理使用纯内存 LRU（500条）。缓存未命中时从 `~/.codex/sessions/` 的 JSONL 文件回退读取。`/v1/responses/compact` 返回 `{ compaction: null }`。`codex/writer.ts` 写入 `model_context_window=1M` + `[features] enable_request_compression=false`。
+
+#### 理由
+1. 和 cc-switch/Codex++ 对齐——这两个项目都已大规模验证此策略可用
+2. Codex 的 compact 依赖 OpenAI 专有 `encrypted_content`，经代理不可用
+3. 绝大多数对话到不了 DeepSeek 128K 上限，compact 触发概率极低
+4. LLM 摘要是不可逆信息损失，摘丢关键细节用户无从排查
+5. 净删除 ~1967 行代码，降低维护负担
+
+#### 影响
+- 删除 `electron/proxy/conversation-store.ts`、`electron/proxy/compact.ts`、`electron/proxy/compact-routes.ts` 及配套测试
+- 新增 `electron/codex/session-reader.ts` — 扫描 `~/.codex/sessions/` 目录读取对话历史
+- `server.ts` ConversationStore → 纯内存 Map + LRU
+- `codex/writer.ts` 追加 4 个上下文窗口配置字段
+- ADR-019（v1.5.0 LLM compact）被推翻
+
+---
+
 ### ADR-022: v1.11.0 — macOS 自动更新走原生 https 下载 DMG，不走 Squirrel.Mac
 
 - **日期**：2026-06-16
@@ -438,7 +479,7 @@ Claude Code CLI 仅写 `~/.zshrc`，需要重启终端才生效，体验差。
 ### ADR-019: v1.5.0 — /v1/responses/compact 上下文压缩采用 LLM 摘要 + ndjson 持久化
 
 - **日期**：2026-06-11
-- **状态**：✅ 已采纳
+- **状态**：❌ 已废弃（被 ADR-023 取代）
 - **决策者**：用户 + AI Agent
 
 #### 背景

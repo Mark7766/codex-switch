@@ -28,7 +28,6 @@ export interface ProxyOptions {
   modelMapping: Record<string, string>;
   defaultModel?: string;
   blockBackgroundSuggestions?: boolean;
-  storePath?: string;
   onModelCall?: (event: {
     model: string;
     stream: boolean;

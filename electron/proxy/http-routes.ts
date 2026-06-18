@@ -14,7 +14,6 @@ export interface HttpRouteDeps {
   apiKey: string;
   agent: https.Agent;
   handleResponses(req: IncomingMessage, res: ServerResponse): void;
-  handleCompactHttp(req: IncomingMessage, res: ServerResponse): void;
 }
 
 export function routeHttp(req: IncomingMessage, res: ServerResponse, deps: HttpRouteDeps): void {
@@ -37,7 +36,10 @@ export function routeHttp(req: IncomingMessage, res: ServerResponse, deps: HttpR
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/responses/compact') {
-    deps.handleCompactHttp(req, res);
+    // v1.13.0: 不做 compact。返回空 compaction 响应让 Codex 继续正常流程。
+    // 与 cc-switch 策略一致：不依赖 Codex 的 /compact（DeepSeek 不支持该端点）。
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ compaction: null }));
     return;
   }
 

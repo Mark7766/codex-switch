@@ -21,6 +21,36 @@
 
 ## 任务记录
 
+### [TASK-068] v1.13.0 — Review 修复：接入 session-reader fallback + 清理 dead code
+- **日期**：2026-06-19
+- **类型**：fix
+- **摘要**：Review 发现 3 个缺陷：① `session-reader.ts` 写好但未接入请求路径——缓存未命中时不会回退读 Codex JSONL（严重）；② `stream.ts` 的 `extraOutputItems` 参数已是死代码（中）；③ Settings UI 轻微困惑（跳过）。修复：`session-reader.ts` 新增 `readSessionHistoryAsChatMessages()` → `http-handler.ts` / `ws-handler.ts` 缓存未命中时 await 调用 → 存入缓存。`stream.ts` 删除 `extraOutputItems` 参数和相关代码块。185/185 tests ✅，typecheck ✅，lint ✅。
+- **变更文件**：`session-reader.ts`（+readSessionHistoryAsChatMessages）、`http-handler.ts`（+async + fallback）、`ws-handler.ts`（+fallback）、`stream.ts`（-extraOutputItems）
+
+### [TASK-067] v1.13.0 — 对话缓存改为纯内存 LRU + Codex JSONL fallback（删除 compact 和 ndjson）
+- **日期**：2026-06-19
+- **类型**：refactor
+- **摘要**：按 `docs/DESIGN-codex-native-session-storage.md` v5.0 实施。① 删除 `conversation-store.ts`（ndjson 持久化 ~264行）、`compact.ts`（LLM 摘要压缩 ~418行）、`compact-routes.ts`（~258行）及配套测试（~879行）；② 新增 `codex/session-reader.ts`（~150行），从 `~/.codex/sessions/` 目录扫描读取 Codex JSONL 作为缓存未命中回退源；③ `server.ts` 改为纯内存 LRU（Map, 500条），缓存命中直接返回，未命中时 http-handler/ws-handler 从 Codex JSONL 回退读取；④ `codex/writer.ts` 追加 `model_context_window=1M` + `model_auto_compact_token_limit=900K` + `[features] enable_request_compression=false`，用户点"保存并应用"时写入；⑤ `/v1/responses/compact` HTTP/WS 路由返回 `{ compaction: null }` stub；⑥ 删除 emergencyCompact 自动重试逻辑，上下文超限时翻译为中文提示"建议使用 /new 开启新对话"；⑦ 与 cc-switch 策略完全对齐。185/185 tests ✅，typecheck ✅，lint ✅。未 push。
+- **变更文件**：
+  - `electron/codex/session-reader.ts`（新增，~150行）
+  - `electron/codex/writer.ts`（+10行：上下文窗口配置）
+  - `electron/proxy/conversation-store.ts`（删除）
+  - `electron/proxy/compact.ts`（删除）
+  - `electron/proxy/compact-routes.ts`（删除）
+  - `electron/proxy/server.ts`（重写缓存层：ConversationStore→Map, +cacheSet LRU, -compact方法, -storePath, -forceFlush）
+  - `electron/proxy/http-handler.ts`（conversationStore→conversationCache, -emergencyCompact, +中文超限提示）
+  - `electron/proxy/ws-handler.ts`（同上，compaction_trigger 静默跳过，/compact 返回stub）
+  - `electron/proxy/http-routes.ts`（/compact 返回 stub）
+  - `electron/proxy/types.ts`（-storePath）
+  - 删除 4 个测试文件，修改 3 个测试文件
+- **关联**：DESIGN-codex-native-session-storage.md、ADR-023
+- **注意事项**：
+  1. 净删除 ~1967 行代码
+  2. 已有用户的 ndjson 文件不自动删除（`~/.codex-switch/conversation-store.ndjson` 可手动清理）
+  3. 缓存上限保留（Settings UI 中"对话缓存"区块仍可用），但改为纯内存 LRU
+  4. node:sqlite 实验性 API 不可用时自动回退目录扫描，session-reader 始终可用
+  5. 与 cc-switch 的策略完全一致：config 禁用 compact + proxy 返回 stub + 不做 LLM 摘要
+
 ### [TASK-066] v1.13.0 智能搜索 — Spotlight 式浮层搜索
 - **日期**：2026-06-18
 - **类型**：feat

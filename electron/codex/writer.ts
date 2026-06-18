@@ -41,6 +41,12 @@ model_reasoning_effort = "xhigh"
 # compact 502 的真正修复是 wire_api + requires_openai_auth；此行非必要。
 # disable_response_storage = true
 
+# v1.13.0: 与 cc-switch 策略一致 —— 设 1M 窗口避免 Codex 触发 compact。
+# compact 端点需要 OpenAI 专有 encrypted_content，DeepSeek 不支持，
+# 经非 OpenAI 代理会 404。禁用后 Codex 不再发 compact 请求。
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+
 [model_providers.custom]
 name = "Codex Switch"
 base_url = "http://127.0.0.1:${port}/v1"
@@ -50,6 +56,10 @@ requires_openai_auth = true
 # 如果你使用 DeepSeek 等非 OpenAI 服务，且 Codex 需要执行命令，可按需开启：
 # sandbox = "none"
 # approval = "auto-edit"
+
+[features]
+enable_request_compression = false
+remote_compaction_v2 = false
 `;
 
 const AUTH_TEMPLATE = (apiKey: string): string =>

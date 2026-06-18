@@ -54,11 +54,11 @@ function makeDeps(overrides?: Partial<HttpHandlerDeps>): HttpHandlerDeps {
     modelMapping: {},
     defaultModel: 'deepseek-v4-flash',
     agent: {} as never,
-    conversationStore: {
+    conversationCache: {
       get: vi.fn().mockReturnValue(null),
-      set: vi.fn(),
-      markDirty: vi.fn(),
-    } as unknown as HttpHandlerDeps['conversationStore'],
+      set: vi.fn().mockReturnValue(new Map()),
+      has: vi.fn().mockReturnValue(false),
+    },
     reasoning: { asMap: vi.fn().mockReturnValue({}) } as unknown as HttpHandlerDeps['reasoning'],
     stats: { total: 0, pendingDelta: 0, pendingInputTokensDelta: 0, pendingOutputTokensDelta: 0 },
     log: vi.fn(),

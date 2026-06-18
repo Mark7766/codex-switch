@@ -18,15 +18,9 @@ import {
   type ResponsesItem,
 } from './translate';
 import type { ReasoningStore } from './reasoning';
+import { readSessionHistoryAsChatMessages } from '../codex/session-reader';
 import { streamDeepSeek, type SseEvent } from './stream';
 import { translateError, isContextExceededError } from './errors';
-import { emergencyCompact } from './compact';
-import type { ConversationStore } from './conversation-store';
-import {
-  extractCompactionTriggers,
-  extractCompactionInputItems,
-  buildCompactionOutputItem,
-} from './compact';
 
 // ── deps interface ───────────────────────────────────────────────────────
 
@@ -36,7 +30,8 @@ export interface WsHandlerDeps {
   defaultModel: string;
   blockBackgroundSuggestions: boolean;
   agent: https.Agent;
-  conversationStore: ConversationStore;
+  /** v1.13.0: 内存 LRU 缓存 (responseId → messages)。 */
+  conversationCache: Pick<Map<string, ChatMessage[]>, 'get' | 'set' | 'has'>;
   reasoning: ReasoningStore;
   stats: {
     total: number;
@@ -73,10 +68,6 @@ export interface WsHandlerDeps {
   emit(event: string, payload: unknown): void;
   newReqId(): string;
   isSuggestionRequest(msg: { input?: unknown; instructions?: string }): boolean;
-  processWsCompact(ws: WebSocket, prevRespId: string | undefined): void;
-  compactAndStore(
-    prevRespId: string | undefined,
-  ): Promise<{ compactedId: string; [key: string]: unknown }>;
 }
 
 // ── public API ───────────────────────────────────────────────────────────
@@ -137,9 +128,14 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
     }
 
     if (msg.type === 'response.compact') {
-      const prevId = (msg as { response?: { previous_response_id?: string } }).response
-        ?.previous_response_id;
-      deps.processWsCompact(ws, prevId);
+      // v1.13.0: 不做 compact。返回空 compaction 响应让 Codex 继续。
+      if (ws.readyState === 1) {
+        try {
+          ws.send(JSON.stringify({ type: 'response.completed', response: { compaction: null } }));
+        } catch {
+          /* ignore */
+        }
+      }
       return;
     }
     if (msg.type !== 'response.create') {
@@ -254,59 +250,33 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
 
     const prevRespId = msg.previous_response_id;
 
-    const rawInput = Array.isArray(msg.input) ? msg.input : [];
-    let compactionOutputItem: Record<string, unknown> | null = null;
-    let workingInput = rawInput;
+    // v1.13.0: 不做 compact。compaction_trigger / compaction items 静默跳过。
+    // 与 cc-switch 策略一致：写 config 禁用 compact + 代理不做压缩。
+    let workingInput = Array.isArray(msg.input) ? msg.input : [];
+    // 过滤掉 compaction_trigger 和 compaction 类型 items
+    workingInput = workingInput.filter(
+      (it) =>
+        (it as Record<string, unknown>)?.type !== 'compaction_trigger' &&
+        (it as Record<string, unknown>)?.type !== 'compaction',
+    );
 
-    const { compactionTriggers, filteredInput: inputWithoutTriggers } =
-      extractCompactionTriggers(workingInput);
-    workingInput = inputWithoutTriggers;
+    let storedHistory = prevRespId ? (deps.conversationCache.get(prevRespId) ?? null) : null;
 
-    if (compactionTriggers.length > 0) {
-      deps.log({
-        level: 'info',
-        source: 'ws',
-        reqId,
-        connId,
-        message: `↩ 检测到 ${compactionTriggers.length} 个 compaction_trigger，压缩历史中…`,
-      });
+    // v1.13.0: 缓存未命中 → Codex JSONL fallback
+    if (storedHistory === null && prevRespId) {
       try {
-        const compacted = await deps.compactAndStore(prevRespId);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        compactionOutputItem = buildCompactionOutputItem(compacted as any);
-        deps.log({
-          level: 'info',
-          source: 'ws',
-          reqId,
-          connId,
-          message:
-            `↩ 压缩完成 id=${compacted.compactedId} method=${(compacted as Record<string, unknown>).method ?? '?'} ` +
-            `original=${(compacted as Record<string, unknown>).originalMessageCount ?? '?'} ` +
-            `compacted=${(compacted as Record<string, unknown>).compactedMessageCount ?? '?'}`,
-        });
-      } catch (err) {
-        deps.log({
-          level: 'warn',
-          source: 'ws',
-          reqId,
-          connId,
-          message: `↩ 压缩失败（继续正常请求）：${(err as Error).message}`,
-        });
-        compactionOutputItem = null;
+        const fromCodex = await readSessionHistoryAsChatMessages(prevRespId);
+        if (fromCodex.length > 0) {
+          storedHistory = fromCodex;
+          deps.conversationCache.set(prevRespId, fromCodex);
+        }
+      } catch {
+        // Codex JSONL 不可用，继续走新对话路径
       }
     }
 
-    const { messages: restoredCompactionMsgs, filteredInput: inputWithoutCompaction } =
-      extractCompactionInputItems(workingInput);
-    workingInput = inputWithoutCompaction;
-
-    const storedHistory = prevRespId ? (deps.conversationStore.get(prevRespId) ?? null) : null;
-
     let fullMessages: ChatMessage[];
-    if (restoredCompactionMsgs !== null) {
-      const newMessages = itemsToMessages(workingInput, deps.reasoning.asMap());
-      fullMessages = [...restoredCompactionMsgs, ...newMessages];
-    } else if (storedHistory !== null) {
+    if (storedHistory !== null) {
       const newMessages = itemsToMessages(workingInput, deps.reasoning.asMap());
       fullMessages = [...storedHistory, ...newMessages];
     } else {
@@ -353,15 +323,13 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
       send,
       { apiKey: deps.apiKey, agent: deps.agent },
       deps.reasoning,
-      compactionOutputItem ? [compactionOutputItem] : undefined,
     )
       .then(({ outputItems, finishReason, endTurn, usage }) => {
         lastToolCalls = outputItems.filter(
           (o) => (o as ResponsesItem).type === 'function_call',
         ) as ResponsesItem[];
         const assistantOutputMessages = itemsToMessages(outputItems, deps.reasoning.asMap());
-        deps.conversationStore.set(respId, [...fullMessages, ...assistantOutputMessages]);
-        deps.conversationStore.markDirty();
+        deps.conversationCache.set(respId, [...fullMessages, ...assistantOutputMessages]);
         deps.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
           endTurn,
           finishReason,
@@ -370,49 +338,44 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
         });
       })
       .catch(async (e) => {
-        // v1.9.0: context exceeded recovery — compact, save, and retry
+        // v1.13.0: 不做 emergencyCompact 重试。上下文超限时翻译错误。
         if (isContextExceededError(e as Error) && fullMessages.length > 3) {
-          const compacted = emergencyCompact(fullMessages);
-          deps.conversationStore.set(respId, compacted);
-          deps.conversationStore.markDirty();
           deps.log({
             level: 'warn',
             source: 'ws',
             reqId,
             connId,
-            message: `上下文超限，已压缩 ${fullMessages.length}→${compacted.length} 条消息，重试中…`,
+            message: `上下文超限（${fullMessages.length} 条消息），建议 /new 开启新对话`,
           });
-          const retryReq = { ...chatReq, messages: compacted };
-          try {
-            const result = await streamDeepSeek(
-              retryReq,
-              respId,
-              send,
-              { apiKey: deps.apiKey, agent: deps.agent },
-              deps.reasoning,
-              compactionOutputItem ? [compactionOutputItem] : undefined,
-            );
-            deps.conversationStore.set(respId, [
-              ...compacted,
-              ...itemsToMessages(result.outputItems, deps.reasoning.asMap()),
-            ]);
-            deps.conversationStore.markDirty();
-            deps.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
-              endTurn: result.endTurn,
-              finishReason: result.finishReason,
-              connId,
-              usage: result.usage,
-            });
-            return;
-          } catch (retryErr) {
-            deps.log({
-              level: 'error',
-              source: 'ws',
-              reqId,
-              connId,
-              message: `上下文超限重试仍失败：${(retryErr as Error).message}，已保存压缩状态，请开启新对话`,
-            });
+          const f = {
+            reason:
+              '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
+              '建议使用 /new 开启新对话继续。',
+            action: 'none' as const,
+          };
+          deps.recordError(
+            reqId,
+            'ws',
+            startedAt,
+            requestedModel,
+            resolvedModel,
+            f.reason,
+            f.action,
+            413,
+          );
+          if (ws.readyState === 1) {
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  error: { code: 'context_length_exceeded', message: f.reason },
+                }),
+              );
+            } catch {
+              /* ignore */
+            }
           }
+          return;
         }
         const f = translateStreamError(e as Error);
         deps.recordError(

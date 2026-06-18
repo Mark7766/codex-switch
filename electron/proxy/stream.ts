@@ -80,7 +80,6 @@ export function streamDeepSeek(
   onEvent: SseEvent,
   deps: DeepSeekDeps,
   reasoningStore: ReasoningStore,
-  extraOutputItems?: Array<Record<string, unknown>>,
 ): Promise<StreamResult> {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify({ ...chatReq, stream: true });
@@ -277,25 +276,7 @@ export function streamDeepSeek(
             if (accReasoning) reasoningStore.set(fc.callId, accReasoning);
           }
 
-          // ── extra output items (e.g. compaction) ──────────────────────────
-          const extraItems: Array<Record<string, unknown>> = [];
-          if (extraOutputItems?.length) {
-            for (const item of extraOutputItems) {
-              const outIdx = nextOutputIdx++;
-              onEvent('response.output_item.added', {
-                output_index: outIdx,
-                item: { ...item, status: 'in_progress' },
-              });
-              onEvent('response.output_item.done', {
-                output_index: outIdx,
-                item: { ...item, status: 'completed' },
-              });
-              extraItems.push(item);
-            }
-          }
-
           const finalOutput = outputItems.filter(Boolean) as Array<Record<string, unknown>>;
-          if (extraItems.length > 0) finalOutput.push(...extraItems);
           // codex CLI v0.135+ 的 agent loop 用 `response.completed.end_turn` 判断是否结束本轮。
           // 缺该字段会被 serde 解析为 None，codex 误判 "对话还没结束"，立刻在同一 WS 上再发一条
           // response.create 把同一个问题反复打到 DeepSeek（用户日志里的「一句话被打 5 次」）。
