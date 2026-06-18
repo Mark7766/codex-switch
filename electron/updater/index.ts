@@ -11,8 +11,13 @@ import path from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
 import { autoUpdater } from 'electron-updater';
+import log from 'electron-log';
 
 import { buildFeedUrl, pickAuto, type MirrorMode } from './mirrors';
+
+// v1.12.2: route electron-updater internal logs through electron-log
+// so we can see feed URL errors, download failures, etc. in main.log
+autoUpdater.logger = log;
 
 export interface UpdateEvent {
   kind:
@@ -152,6 +157,11 @@ export class UpdaterManager extends EventEmitter {
     super();
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
+    // v1.12.2: wire listeners immediately so they're ready before any check.
+    // Previously wire() was called lazily inside check(), which caused a race
+    // where the 5s startup setTimeout could trigger checkForUpdates() before
+    // listeners were registered — resulting in "Object has been destroyed".
+    this.wire();
   }
 
   /** Set server base URL (for macOS DMG download path construction). */
@@ -215,6 +225,7 @@ export class UpdaterManager extends EventEmitter {
   async setMirror(mode: MirrorMode, customPrefix?: string, serverBaseUrl?: string): Promise<void> {
     const effective = mode === 'auto' ? await pickAuto(serverBaseUrl) : mode;
     const url = buildFeedUrl(effective, customPrefix, serverBaseUrl);
+    log.info('[updater] setMirror mode=%s → feedUrl=%s', effective, url);
     autoUpdater.setFeedURL({ provider: 'generic', url });
     this.serverBaseUrl = (serverBaseUrl || '').replace(/\/$/, '');
   }
@@ -222,28 +233,27 @@ export class UpdaterManager extends EventEmitter {
   /** 检查更新。如果 autoDownload=true，发现新版本后自动下载。 */
   async check(autoDownload = false): Promise<void> {
     if (!app.isPackaged) {
+      log.info('[updater] 开发模式，跳过更新检查');
       this.emit('event', { kind: 'not-available' } satisfies UpdateEvent);
       return;
     }
     this.autoDownload = autoDownload;
-    this.wire();
+    log.info('[updater] 开始检查更新，autoDownload=%s', autoDownload);
     try {
       await autoUpdater.checkForUpdates();
     } catch (e) {
+      log.warn('[updater] 检查更新失败：%s', (e as Error).message);
       this.emit('event', { kind: 'error', message: (e as Error).message } satisfies UpdateEvent);
     }
   }
 
   async download(): Promise<void> {
     if (!app.isPackaged) return;
-    // macOS 未签名：已由 check(autoDownload=true) 走原生 https 下载。
-    // 如果用户手动走到这里，打开浏览器下载页。
     if (process.platform === 'darwin') {
       await shell.openExternal('https://github.com/Mark7766/codex-switch/releases/latest');
       this.emit('event', { kind: 'manual-download' } satisfies UpdateEvent);
       return;
     }
-    this.wire();
     try {
       await autoUpdater.downloadUpdate();
     } catch (e) {

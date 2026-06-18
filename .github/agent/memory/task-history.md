@@ -21,6 +21,13 @@
 
 ## 任务记录
 
+### [TASK-064] v1.12.2 修复自动更新定时检查失败
+- **日期**：2026-06-18
+- **类型**：fix
+- **摘要**：修复 `Object has been destroyed` 导致自动更新检查一直失败的问题。根因：`wire()` 在 `check()` 中延迟调用，与 `autoUpdater.checkForUpdates()` 内部对象生命周期冲突。修复：`wire()` 移到构造函数中立即执行。版本 1.12.1→1.12.2。
+- **变更文件**：`electron/updater/index.ts`（wire 从 check/download 延迟调用 → 构造函数）
+- **注意事项**：`autoUpdater` 是全局单例，监听器注册一次即可
+
 ### [TASK-063] v1.12.1 Codex 插件技能注册提示词优化
 - **日期**：2026-06-17
 - **类型**：feat
