@@ -21,6 +21,13 @@
 
 ## 任务记录
 
+### [TASK-065] v1.13.0 域名迁移 + 帮助内容更新
+- **日期**：2026-06-18
+- **类型**：chore
+- **摘要**：① 全量域名从 `codexswtich.cloud` 迁移到 `codex-switch.cloud`（代码 + FAQ + 设计文档）；② onboarding 过时信息修正：Claude Desktop 已直连 DeepSeek（v1.6.0），不再经过本地代理；③ FAQ 新增 7 条（Token 费用/缓存/安全/故障排查等），修复 5 处过时内容。TypeCheck ✅。未 push。
+- **变更文件**：`electron/main.ts`、`electron/server-client/config.ts`、`docs/help/faq.json`、`docs/help/onboarding.json`、`docs/DESIGN-smart-faq-search.md`、`docs/DESIGN-referral-invite-v1.11.0.md`、`package.json`（1.12.2→1.13.0）
+- **关联**：DESIGN-smart-faq-search.md
+
 ### [TASK-064] v1.12.2 修复自动更新定时检查失败
 - **日期**：2026-06-18
 - **类型**：fix

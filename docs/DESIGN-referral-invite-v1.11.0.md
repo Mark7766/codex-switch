@@ -255,7 +255,7 @@ Codex Switch 帮你突破网络限制，
 ✅ 接入 DeepSeek，免费快速
 ✅ 一键安装 173 个精选插件
 
-上手指南：https://www.codexswtich.cloud/guide?ref=a1b2c3d4e5f6g7h8
+上手指南：https://www.codex-switch.cloud/guide?ref=a1b2c3d4e5f6g7h8
 ---
 
 （分享链接中包含你的邀请码，平台会记录你帮助了多少朋友）
@@ -276,7 +276,7 @@ Codex Switch 帮你突破网络限制，
   ↓
 直接用完整 clientId 作为 ref（不截断、不映射）
   ↓
-分享链接：https://www.codexswtich.cloud/guide?ref=a1b2c3d4e5f6g7h8
+分享链接：https://www.codex-switch.cloud/guide?ref=a1b2c3d4e5f6g7h8
   ↓
 Server 安装指南页记录 ref → 用户按指南完成安装 → 归属匹配
 ```
@@ -458,7 +458,7 @@ Codex Switch 的分享不应该是一个"功能板块"，而应该是一个**自
 ✅ Claude Desktop 扩展支持
 ✅ 自动更新，零配置
 
-下载：https://www.codexswtich.cloud/guide?ref=a1b2c3d4e5f6g7h8
+下载：https://www.codex-switch.cloud/guide?ref=a1b2c3d4e5f6g7h8
 ```
 
 文案策略：

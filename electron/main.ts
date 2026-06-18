@@ -791,7 +791,7 @@ Codex Switch 帮你突破网络限制，
 ✅ 接入 DeepSeek，免费快速
 ✅ 一键安装 173 个精选插件
 
-上手指南：https://www.codexswtich.cloud/guide?ref=${ref}`;
+上手指南：https://www.codex-switch.cloud/guide?ref=${ref}`;
   });
 
   ipcMain.handle(IPC.communityGetCount, async () => {

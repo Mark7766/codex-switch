@@ -12,7 +12,7 @@ import { app } from 'electron';
 import type { UserPreferences } from '../config/store';
 
 /** 生产环境默认服务器地址 */
-export const PROD_SERVER_URL = 'https://www.codexswtich.cloud/api/v1';
+export const PROD_SERVER_URL = 'https://www.codex-switch.cloud/api/v1';
 
 /** 本地开发默认服务器地址 */
 export const DEV_SERVER_URL = 'http://localhost:8000/api/v1';

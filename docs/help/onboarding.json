@@ -61,7 +61,7 @@
   },
   {
     "title": "Claude Desktop 也能用？",
-    "body": "可以！如果你装了 Claude Desktop，Codex Switch 会自动写入它的配置文件，让请求经由本地代理转发到 DeepSeek，同时把模型名重写为 Claude Desktop 认识的格式。\n\n验证方式：\n\n1. 打开「仪表板」，看「工具连接状态」里 Claude Desktop 那栏是否显示绿色「已配置」\n\n2. 完全退出 Claude Desktop（⌘Q），重新打开\n\n3. 在 Claude Desktop 里发一条消息，然后切回 Codex Switch 的「日志」页，应该能看到来源为「Claude Desktop」的请求记录"
+    "body": "可以！如果你装了 Claude Desktop，Codex Switch 会自动写入它的配置文件，让 Claude Desktop 直连 DeepSeek 的 Anthropic 端点（和 Claude Code CLI 一样）。不需要走本地代理。\n\n验证方式：\n\n1. 打开「仪表板」，看「工具连接状态」里 Claude Desktop 那栏是否显示绿色「已配置」\n\n2. 完全退出 Claude Desktop（⌘Q），重新打开\n\n3. 在 Claude Desktop 里发一条消息，如果能正常回复说明已配置成功\n\n注意：Claude Desktop 直连 DeepSeek，请求不经过本地代理，所以「日志」页不会出现 Claude Desktop 的记录——这不是 bug"
   },
   {
     "title": "下次想更顺手",
