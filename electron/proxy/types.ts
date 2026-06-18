@@ -44,7 +44,7 @@ export interface ProxyOptions {
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
 
-export type LogSource = 'http' | 'ws' | 'proxy';
+export type LogSource = 'http' | 'ws' | 'proxy' | 'search';
 
 export interface ProxyLogEntry {
   ts: number;

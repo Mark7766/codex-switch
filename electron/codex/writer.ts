@@ -102,25 +102,49 @@ export async function hasOriginalBackup(): Promise<boolean> {
   }
 }
 
-/** v1.9.0: 还原原始配置，切换到 OpenAI 模式。 */
+/** v1.13.0: 还原为 OpenAI 官方配置——仅移除 base_url，保留 custom provider 结构。 */
 export async function restoreOriginalConfig(): Promise<void> {
   const configPath = configTomlPath();
-  const authPath = authJsonPath();
-  // 先备份当前代理配置
+
+  // 先备份当前配置
   await backupIfExists(configPath);
-  await backupIfExists(authPath);
-  // 还原原始配置
-  await fs.copyFile(`${configPath}.bak.install-original`, configPath);
-  try {
-    await fs.copyFile(`${authPath}.bak.install-original`, authPath);
-  } catch {
-    // auth.json may not have been backed up
+
+  const content = await fs.readFile(configPath, 'utf8');
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let inCustomProvider = false;
+
+  for (const line of lines) {
+    // 跳过 model_catalog_json
+    if (/^\s*model_catalog_json\s*=/.test(line)) continue;
+
+    // 在 [model_providers.custom] section 内
+    if (/^\s*\[model_providers\.custom\]/.test(line)) {
+      inCustomProvider = true;
+      result.push(line);
+      continue;
+    }
+    if (inCustomProvider) {
+      // 遇到新的 section → 退出
+      if (/^\s*\[/.test(line) && !line.includes('custom')) {
+        inCustomProvider = false;
+        result.push(line);
+      }
+      // 跳过 base_url 行
+      else if (/^\s*base_url\s*=/.test(line)) {
+        continue;
+      }
+      // 保留其他行（name, wire_api, requires_openai_auth）
+      else {
+        result.push(line);
+      }
+      continue;
+    }
+
+    result.push(line);
   }
-  try {
-    await fs.chmod(authPath, 0o600);
-  } catch {
-    /* ignore */
-  }
+
+  await fs.writeFile(configPath, result.join('\n'), 'utf8');
 }
 
 /** 列出某文件所有备份（按时间倒序，最新在前）。 */

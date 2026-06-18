@@ -230,6 +230,8 @@ interface CodexSwitchApi {
   } | null>;
   onPluginsDownloadComplete: (cb: (filePath: string) => void) => () => void;
   onPluginsDownloadError: (cb: (error: string) => void) => () => void;
+  // v1.13.0 智能搜索
+  searchAsk: (query: string) => Promise<{ answer: string }>;
 }
 
 /** 工具安装与配置状态。 */

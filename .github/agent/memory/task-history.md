@@ -21,6 +21,13 @@
 
 ## 任务记录
 
+### [TASK-066] v1.13.0 智能搜索 — Spotlight 式浮层搜索
+- **日期**：2026-06-18
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-smart-faq-search.md` 实施智能搜索功能。① HeaderBar 新增 🔍 搜索按钮；② SearchPopover.tsx 浮层组件（输入→调 DeepSeek→展示答案→👍👎反馈）；③ main.ts 搜索 handler：拼接 FAQ+onboarding 知识库 → `https.request` 调 DeepSeek v4-flash → 含安装指南 URL 引用；④ 搜索请求写入日志（source='search'）+ 遥测上报（smart_search）；⑤ LogSource 类型增加 'search'。227/227 tests ✅，typecheck ✅，lint ✅。未 push。
+- **变更文件**：`electron/ipc/channels.ts`（+1）、`electron/main.ts`（+160行+https import）、`electron/preload.ts`（+2）、`electron/proxy/server.ts`（+1 LogSource）、`electron/proxy/types.ts`（+1 LogSource）、`src/components/SearchPopover.tsx`（新增）、`src/components/HeaderBar.tsx`（重写）、`src/types/global.d.ts`（+1）
+- **关联**：DESIGN-smart-faq-search.md
+
 ### [TASK-065] v1.13.0 域名迁移 + 帮助内容更新
 - **日期**：2026-06-18
 - **类型**：chore

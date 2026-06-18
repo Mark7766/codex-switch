@@ -258,9 +258,6 @@ export function Plugins(): JSX.Element {
           <span>🧠</span>
         )}
         Claude 插件
-        <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-slate-700 text-slate-400 rounded">
-          即将上线
-        </span>
       </button>
     </div>
   );

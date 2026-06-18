@@ -103,6 +103,9 @@ export const IPC = {
   communityGetCount: 'community:get-count',
   /** 获取当前用户的邀请统计。 */
   communityGetProfile: 'community:get-profile',
+  // v1.13.0 智能搜索
+  /** 智能搜索（拼接知识库 → 调 DeepSeek → 返回答案）。 */
+  searchAsk: 'search:ask',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

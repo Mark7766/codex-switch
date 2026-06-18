@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import https from 'node:https';
 import log from 'electron-log';
 
 import { IPC } from './ipc/channels';
@@ -822,6 +823,199 @@ Codex Switch 帮你突破网络限制，
       return data?.data ?? null;
     } catch {
       return null;
+    }
+  });
+
+  // ─── v1.13.0 智能搜索 ─────────────────────────────────────────────────
+  ipcMain.handle(IPC.searchAsk, async (_e, query: string) => {
+    if (!query?.trim()) return { answer: '请输入问题' };
+    const apiKey = await getApiKey();
+    if (!apiKey) return { answer: '请先在设置中填写 DeepSeek API Key' };
+
+    const startedAt = Date.now();
+    const truncatedQuery = query.length > 80 ? query.slice(0, 80) + '…' : query;
+
+    // Emit log start
+    const searchEntry: ProxyLogEntry = {
+      ts: Date.now(),
+      level: 'info',
+      source: 'search',
+      message: `→ 智能搜索 query="${truncatedQuery}"`,
+      model: 'deepseek-v4-flash',
+      phase: 'start',
+    };
+    logBuffer.push(searchEntry);
+    if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+    mainWindow?.webContents.send(IPC.proxyOnLog, searchEntry);
+    persistentLog?.append(searchEntry);
+
+    try {
+      // Build knowledge base from local help files
+      const faqText = await readHelpJson('faq.json');
+      const onboardingText = await readHelpJson('onboarding.json');
+      const contextParts: string[] = [];
+
+      if (Array.isArray(faqText)) {
+        contextParts.push(
+          '--- FAQ ---\n' +
+            faqText
+              .map(
+                (item: { question: string; answer: string }) =>
+                  `Q: ${item.question}\nA: ${item.answer}`,
+              )
+              .join('\n\n'),
+        );
+      }
+
+      if (Array.isArray(onboardingText)) {
+        contextParts.push(
+          '--- 上手指南 ---\n' +
+            onboardingText
+              .map((item: { title: string; body: string }) => `## ${item.title}\n${item.body}`)
+              .join('\n\n'),
+        );
+      }
+
+      const context = contextParts.join('\n\n');
+
+      const prompt = `你是 Codex Switch 的智能助手。Codex Switch 是一款桌面应用，
+帮助国内用户在无需翻墙的情况下使用 Codex Desktop、Codex CLI、
+Claude Desktop 和 Claude Code CLI，接入 DeepSeek 模型。
+
+请根据以下知识库回答用户问题：
+- 回答简洁，3-5 句话即可，需要步骤时用编号列表
+- 如涉及具体操作，明确指出在 Codex Switch 的哪个页面/按钮
+- 如果知识库没有覆盖，诚实说明并提供排查方向
+- 如果问题涉及详细安装步骤（如安装 Node.js、Python、Git、
+  下载 Codex/Claude 等），请先访问以下安装指南获取最新内容：
+  https://www.codex-switch.cloud/guide
+
+---知识库---
+${context}
+
+---用户问题---
+${query}`;
+
+      // Call DeepSeek API
+      const {
+        hostname,
+        port,
+        path: reqPath,
+      } = (() => {
+        const u = new URL('https://api.deepseek.com/v1/chat/completions');
+        return {
+          hostname: u.hostname,
+          port: 443,
+          path: u.pathname + u.search,
+        };
+      })();
+
+      const dsResult = await new Promise<{
+        status: number;
+        body: string;
+      }>((resolve, reject) => {
+        const body = JSON.stringify({
+          model: 'deepseek-v4-flash',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 800,
+          temperature: 0.3,
+        });
+
+        const req = https.request(
+          {
+            hostname,
+            port,
+            path: reqPath,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+              Authorization: `Bearer ${apiKey}`,
+            },
+            timeout: 15_000,
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () =>
+              resolve({ status: res.statusCode ?? 500, body: Buffer.concat(chunks).toString() }),
+            );
+            res.on('error', reject);
+          },
+        );
+        req.on('error', reject);
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('请求超时'));
+        });
+        req.write(body);
+        req.end();
+      });
+
+      if (dsResult.status !== 200) {
+        throw new Error(`DeepSeek API 返回 ${dsResult.status}`);
+      }
+
+      const parsed = JSON.parse(dsResult.body) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      const answer = parsed.choices?.[0]?.message?.content || '抱歉，未能生成回答，请重试。';
+
+      const durationMs = Date.now() - startedAt;
+      const usage = parsed.usage;
+
+      // Emit log success
+      const successEntry: ProxyLogEntry = {
+        ts: Date.now(),
+        level: 'info',
+        source: 'search',
+        message: `✓ 智能搜索完成 耗时=${durationMs}ms ↑${usage?.prompt_tokens ?? '?'}↓${usage?.completion_tokens ?? '?'}`,
+        model: 'deepseek-v4-flash',
+        phase: 'success',
+        durationMs,
+        meta: {
+          queryLength: query.length,
+          inputTokens: usage?.prompt_tokens,
+          outputTokens: usage?.completion_tokens,
+        },
+      };
+      logBuffer.push(successEntry);
+      if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+      mainWindow?.webContents.send(IPC.proxyOnLog, successEntry);
+      persistentLog?.append(successEntry);
+
+      // Telemetry
+      telemetry?.track('smart_search', {
+        query_length: query.length,
+        duration_ms: durationMs,
+        success: true,
+      });
+
+      return { answer };
+    } catch (e) {
+      const durationMs = Date.now() - startedAt;
+
+      // Emit log error
+      const errorEntry: ProxyLogEntry = {
+        ts: Date.now(),
+        level: 'error',
+        source: 'search',
+        message: `✗ 智能搜索失败 ${(e as Error).message}`,
+        phase: 'error',
+      };
+      logBuffer.push(errorEntry);
+      if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+      mainWindow?.webContents.send(IPC.proxyOnLog, errorEntry);
+      persistentLog?.append(errorEntry);
+
+      telemetry?.track('smart_search', {
+        query_length: query.length,
+        duration_ms: durationMs,
+        success: false,
+      });
+
+      return { answer: `搜索失败：${(e as Error).message}，请重试或浏览帮助页面` };
     }
   });
 }

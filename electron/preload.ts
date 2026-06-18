@@ -66,6 +66,7 @@ const IPC = {
   shareGetText: 'share:get-text',
   communityGetCount: 'community:get-count',
   communityGetProfile: 'community:get-profile',
+  searchAsk: 'search:ask',
 } as const;
 
 const api = {
@@ -176,6 +177,8 @@ const api = {
   shareGetText: () => ipcRenderer.invoke(IPC.shareGetText),
   communityGetCount: () => ipcRenderer.invoke(IPC.communityGetCount),
   communityGetProfile: () => ipcRenderer.invoke(IPC.communityGetProfile),
+  // v1.13.0 智能搜索
+  searchAsk: (query: string) => ipcRenderer.invoke(IPC.searchAsk, query),
   /** 监听下载进度事件 */
   onPluginsDownloadProgress: (cb: (p: unknown) => void) => {
     const handler = (_: unknown, p: unknown) => cb(p);

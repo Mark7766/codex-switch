@@ -54,7 +54,7 @@ export type LogPhase = 'start' | 'stub' | 'success' | 'error';
 export interface ProxyLogEntry {
   ts: number;
   level: 'info' | 'warn' | 'error';
-  source: 'http' | 'ws' | 'proxy';
+  source: 'http' | 'ws' | 'proxy' | 'search';
   message: string;
   reqId?: string;
   /** WebSocket 连接 id，用于把同一个 WS 上的多次请求串起来。 */
