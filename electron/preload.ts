@@ -17,6 +17,9 @@ const IPC = {
   keyGet: 'key:get',
   keySet: 'key:set',
   keyClear: 'key:clear',
+  agnesKeyGet: 'key:agnes-get',
+  agnesKeySet: 'key:agnes-set',
+  agnesKeyClear: 'key:agnes-clear',
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',
@@ -78,6 +81,10 @@ const api = {
   getApiKey: () => ipcRenderer.invoke(IPC.keyGet),
   setApiKey: (key: string) => ipcRenderer.invoke(IPC.keySet, key),
   clearApiKey: () => ipcRenderer.invoke(IPC.keyClear),
+  // v1.13.0 Agnes AI
+  getAgnesKey: () => ipcRenderer.invoke(IPC.agnesKeyGet),
+  setAgnesKey: (key: string) => ipcRenderer.invoke(IPC.agnesKeySet, key),
+  clearAgnesKey: () => ipcRenderer.invoke(IPC.agnesKeyClear),
   // 代理
   proxyStart: () => ipcRenderer.invoke(IPC.proxyStart),
   proxyStop: () => ipcRenderer.invoke(IPC.proxyStop),

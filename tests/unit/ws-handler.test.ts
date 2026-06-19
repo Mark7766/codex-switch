@@ -40,6 +40,12 @@ function mockWs(): {
 function makeDeps(overrides?: Partial<WsHandlerDeps>): WsHandlerDeps {
   return {
     apiKey: 'sk-test',
+    upstreamBase: 'api.deepseek.com',
+    agnesUpstreamBase: 'apihub.agnes-ai.com',
+    agnesApiKey: '',
+    activeModelMapping: {
+      'codex-switch': { model: 'deepseek-v4-flash', provider: 'deepseek' as const },
+    },
     modelMapping: {},
     defaultModel: 'deepseek-v4-flash',
     blockBackgroundSuggestions: true,

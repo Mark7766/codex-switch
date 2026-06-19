@@ -11,7 +11,14 @@ import {
   setPreferencesSerialized,
   type UserPreferences,
 } from './config/store';
-import { clearApiKey, getApiKey, setApiKey } from './config/secrets';
+import {
+  clearApiKey,
+  getApiKey,
+  setApiKey,
+  getAgnesKey,
+  setAgnesKey,
+  clearAgnesKey,
+} from './config/secrets';
 import {
   DeepSeekProxy,
   type ProxyLogEntry,
@@ -109,9 +116,14 @@ app.on('second-instance', () => {
 async function ensureProxy(): Promise<DeepSeekProxy> {
   if (proxy) return proxy;
   const prefs = getPreferences();
-  const apiKey = await getApiKey();
+  const apiKey = prefs.provider === 'agnes' ? await getAgnesKey() : await getApiKey();
+  const upstreamBase = prefs.provider === 'agnes' ? 'apihub.agnes-ai.com' : 'api.deepseek.com';
   proxy = new DeepSeekProxy({
     apiKey,
+    upstreamBase,
+    agnesApiKey: prefs.provider === 'agnes' ? apiKey : await getAgnesKey().catch(() => ''),
+    agnesUpstreamBase: 'apihub.agnes-ai.com',
+    activeModelMapping: prefs.activeModelMapping,
     port: prefs.proxyPort,
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
@@ -205,13 +217,15 @@ async function applyPreferencesTransaction(
   const { codexModel, ...prefsPatch } = patch;
   const portChanged =
     prefsPatch.proxyPort !== undefined && prefsPatch.proxyPort !== before.proxyPort;
+  const providerChanged =
+    prefsPatch.provider !== undefined && prefsPatch.provider !== before.provider;
   const apiKey = await getApiKey();
 
   // 1) 写偏好（H6: serialized to prevent concurrent write races）
   const next = await setPreferencesSerialized(prefsPatch);
 
   // 2) 同步代理选项（不重启）
-  if (proxy) {
+  if (proxy && !providerChanged) {
     proxy.updateOptions({
       port: next.proxyPort,
       modelMapping: next.modelMapping,
@@ -226,9 +240,25 @@ async function applyPreferencesTransaction(
     if (pluginManager) pluginManager.setServerUrl(newUrl);
   }
 
-  // 3) 写 ~/.codex（必须有 apiKey）
+  // 3) 供应商切换：更新 proxy 上游+Key + 映射（不写 config.toml，不重启）
+  if (providerChanged && proxy) {
+    const newKey = next.provider === 'agnes' ? await getAgnesKey() : apiKey;
+    const newUpstream = next.provider === 'agnes' ? 'apihub.agnes-ai.com' : 'api.deepseek.com';
+    const agnesK = next.provider === 'deepseek' ? await getAgnesKey().catch(() => '') : undefined;
+    const newModel = next.provider === 'agnes' ? 'agnes-2.0-flash' : 'deepseek-v4-flash';
+    proxy.updateOptions({
+      apiKey: newKey,
+      upstreamBase: newUpstream,
+      agnesApiKey: agnesK,
+      activeModelMapping: {
+        'codex-switch': { model: newModel, provider: next.provider },
+      },
+    });
+  }
+
+  // 4) 写 ~/.codex（必须有 apiKey；供应商切换时不重写）
   let codexWritten = false;
-  if (apiKey) {
+  if (!providerChanged && apiKey) {
     try {
       await writeCodexConfig({
         proxyPort: next.proxyPort,
@@ -264,7 +294,7 @@ async function applyPreferencesTransaction(
     }
   }
 
-  // 4) 端口变了且代理在跑则重启
+  // 5) 端口变了且代理在跑则重启（供应商切换不重启）
   let restarted = false;
   if (portChanged && proxy && proxy.getStatus() === 'running') {
     await proxy.restart();
@@ -321,6 +351,24 @@ function registerIpc(): void {
   ipcMain.handle(IPC.keyGet, async () => {
     const v = await getApiKey();
     return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
+  });
+  ipcMain.handle(IPC.agnesKeyGet, async () => {
+    const v = await getAgnesKey();
+    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
+  });
+  ipcMain.handle(IPC.agnesKeySet, async (_e, key: string) => {
+    if (typeof key !== 'string' || key.length < 4) {
+      throw new Error('Agnes Key 格式不正确');
+    }
+    await setAgnesKey(key);
+    if (proxy && getPreferences().provider === 'agnes') {
+      proxy.updateOptions({ apiKey: key });
+    }
+    return true;
+  });
+  ipcMain.handle(IPC.agnesKeyClear, async () => {
+    await clearAgnesKey();
+    return true;
   });
   ipcMain.handle(IPC.keySet, async (_e, key: string) => {
     // H5: validate API key format
@@ -580,32 +628,56 @@ function registerIpc(): void {
   // ─── v1.3.0 Claude 接入 ──────────────────────────────────────────────
   ipcMain.handle(IPC.claudeDetect, () => detectAll());
   ipcMain.handle(IPC.claudeApplyAll, async () => {
-    const apiKey = await getApiKey();
-    if (!apiKey) throw new Error('请先填写 DeepSeek API Key');
     const prefs = getPreferences();
     const result = await detectAll();
-    if (prefs.claudeCli.enabled && result.claudeCli.installed) {
-      try {
-        await writeClaudeCliConfig(apiKey, prefs.claudeCli.envVars);
-        telemetry?.track('tool_install', { tool: 'claude-cli' });
-      } catch (e) {
-        telemetry?.track('tool_install_fail', {
-          tool: 'claude-cli',
-          error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
-        });
-      }
-    }
+
+    // v1.13.0: Claude Desktop 和 CLI 各自独立的供应商
     if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
-      try {
-        await writeClaudeDesktopConfig(apiKey);
-        telemetry?.track('tool_install', { tool: 'claude-desktop' });
-      } catch (e) {
-        telemetry?.track('tool_install_fail', {
-          tool: 'claude-desktop',
-          error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+      const dp = prefs.claudeDesktopProvider ?? 'deepseek';
+      const dk = dp === 'agnes' ? await getAgnesKey() : await getApiKey();
+      if (dk) {
+        try {
+          await writeClaudeDesktopConfig(dk, dp);
+          telemetry?.track('tool_install', { tool: 'claude-desktop' });
+        } catch (e) {
+          telemetry?.track('tool_install_fail', {
+            tool: 'claude-desktop',
+            error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+          });
+        }
+      }
+    }
+
+    if (prefs.claudeCli.enabled && result.claudeCli.installed) {
+      const cp = prefs.claudeCliProvider ?? 'deepseek';
+      const ck = cp === 'agnes' ? await getAgnesKey() : await getApiKey();
+      if (ck) {
+        try {
+          await writeClaudeCliConfig(ck, prefs.claudeCli.envVars, cp);
+          telemetry?.track('tool_install', { tool: 'claude-cli' });
+        } catch (e) {
+          telemetry?.track('tool_install_fail', {
+            tool: 'claude-cli',
+            error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+          });
+        }
+      }
+    }
+
+    // v1.13.0: 同步代理上游（任一 Claude 工具选 Agnes 时）
+    const hasAgnesClaude =
+      prefs.claudeDesktopProvider === 'agnes' || prefs.claudeCliProvider === 'agnes';
+    if (proxy && hasAgnesClaude) {
+      const agnesK = await getAgnesKey();
+      if (agnesK) {
+        proxy.updateOptions({
+          upstreamBase: 'apihub.agnes-ai.com',
+          apiKey: agnesK,
+          defaultModel: 'agnes-2.0-flash',
         });
       }
     }
+
     return detectAll();
   });
   ipcMain.handle(IPC.claudeUninstallCli, async () => {
@@ -807,8 +879,32 @@ Codex Switch 帮你突破网络限制，
   });
 
   ipcMain.handle(IPC.communityGetProfile, async () => {
-    const clientId = getPreferences().clientId;
-    if (!clientId || !serverClient) return null;
+    const prefs = getPreferences();
+    const localDate = prefs.lifetimeFirstStartAt;
+    // 本地兜底：lifetimeFirstStartAt < v1.11.0 发布日期
+    let localEarly = !!(localDate && localDate < '2026-06-16');
+    // 补充检测：install-original 备份文件时间戳 < v1.11.0 → 早期安装
+    if (!localEarly) {
+      try {
+        const { stat: fsStat } = await import('node:fs/promises');
+        const { join } = await import('node:path');
+        const { homedir } = await import('node:os');
+        const bak = join(homedir(), '.codex', 'config.toml.bak.install-original');
+        const s = await fsStat(bak).catch(() => null);
+        if (s && new Date(s.mtimeMs).toISOString().slice(0, 10) < '2026-06-16') {
+          localEarly = true;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    const localFallback =
+      localDate || localEarly
+        ? { is_early_member: localEarly, joined_date: localDate || '', invite_count: 0 }
+        : null;
+
+    const clientId = prefs.clientId;
+    if (!clientId || !serverClient) return localFallback;
     try {
       const res = await serverClient.get(`/client/${clientId}/profile`);
       const data = res.data as {
@@ -820,9 +916,9 @@ Codex Switch 帮你突破网络限制，
           invite_count?: number;
         };
       };
-      return data?.data ?? null;
+      return data?.data ?? localFallback;
     } catch {
-      return null;
+      return localFallback;
     }
   });
 
@@ -879,7 +975,9 @@ Codex Switch 帮你突破网络限制，
       const context = contextParts.join('\n\n');
 
       const prompt = `你是 Codex Switch 的智能助手。Codex Switch 是一款桌面应用，
-帮助国内用户使用 Codex Desktop、Codex CLI、Claude Desktop 和 Claude Code CLI 接入 DeepSeek。
+帮助国内用户使用 Codex Desktop、Codex CLI、Claude Desktop 和 Claude Code CLI 接入 DeepSeek 和 Agnes AI（免费模型）。
+
+用户问"免费""省钱""不要钱""哪个模型免费"等问题时，优先推荐 Agnes AI——在设置中的【Codex 接入】卡片切换供应商为 Agnes AI 即可。
 
 请根据以下知识库回答用户问题，注意格式：
 - 每个要点之间用空行分隔，保持整体结构清晰可读
@@ -1112,7 +1210,8 @@ app.whenReady().then(async () => {
   registerIpc();
   await createWindow();
 
-  if (prefs.hasCompletedSetup && prefs.autoStartProxy) {
+  const hasApiKey = (await getApiKey().catch(() => '')).length > 0;
+  if ((prefs.hasCompletedSetup || hasApiKey) && prefs.autoStartProxy) {
     try {
       const p = await ensureProxy();
       await p.start();

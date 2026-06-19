@@ -71,7 +71,7 @@ interface LifetimeStats {
 interface CodexSwitchApi {
   getPreferences: () => Promise<{
     proxyPort: number;
-    defaultModel: 'deepseek-v4-flash' | 'deepseek-v4-pro';
+    defaultModel: string;
     modelMapping: Record<string, string>;
     autoStartProxy: boolean;
     hasCompletedSetup: boolean;
@@ -93,6 +93,10 @@ interface CodexSwitchApi {
     lifetimeFirstStartAt: string;
     lastErrorMessage: string;
     lastErrorAt: number;
+    provider: 'deepseek' | 'agnes';
+    claudeDesktopProvider: 'deepseek' | 'agnes';
+    claudeCliProvider: 'deepseek' | 'agnes';
+    activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
     blockBackgroundSuggestions: boolean;
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
     claudeDesktop?: { enabled: boolean };
@@ -105,6 +109,9 @@ interface CodexSwitchApi {
   getApiKey: () => Promise<string>;
   setApiKey: (key: string) => Promise<boolean>;
   clearApiKey: () => Promise<boolean>;
+  getAgnesKey: () => Promise<string>;
+  setAgnesKey: (key: string) => Promise<boolean>;
+  clearAgnesKey: () => Promise<boolean>;
   proxyStart: () => Promise<{ port: number; status: string }>;
   proxyStop: () => Promise<{ status: string }>;
   proxyInfo: () => Promise<{

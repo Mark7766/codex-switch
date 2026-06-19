@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
 import { ChangelogModal } from '../components/ChangelogModal';
-import { ClaudeSettingsSection } from '../components/ClaudeSettingsSection';
+import { ModelMappingModal } from '../components/ModelMappingModal';
 import { useAppStore } from '@/lib/store';
 
 export function Settings(): JSX.Element {
   const pushToast = useAppStore((s) => s.pushToast);
   const [savingKey, setSavingKey] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [provider, setProvider] = useState<'deepseek' | 'agnes'>('deepseek');
+  const [codexProvider, setCodexProvider] = useState<'deepseek' | 'agnes'>('deepseek');
   const [maskedKey, setMaskedKey] = useState('');
   const [newKey, setNewKey] = useState('');
+  const [maskedAgnesKey, setMaskedAgnesKey] = useState('');
+  const [newAgnesKey, setNewAgnesKey] = useState('');
   const [port, setPort] = useState(11435);
-  const [defaultModel, setDefaultModel] = useState<'deepseek-v4-flash' | 'deepseek-v4-pro'>(
-    'deepseek-v4-flash',
-  );
+  const [defaultModel, setDefaultModel] = useState('deepseek-v4-flash');
   const [autoStart, setAutoStart] = useState(true);
   const [backups, setBackups] = useState<{ config: string[]; auth: string[] }>({
     config: [],
@@ -38,6 +40,15 @@ export function Settings(): JSX.Element {
   const [cacheLimit, setCacheLimit] = useState(1000);
   const [hasOriginalBak, setHasOriginalBak] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  // Claude Desktop / CLI provider (independent from Codex)
+  const [claudeDesktopProvider, setClaudeDesktopProvider] = useState<'deepseek' | 'agnes'>(
+    'deepseek',
+  );
+  const [claudeCliProvider, setClaudeCliProvider] = useState<'deepseek' | 'agnes'>('deepseek');
+  const [showDesktopMapping, setShowDesktopMapping] = useState(false);
+  const [showCliMapping, setShowCliMapping] = useState(false);
+  const [desktopMapping, setDesktopMapping] = useState<Record<string, string>>({});
+  const [cliMapping, setCliMapping] = useState<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
@@ -45,7 +56,12 @@ export function Settings(): JSX.Element {
       setPort(prefs.proxyPort);
       setDefaultModel(prefs.defaultModel);
       setAutoStart(prefs.autoStartProxy);
+      setProvider(prefs.provider ?? 'deepseek');
+      setCodexProvider(prefs.provider ?? 'deepseek');
+      setClaudeDesktopProvider(prefs.claudeDesktopProvider ?? prefs.provider ?? 'deepseek');
+      setClaudeCliProvider(prefs.claudeCliProvider ?? prefs.provider ?? 'deepseek');
       setMaskedKey(await window.codexSwitch.getApiKey());
+      setMaskedAgnesKey(await window.codexSwitch.getAgnesKey());
       setBackups(await window.codexSwitch.codexBackups());
       setVersion(await window.codexSwitch.getVersion());
       setAutoCheckUpdate(prefs.autoCheckUpdate);
@@ -93,6 +109,20 @@ export function Settings(): JSX.Element {
     }
   }
 
+  async function saveAgnesKey(): Promise<void> {
+    setSavingKey(true);
+    try {
+      await window.codexSwitch.setAgnesKey(newAgnesKey.trim());
+      setMaskedAgnesKey(await window.codexSwitch.getAgnesKey());
+      setNewAgnesKey('');
+      pushToast({ kind: 'success', message: '已更新 Agnes Key' });
+    } catch (e) {
+      pushToast({ kind: 'error', message: '保存 Key 失败：' + (e as Error).message });
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
   async function savePrefs(): Promise<void> {
     setSavingPrefs(true);
     pushToast({ kind: 'info', message: '正在保存并应用…' });
@@ -100,6 +130,7 @@ export function Settings(): JSX.Element {
       const res = await window.codexSwitch.applyPreferences({
         proxyPort: port,
         defaultModel,
+        provider: codexProvider,
         autoStartProxy: autoStart,
         autoCheckUpdate,
         autoDownload,
@@ -112,8 +143,18 @@ export function Settings(): JSX.Element {
       });
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
       setBackups(await window.codexSwitch.codexBackups());
-      const tail = res.restarted ? '，已重启代理' : res.codexWritten ? '，已同步 ~/.codex' : '';
+      const tail = res.restarted
+        ? '，已重启代理'
+        : res.codexWritten
+          ? '，已写入 ~/.codex/config.toml'
+          : '';
       pushToast({ kind: 'success', message: '已保存并应用' + tail });
+      if (res.codexWritten) {
+        pushToast({
+          kind: 'info',
+          message: '配置文件已更新，请重启 Codex Desktop（退出后重新打开）使配置生效。',
+        });
+      }
       if (res.portChanged) {
         pushToast({
           kind: 'info',
@@ -137,30 +178,90 @@ export function Settings(): JSX.Element {
     <div className="p-10 max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">设置</h1>
 
-      <Section title="DeepSeek API Key">
-        <div className="text-sm text-slate-400 mb-2">
-          当前：<code className="text-slate-200">{maskedKey || '尚未设置'}</code>
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="password"
-            placeholder="新的 sk-..."
-            value={newKey}
-            onChange={(e) => setNewKey(e.target.value)}
-            className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm"
-          />
-          <button
-            onClick={saveKey}
-            disabled={savingKey || !newKey.trim()}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md text-sm min-w-[80px]"
+      <Section title="🔑 供应商设置">
+        <label className="flex items-center justify-between text-sm mb-3">
+          <span>选择供应商</span>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as 'deepseek' | 'agnes')}
+            className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
           >
-            {savingKey ? '保存中…' : '保存'}
-          </button>
+            <option value="deepseek">DeepSeek</option>
+            <option value="agnes">Agnes AI</option>
+          </select>
+        </label>
+        <div className="border-t border-slate-700 pt-3">
+          {provider === 'deepseek' ? (
+            <>
+              <div className="text-sm text-slate-400 mb-2">
+                DeepSeek Key：<code className="text-slate-200">{maskedKey || '尚未设置'}</code>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="新的 sk-..."
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm"
+                />
+                <button
+                  onClick={saveKey}
+                  disabled={savingKey || !newKey.trim()}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md text-sm min-w-[80px]"
+                >
+                  {savingKey ? '保存中…' : '保存'}
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 mt-2">
+                在 platform.deepseek.com 获取 API Key
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm text-slate-400 mb-2">
+                Agnes Key：<code className="text-slate-200">{maskedAgnesKey || '尚未设置'}</code>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="Agnes API Key"
+                  value={newAgnesKey}
+                  onChange={(e) => setNewAgnesKey(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm"
+                />
+                <button
+                  onClick={saveAgnesKey}
+                  disabled={savingKey || !newAgnesKey.trim()}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md text-sm min-w-[80px]"
+                >
+                  {savingKey ? '保存中…' : '保存'}
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 mt-2">
+                在 platform.agnes-ai.com 获取 API Key
+              </div>
+            </>
+          )}
         </div>
       </Section>
 
-      <Section title="代理与模型">
+      <Section title={`📟 Codex 接入 · ${codexProvider === 'agnes' ? 'Agnes' : 'DeepSeek'}`}>
         <div className="space-y-3 text-sm">
+          <label className="flex items-center justify-between">
+            <span>供应商</span>
+            <select
+              value={codexProvider}
+              onChange={(e) => {
+                const p = e.target.value as 'deepseek' | 'agnes';
+                setCodexProvider(p);
+                setDefaultModel(p === 'agnes' ? 'agnes-2.0-flash' : 'deepseek-v4-flash');
+              }}
+              className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="agnes">Agnes AI</option>
+            </select>
+          </label>
           <label className="flex items-center justify-between">
             <span>本地端口</span>
             <input
@@ -174,13 +275,20 @@ export function Settings(): JSX.Element {
             <span>默认模型</span>
             <select
               value={defaultModel}
-              onChange={(e) =>
-                setDefaultModel(e.target.value as 'deepseek-v4-flash' | 'deepseek-v4-pro')
-              }
-              className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
+              onChange={(e) => setDefaultModel(e.target.value)}
+              className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md max-w-[220px]"
             >
-              <option value="deepseek-v4-flash">DeepSeek V4 Flash (deepseek-v4-flash)</option>
-              <option value="deepseek-v4-pro">DeepSeek V4 Pro (deepseek-v4-pro)</option>
+              {codexProvider === 'agnes' ? (
+                <>
+                  <option value="agnes-2.0-flash">Agnes 2.0 Flash (agnes-2.0-flash)</option>
+                  <option value="agnes-1.5-flash">Agnes 1.5 Flash (agnes-1.5-flash)</option>
+                </>
+              ) : (
+                <>
+                  <option value="deepseek-v4-flash">DeepSeek V4 Flash (deepseek-v4-flash)</option>
+                  <option value="deepseek-v4-pro">DeepSeek V4 Pro (deepseek-v4-pro)</option>
+                </>
+              )}
             </select>
           </label>
           <label className="flex items-center justify-between">
@@ -247,7 +355,102 @@ export function Settings(): JSX.Element {
         </div>
       </Section>
 
-      <ClaudeSettingsSection />
+      {/* ── Claude Desktop 接入 ── */}
+      <Section
+        title={`🖥 Claude Desktop 接入 · ${claudeDesktopProvider === 'agnes' ? 'Agnes' : 'DeepSeek'}`}
+      >
+        <div className="space-y-3 text-sm">
+          <label className="flex items-center justify-between">
+            <span>供应商</span>
+            <select
+              value={claudeDesktopProvider}
+              onChange={(e) => setClaudeDesktopProvider(e.target.value as 'deepseek' | 'agnes')}
+              className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="agnes">Agnes AI</option>
+            </select>
+          </label>
+          <label className="flex items-center justify-between">
+            <span>模型映射</span>
+            <button
+              onClick={() => setShowDesktopMapping(true)}
+              className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded"
+            >
+              管理模型映射…
+            </button>
+          </label>
+          <button
+            onClick={async () => {
+              if (claudeDesktopProvider === 'agnes' && !maskedAgnesKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 Agnes Key' });
+                return;
+              }
+              try {
+                await window.codexSwitch.setPreferences({ claudeDesktopProvider });
+                await window.codexSwitch.claudeApplyAll();
+                pushToast({ kind: 'success', message: '已保存 Claude Desktop 配置，重启生效' });
+              } catch (e) {
+                pushToast({ kind: 'error', message: '保存失败：' + (e as Error).message });
+              }
+            }}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm"
+          >
+            保存并应用
+          </button>
+          <div className="text-xs text-slate-500">重启 Claude Desktop 生效</div>
+        </div>
+      </Section>
+
+      {/* ── Claude Code CLI 接入 ── */}
+      <Section
+        title={`⌨️ Claude Code CLI 接入 · ${claudeCliProvider === 'agnes' ? 'Agnes' : 'DeepSeek'}`}
+      >
+        <div className="space-y-3 text-sm">
+          <label className="flex items-center justify-between">
+            <span>供应商</span>
+            <select
+              value={claudeCliProvider}
+              onChange={(e) => setClaudeCliProvider(e.target.value as 'deepseek' | 'agnes')}
+              className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="agnes">Agnes AI</option>
+            </select>
+          </label>
+          <label className="flex items-center justify-between">
+            <span>模型映射</span>
+            <button
+              onClick={() => setShowCliMapping(true)}
+              className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded"
+            >
+              管理模型映射…
+            </button>
+          </label>
+          <button
+            onClick={async () => {
+              if (claudeCliProvider === 'agnes' && !maskedAgnesKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 Agnes Key' });
+                return;
+              }
+              try {
+                await window.codexSwitch.setPreferences({ claudeCliProvider });
+                await window.codexSwitch.claudeApplyAll();
+                pushToast({
+                  kind: 'success',
+                  message: '已保存 Claude Code CLI 配置，新终端窗口生效',
+                });
+              } catch (e) {
+                pushToast({ kind: 'error', message: '保存失败：' + (e as Error).message });
+              }
+            }}
+            className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm"
+          >
+            保存并应用
+          </button>
+          <div className="text-xs text-slate-500">新终端窗口生效</div>
+        </div>
+      </Section>
 
       <Section title="自动更新">
         <div className="space-y-3 text-sm">
@@ -393,6 +596,20 @@ export function Settings(): JSX.Element {
           version={version}
         />
       )}
+      <ModelMappingModal
+        open={showDesktopMapping}
+        onClose={() => setShowDesktopMapping(false)}
+        provider={claudeDesktopProvider}
+        mapping={desktopMapping}
+        onSave={setDesktopMapping}
+      />
+      <ModelMappingModal
+        open={showCliMapping}
+        onClose={() => setShowCliMapping(false)}
+        provider={claudeCliProvider}
+        mapping={cliMapping}
+        onSave={setCliMapping}
+      />
     </div>
   );
 }

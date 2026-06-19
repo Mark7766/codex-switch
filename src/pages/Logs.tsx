@@ -8,6 +8,7 @@ export function Logs(): JSX.Element {
   const setLogs = useAppStore((s) => s.setLogs);
   const pushToast = useAppStore((s) => s.pushToast);
   const [filter, setFilter] = useState<Filter>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'claude'>('all');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showBlocked, setShowBlocked] = useState(false);
   const [stats, setStatsBytes] = useState<{ files: number; totalBytes: number } | null>(null);
@@ -41,8 +42,9 @@ export function Logs(): JSX.Element {
   const filtered = useMemo(() => {
     let result = logs;
     if (filter !== 'all') result = result.filter((l) => l.level === filter);
+    if (sourceFilter !== 'all') result = result.filter((l) => l.source === sourceFilter);
     return result;
-  }, [logs, filter]);
+  }, [logs, filter, sourceFilter]);
 
   const groups = useMemo(() => {
     const all = groupByReqId(filtered);
@@ -87,10 +89,10 @@ export function Logs(): JSX.Element {
 
       <div className="flex items-center gap-3 mb-4 text-sm">
         <span className="text-slate-400">共 {groupStats.groups} 组请求</span>
-        <span className="text-emerald-400">{groupStats.success} 实调 DeepSeek</span>
+        <span className="text-emerald-400">{groupStats.success} 实调</span>
         <span
           className="text-slate-400"
-          title="Codex Desktop 后台轮询 / 空 warm-up被本地拦截，未调用 DeepSeek、未消耗 token"
+          title="Codex Desktop 后台轮询 / 空 warm-up被本地拦截，未调用供应商、未消耗 token"
         >
           {groupStats.blocked} 已拦截
         </span>
@@ -112,6 +114,26 @@ export function Logs(): JSX.Element {
         <FilterBtn cur={filter} val="warn" onClick={setFilter} label="警告" />
         <FilterBtn cur={filter} val="error" onClick={setFilter} label="错误" />
         <span className="text-slate-600 text-xs">|</span>
+        <button
+          onClick={() => setSourceFilter('all')}
+          className={`text-xs px-2 py-0.5 rounded transition ${
+            sourceFilter === 'all'
+              ? 'bg-brand-600 text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          全部来源
+        </button>
+        <button
+          onClick={() => setSourceFilter('claude')}
+          className={`text-xs px-2 py-0.5 rounded transition ${
+            sourceFilter === 'claude'
+              ? 'bg-brand-600 text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Claude
+        </button>
         <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -296,7 +318,7 @@ function GroupRow({
             <span className="text-slate-400">
               ⌫{' '}
               {group.blockedReason === 'sub-agent-stub'
-                ? `子代理拦截 · ${group.requestedModel ?? ''} · 未消耗 DeepSeek token`
+                ? `子代理拦截 · ${group.requestedModel ?? ''} · 未消耗 token`
                 : `本地拦截，未调用 DeepSeek（未消耗 token）· ${group.blockedReason}`}
             </span>
           )}

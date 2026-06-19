@@ -1,5 +1,11 @@
 [
   {
+    "id": "agnes-setup",
+    "tag": "入门",
+    "question": "如何接入免费的 Agnes AI 模型？",
+    "answer": "Agnes AI 提供了免费的 API（256K 上下文、工具调用），无需付费。接入只需三步：\n\n1. 注册并创建 Key → 访问 https://platform.agnes-ai.com/，注册后进入「API Keys」→「创建 Key」并复制\n2. Codex Switch 设置 → 在「📟 Codex 接入」卡片中将供应商切换为 Agnes AI，Key 已在「🔑 供应商设置」中填好\n3. 点「保存并应用」→ 代理不重启、Codex 不重启，下一条消息直接走 Agnes\n\nClaude Desktop / Claude Code CLI 想用 Agnes？在对应的接入卡片里同样操作即可，互不干扰。想切回 DeepSeek？下拉选回 DeepSeek 保存即可。"
+  },
+  {
     "id": "what-is",
     "tag": "入门",
     "question": "Codex Switch 是什么？我为什么需要它？",

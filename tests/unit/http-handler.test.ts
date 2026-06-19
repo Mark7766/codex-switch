@@ -51,6 +51,12 @@ function mockRes(): ServerResponse & { body: string; status: number } {
 function makeDeps(overrides?: Partial<HttpHandlerDeps>): HttpHandlerDeps {
   return {
     apiKey: 'sk-test-key',
+    upstreamBase: 'api.deepseek.com',
+    agnesUpstreamBase: 'apihub.agnes-ai.com',
+    agnesApiKey: '',
+    activeModelMapping: {
+      'codex-switch': { model: 'deepseek-v4-flash', provider: 'deepseek' as const },
+    },
     modelMapping: {},
     defaultModel: 'deepseek-v4-flash',
     agent: {} as never,
@@ -67,6 +73,8 @@ function makeDeps(overrides?: Partial<HttpHandlerDeps>): HttpHandlerDeps {
     resolveAndWarn: vi.fn((m) => m ?? 'deepseek-v4-pro'),
     emit: vi.fn(),
     newReqId: () => 'req_test',
+    blockBackgroundSuggestions: true,
+    isSuggestionRequest: vi.fn().mockReturnValue(false),
     ...overrides,
   };
 }

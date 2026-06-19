@@ -24,6 +24,13 @@ import { translateError, isContextExceededError } from './errors';
 
 export interface HttpHandlerDeps {
   apiKey: string;
+  /** v1.13.0: upstream API hostname. */
+  upstreamBase: string;
+  /** v1.13.0: Agnes upstream hostname + key。 */
+  agnesUpstreamBase: string;
+  agnesApiKey: string;
+  /** v1.13.0: 中间模型→实际模型+供应商。 */
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
   modelMapping: Record<string, string>;
   defaultModel: string;
   agent: https.Agent;
@@ -63,6 +70,8 @@ export interface HttpHandlerDeps {
   resolveAndWarn(requested: string | undefined, reqId: string, source: 'http' | 'ws'): string;
   emit(event: string, payload: unknown): void;
   newReqId(): string;
+  blockBackgroundSuggestions: boolean;
+  isSuggestionRequest(msg: { input?: unknown; instructions?: string }): boolean;
 }
 
 // ── handler ──────────────────────────────────────────────────────────────
@@ -103,17 +112,44 @@ export async function handleResponses(
     const resolvedModel = deps.resolveAndWarn(requestedModel, reqId, 'http');
     const stream = parsed.stream === true;
 
+    // v1.13.0: Agnes 上游时用 Agnes Key
+    const isAgnes = deps.upstreamBase.includes('agnes');
+    const reqUpstream = isAgnes ? deps.agnesUpstreamBase || deps.upstreamBase : deps.upstreamBase;
+    const reqApiKey = isAgnes ? deps.agnesApiKey || deps.apiKey : deps.apiKey;
+
     deps.log({
       level: 'info',
       source: 'http',
       reqId,
       phase: 'start',
-      message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=${stream}`,
+      message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=${stream} upstream=${reqUpstream}`,
       requestedModel,
       model: resolvedModel,
     });
 
+    // v1.13.0: HTTP handler 也拦截后台建议请求
+    const inputArr = Array.isArray(parsed.input) ? parsed.input : [];
+    const isEmptyWarmup = inputArr.length === 0;
+    const isSuggestion = deps.blockBackgroundSuggestions && deps.isSuggestionRequest(parsed);
+    if (deps.blockBackgroundSuggestions && (isSuggestion || isEmptyWarmup)) {
+      const reason = isSuggestion ? 'blocked-suggestion' : 'blocked-empty-input';
+      deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+        finishReason: reason,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: `resp_${Date.now()}`,
+          object: 'response',
+          status: 'completed',
+          output: [],
+        }),
+      );
+      return;
+    }
+
     const prevRespId = parsed.previous_response_id;
+
     let storedHistory = prevRespId ? (deps.conversationCache.get(prevRespId) ?? null) : null;
 
     // v1.13.0: 缓存未命中 → Codex JSONL fallback
@@ -181,7 +217,7 @@ export async function handleResponses(
         chatReq,
         respId,
         sse,
-        { apiKey: deps.apiKey, agent: deps.agent },
+        { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream },
         deps.reasoning,
       )
         .then(({ outputItems, finishReason, endTurn, usage }) => {
@@ -241,7 +277,14 @@ export async function handleResponses(
           res.end();
         });
     } else {
-      callDeepSeekSync({ ...chatReq, stream: false }, { apiKey: deps.apiKey, agent: deps.agent })
+      callDeepSeekSync(
+        { ...chatReq, stream: false },
+        {
+          apiKey: reqApiKey,
+          agent: deps.agent,
+          upstreamBase: reqUpstream,
+        },
+      )
         .then((r) => {
           if (r.status !== 200) {
             const f = translateError({ statusCode: r.status, body: r.body });

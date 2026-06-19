@@ -4,8 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-import { resolveModel, type ChatMessage } from './translate';
+import { type ChatMessage } from './translate';
 import { ReasoningStore } from './reasoning';
+import { handleAnthropicMessages } from './anthropic-relay';
 
 import { type ErrorAction } from './errors';
 // v1.6.0: anthropic-relay removed — Claude Desktop now connects directly to api.deepseek.com
@@ -26,6 +27,10 @@ export interface ProxyOptions {
   port: number;
   modelMapping: Record<string, string>;
   defaultModel?: string;
+  /** v1.13.0: 上游 API hostname（如 api.deepseek.com / apihub.agnes-ai.com）。 */
+  upstreamBase?: string;
+  /** v1.13.0: Agnes 上游 hostname（用于 activeModelMapping 切换）。 */
+  agnesUpstreamBase?: string;
   /** 拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求，避免一句提问被诱发 N 个后台会话。 */
   blockBackgroundSuggestions?: boolean;
   /** v1.7.0: model_call 遥测回调。每次请求完成（成功或失败）时调用。 */
@@ -40,6 +45,10 @@ export interface ProxyOptions {
   }) => void;
   /** v1.13.0: 内存缓存最大条目数，默认 500。 */
   cacheMaxEntries?: number;
+  /** v1.13.0: Agnes API Key。 */
+  agnesApiKey?: string;
+  /** v1.13.0: 中间模型→实际模型+供应商映射。key=codex-switch。 */
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
@@ -47,7 +56,7 @@ export type LogPhase = 'start' | 'stub' | 'success' | 'error';
 export interface ProxyLogEntry {
   ts: number;
   level: 'info' | 'warn' | 'error';
-  source: 'http' | 'ws' | 'proxy' | 'search';
+  source: 'http' | 'ws' | 'proxy' | 'search' | 'claude';
   message: string;
   reqId?: string;
   /** WebSocket 连接 id，用于把同一个 WS 上的多次请求串起来。 */
@@ -172,6 +181,10 @@ export class DeepSeekProxy extends EventEmitter {
     pendingInputTokensDelta: 0,
     pendingOutputTokensDelta: 0,
   };
+
+  private upstreamBase(): string {
+    return this.opts.upstreamBase ?? 'api.deepseek.com';
+  }
 
   constructor(opts: ProxyOptions) {
     super();
@@ -501,22 +514,12 @@ export class DeepSeekProxy extends EventEmitter {
     reqId: string,
     source: 'http' | 'ws',
   ): string {
-    const r = resolveModel(
-      requested,
-      this.opts.modelMapping,
-      this.opts.defaultModel ?? 'deepseek-v4-flash',
-    );
-    if (r.matched === 'prefix' || r.matched === 'fallback') {
-      this.log({
-        level: 'warn',
-        source,
-        reqId,
-        message: `模型 "${requested ?? '<空>'}" 未在映射表中找到，已自动回退到 "${r.model}"`,
-        requestedModel: requested,
-        model: r.model,
-      });
-    }
-    return r.model;
+    // v1.13.0: 上游决定供应商，defaultModel 决定具体模型
+    const model = this.opts.defaultModel ?? 'deepseek-v4-flash';
+    const isAgnes = (this.opts.upstreamBase ?? '').includes('agnes');
+    if (isAgnes && !model.includes('agnes')) return 'agnes-2.0-flash';
+    if (!isAgnes && model.includes('agnes')) return 'deepseek-v4-flash';
+    return model;
   }
 
   // ─── HTTP routing — delegated to http-routes.ts ─────────────────────────
@@ -525,8 +528,10 @@ export class DeepSeekProxy extends EventEmitter {
     routeHttp(req, res, {
       actualPort: this.actualPort,
       apiKey: this.opts.apiKey,
+      upstreamBase: this.upstreamBase(),
       agent: this.agent,
       handleResponses: (rq, rs) => this.handleResponses(rq, rs),
+      handleAnthropicMessages: (rq, rs) => this.handleAnthropicRelay(rq, rs),
     });
   }
 
@@ -545,8 +550,13 @@ export class DeepSeekProxy extends EventEmitter {
   private getHttpDeps(): HttpHandlerDeps {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const logFn = (entry: any) => this.log(entry);
+    const upstream = this.upstreamBase();
     return {
       apiKey: this.opts.apiKey,
+      upstreamBase: upstream,
+      agnesUpstreamBase: this.opts.agnesUpstreamBase ?? 'apihub.agnes-ai.com',
+      agnesApiKey: this.opts.agnesApiKey ?? '',
+      activeModelMapping: this.opts.activeModelMapping,
       modelMapping: this.opts.modelMapping,
       defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
       agent: this.agent,
@@ -564,6 +574,8 @@ export class DeepSeekProxy extends EventEmitter {
       resolveAndWarn: (...args) => this.resolveAndWarn(...args),
       emit: (event, payload) => this.emit(event, payload),
       newReqId: () => newReqId(),
+      blockBackgroundSuggestions: this.opts.blockBackgroundSuggestions !== false,
+      isSuggestionRequest: (msg) => isBackgroundSuggestionRequest(msg),
     };
   }
 
@@ -579,6 +591,20 @@ export class DeepSeekProxy extends EventEmitter {
   private handleResponses(req: IncomingMessage, res: ServerResponse): void {
     handleResponses(req, res, this.getHttpDeps());
   }
+
+  // ─── Anthropic Messages relay — v1.13.0 Agnes ───────────────────────────
+
+  private handleAnthropicRelay(req: IncomingMessage, res: ServerResponse): void {
+    handleAnthropicMessages(req, res, {
+      apiKey: this.opts.apiKey,
+      upstreamBase: this.upstreamBase(),
+      agent: this.agent,
+      defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      log: (entry: any) => this.log(entry),
+    });
+  }
+
   // ─── WebSocket handler — delegated to ws-handler.ts ─────────────────────
 
   private handleWs(ws: WebSocket): void {
@@ -599,6 +625,7 @@ export class DeepSeekProxy extends EventEmitter {
       requestedModel,
       model,
       statusCode,
+      this.opts.upstreamBase,
       extras,
     );
   }
@@ -618,6 +645,7 @@ export class DeepSeekProxy extends EventEmitter {
       reason,
       action,
       statusCode,
+      this.opts.upstreamBase,
     );
   }
 

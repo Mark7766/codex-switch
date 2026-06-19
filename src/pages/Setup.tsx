@@ -17,10 +17,13 @@ export function Setup(): JSX.Element {
     setBusy(true);
     try {
       await window.codexSwitch.setApiKey(apiKey.trim());
-      await window.codexSwitch.setPreferences({ defaultModel: model, hasCompletedSetup: true });
-      const startInfo = await window.codexSwitch.proxyStart();
-      await window.codexSwitch.codexWrite({ model });
-      void startInfo;
+      // 一次性事务写入：偏好 + config.toml + 启动代理
+      await window.codexSwitch.applyPreferences({
+        defaultModel: model,
+        hasCompletedSetup: true,
+        autoStartProxy: true,
+      });
+      await window.codexSwitch.proxyStart();
       setPage('dashboard');
     } catch (e) {
       setError((e as Error).message);

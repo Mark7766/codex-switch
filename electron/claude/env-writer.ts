@@ -37,11 +37,11 @@ export const DEFAULT_ENV_VARS: ClaudeCliEnvVars = {
 
 // ─── Block builder ───────────────────────────────────────────────────────────
 
-function buildBlock(apiKey: string, vars: ClaudeCliEnvVars): string {
+function buildBlock(apiKey: string, vars: ClaudeCliEnvVars, baseUrl: string): string {
   return [
     BLOCK_START,
     `export ANTHROPIC_AUTH_TOKEN="${apiKey}"`,
-    `export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"`,
+    `export ANTHROPIC_BASE_URL="${baseUrl}"`,
     `export ANTHROPIC_MODEL="${vars.anthropicModel}"`,
     `export ANTHROPIC_DEFAULT_OPUS_MODEL="${vars.anthropicDefaultOpusModel}"`,
     `export ANTHROPIC_DEFAULT_SONNET_MODEL="${vars.anthropicDefaultSonnetModel}"`,
@@ -69,6 +69,7 @@ async function writeToProfile(
   profilePath: string,
   apiKey: string,
   vars: ClaudeCliEnvVars,
+  baseUrl: string,
 ): Promise<void> {
   let content = '';
   try {
@@ -85,7 +86,7 @@ async function writeToProfile(
   }
 
   const cleaned = removeBlock(content);
-  const block = buildBlock(apiKey, vars);
+  const block = buildBlock(apiKey, vars, baseUrl);
   const newContent = cleaned.trimEnd() + '\n\n' + block + '\n';
 
   // Write with 0o600 to prevent other users on the same machine reading the API key
@@ -94,10 +95,14 @@ async function writeToProfile(
 
 // ─── Windows env-var writing ─────────────────────────────────────────────────
 
-async function writeWindowsEnvVars(apiKey: string, vars: ClaudeCliEnvVars): Promise<void> {
+async function writeWindowsEnvVars(
+  apiKey: string,
+  vars: ClaudeCliEnvVars,
+  baseUrl: string,
+): Promise<void> {
   const pairs: Array<[string, string]> = [
     ['ANTHROPIC_AUTH_TOKEN', apiKey],
-    ['ANTHROPIC_BASE_URL', 'https://api.deepseek.com/anthropic'],
+    ['ANTHROPIC_BASE_URL', baseUrl],
     ['ANTHROPIC_MODEL', vars.anthropicModel],
     ['ANTHROPIC_DEFAULT_OPUS_MODEL', vars.anthropicDefaultOpusModel],
     ['ANTHROPIC_DEFAULT_SONNET_MODEL', vars.anthropicDefaultSonnetModel],
@@ -181,7 +186,11 @@ const MANAGED_ENV_KEYS = [
   'CLAUDE_CODE_EFFORT_LEVEL',
 ] as const;
 
-async function writeSettingsJson(apiKey: string, vars: ClaudeCliEnvVars): Promise<void> {
+async function writeSettingsJson(
+  apiKey: string,
+  vars: ClaudeCliEnvVars,
+  baseUrl: string,
+): Promise<void> {
   await fs.mkdir(claudeCliDir(), { recursive: true });
   const settingsPath = claudeCliSettingsPath();
 
@@ -199,7 +208,7 @@ async function writeSettingsJson(apiKey: string, vars: ClaudeCliEnvVars): Promis
 
   const env: Record<string, string> = { ...(existing.env ?? {}) };
   env['ANTHROPIC_AUTH_TOKEN'] = apiKey;
-  env['ANTHROPIC_BASE_URL'] = 'https://api.deepseek.com/anthropic';
+  env['ANTHROPIC_BASE_URL'] = baseUrl;
   env['ANTHROPIC_MODEL'] = vars.anthropicModel;
   env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = vars.anthropicDefaultOpusModel;
   env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = vars.anthropicDefaultSonnetModel;
@@ -289,17 +298,21 @@ async function writeAuthBypass(): Promise<void> {
 export async function writeClaudeCliConfig(
   apiKey: string,
   vars: ClaudeCliEnvVars = DEFAULT_ENV_VARS,
+  provider: 'deepseek' | 'agnes' = 'deepseek',
 ): Promise<void> {
-  await writeSettingsJson(apiKey, vars);
+  // v1.13.0: Agnes 走 Codex Switch 代理（Anthropic→Chat 翻译）
+  const baseUrl =
+    provider === 'agnes' ? 'http://127.0.0.1:11435' : 'https://api.deepseek.com/anthropic';
+  await writeSettingsJson(apiKey, vars, baseUrl);
   await writeAuthBypass();
 
   if (process.platform === 'win32') {
-    await writeWindowsEnvVars(apiKey, vars);
+    await writeWindowsEnvVars(apiKey, vars, baseUrl);
     return;
   }
   const profiles = shellProfilePaths();
   for (const profilePath of profiles) {
-    await writeToProfile(profilePath, apiKey, vars);
+    await writeToProfile(profilePath, apiKey, vars, baseUrl);
   }
 }
 

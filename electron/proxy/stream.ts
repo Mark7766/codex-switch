@@ -2,13 +2,13 @@ import https from 'node:https';
 import type { ChatRequest } from './translate';
 import type { ReasoningStore } from './reasoning';
 
-const DEEPSEEK_BASE = 'api.deepseek.com';
-
 export type SseEvent = (type: string, payload: Record<string, unknown>) => void;
 
 export interface DeepSeekDeps {
   apiKey: string;
   agent?: https.Agent;
+  /** v1.13.0: upstream API hostname (api.deepseek.com / apihub.agnes-ai.com). */
+  upstreamBase: string;
 }
 
 export interface SyncResponse {
@@ -24,7 +24,7 @@ export function callDeepSeekSync(body: ChatRequest, deps: DeepSeekDeps): Promise
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
-        hostname: DEEPSEEK_BASE,
+        hostname: deps.upstreamBase,
         path: '/v1/chat/completions',
         method: 'POST',
         agent: deps.agent,
@@ -100,7 +100,7 @@ export function streamDeepSeek(
 
     const req = https.request(
       {
-        hostname: DEEPSEEK_BASE,
+        hostname: deps.upstreamBase,
         path: '/v1/chat/completions',
         method: 'POST',
         agent: deps.agent,

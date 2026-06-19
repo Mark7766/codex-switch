@@ -37,7 +37,8 @@ export default function App(): JSX.Element {
     (async () => {
       const prefs = await window.codexSwitch.getPreferences();
       setPort(prefs.proxyPort);
-      setPage(prefs.hasCompletedSetup ? 'dashboard' : 'setup');
+      const hasKey = (await window.codexSwitch.getApiKey()).length > 0;
+      setPage(prefs.hasCompletedSetup || hasKey ? 'dashboard' : 'setup');
 
       const v = await window.codexSwitch.getVersion();
       setVersion(v);
@@ -160,26 +161,20 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    window.codexSwitch
-      .communityGetCount()
-      .then(setCommunityCount)
-      .catch(() => {});
+    // IPC handler 统一判断（本地 + Server 双路）
     window.codexSwitch
       .communityGetProfile()
       .then((p) => {
         if (p) {
-          setIsEarlyMember(p.is_early_member ?? false);
-          setInviteCount(p.invite_count ?? 0);
+          if (p.joined_date) setJoinedDate(p.joined_date);
+          if (p.is_early_member !== undefined) setIsEarlyMember(p.is_early_member);
+          if (p.invite_count !== undefined) setInviteCount(p.invite_count);
         }
       })
       .catch(() => {});
-    // 获取加入日期（本地 lifetimeFirstStartAt，已有字段）
     window.codexSwitch
-      .getPreferences()
-      .then((prefs) => {
-        const date = prefs.lifetimeFirstStartAt;
-        if (date) setJoinedDate(date);
-      })
+      .communityGetCount()
+      .then(setCommunityCount)
       .catch(() => {});
   }, []);
 

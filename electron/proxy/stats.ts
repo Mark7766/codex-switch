@@ -9,6 +9,13 @@ import type { ProxyOptions, ProxyLogEntry, RequestStats, ErrorAction } from './t
 
 // ── Stats helpers ────────────────────────────────────────────────────────
 
+function upstreamLabel(host?: string): string {
+  if (!host) return '';
+  if (host.includes('agnes')) return ' [Agnes]';
+  if (host.includes('deepseek')) return ' [DeepSeek]';
+  return ` [${host}]`;
+}
+
 export function recordSuccess(
   stats: RequestStats,
   opts: { onModelCall?: ProxyOptions['onModelCall'] },
@@ -19,6 +26,7 @@ export function recordSuccess(
   requestedModel: string | undefined,
   model: string,
   statusCode: number,
+  upstreamBase?: string,
   extras?: {
     endTurn?: boolean;
     finishReason?: string | null;
@@ -49,7 +57,7 @@ export function recordSuccess(
     source,
     reqId,
     phase: 'success',
-    message: `✓ 请求成功 状态=${statusCode} 耗时=${durationMs}ms model=${model}${turnTag}${tokenTag}`,
+    message: `✓ 请求成功 状态=${statusCode} 耗时=${durationMs}ms model=${model}${upstreamLabel(upstreamBase)}${turnTag}${tokenTag}`,
     durationMs,
     requestedModel,
     model,
@@ -92,6 +100,7 @@ export function recordError(
   reason: string,
   action: ErrorAction,
   statusCode: number | undefined,
+  upstreamBase?: string,
 ): void {
   const durationMs = Date.now() - startedAt;
   stats.error += 1;
@@ -104,7 +113,7 @@ export function recordError(
     source,
     reqId,
     phase: 'error',
-    message: `✗ 请求失败 状态=${statusCode ?? '未知'} 耗时=${durationMs}ms 原因=${reason}`,
+    message: `✗ 请求失败 状态=${statusCode ?? '未知'} 耗时=${durationMs}ms 原因=${reason}${upstreamLabel(upstreamBase)}`,
     durationMs,
     requestedModel,
     ...(model !== undefined ? { model } : {}),

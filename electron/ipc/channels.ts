@@ -19,6 +19,10 @@ export const IPC = {
   keyGet: 'key:get',
   keySet: 'key:set',
   keyClear: 'key:clear',
+  // v1.13.0 Agnes AI
+  agnesKeyGet: 'key:agnes-get',
+  agnesKeySet: 'key:agnes-set',
+  agnesKeyClear: 'key:agnes-clear',
   // Codex 配置
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',

@@ -21,6 +21,48 @@
 
 ## 任务记录
 
+### [TASK-074] v1.13.0 — ai-coding-ok hooks 全覆盖确认 + 智能搜索 Agnes 优先
+
+- **日期**：2026-06-19
+- **类型**：chore
+- **摘要**：确认 hooks 配置覆盖所有触发点（SessionStart/UserPromptSubmit/PreToolUse/Stop），FAQ Agnes 条目移至首位，智能搜索提示词加入 Agnes 优先推荐，搜索示例第一个改为「如何接入免费的 Agnes AI 模型？」。hooks 配置无误——此后每次任务 AI Agent 必须严格遵循 Plan→Act 流程。未 push。
+- **变更文件**：`faq.json`、`main.ts`（搜索提示词）、`SearchPopover.tsx`（示例问题）
+
+### [TASK-073] v1.13.0 — Claude Desktop/CLI 供应商独立性修复
+- **日期**：2026-06-19
+- **类型**：fix
+- **摘要**：store 新增 `claudeDesktopProvider` / `claudeCliProvider` 独立字段，Settings 每张卡片各存各的 provider，`claudeApplyAll` 改为分工具读取对应字段。三张卡片不再串在一起。185/185 tests ✅。未 push。
+
+### [TASK-072] v1.13.0 — Claude 全家桶 Agnes 代理实现 + review 修复
+
+- **日期**：2026-06-19
+- **类型**：feat / fix
+- **摘要**：按 `docs/DESIGN-claude-cli-agnes-proxy.md` 实施。① 恢复 `anthropic-relay.ts`（Anthropic Messages→Chat Completions 翻译）；② http-routes 新增 `/v1/messages` + `/anthropic/v1/messages` 双路由（Claude Desktop 3P gateway 用 `/v1/messages`）；③ `LogSource` 新增 `'claude'` + Logs.tsx 新增 Claude 来源筛选；④ desktop-writer / env-writer Agnes 时 Base URL 写 `127.0.0.1:11435`；⑤ `inferenceModels` name 写 Claude 原生名，labelOverride 写 Agnes 模型名；⑥ 翻译层直接用 defaultModel 不查 Codex 映射表。DeepSeek 直连不受影响。185/185 tests ✅。未 push。
+- **变更文件**：`anthropic-relay.ts`（新增）+ `server.ts` + `http-routes.ts` + `types.ts` + `desktop-writer.ts` + `env-writer.ts` + `Logs.tsx`
+- **关联**：DESIGN-claude-cli-agnes-proxy.md
+- **修复**：claudeApplyAll 时同步代理 upstream+model；Claude 日志增加耗时和 token 显示
+
+### [TASK-071] v1.13.0 — Settings 缺陷修复批次
+
+- **日期**：2026-06-19
+- **类型**：fix
+- **摘要**：修复 4 个缺陷：① `savePrefs` 先调 `setPreferences` 导致 `applyPreferences` 检测不到 provider 变化→代理上游不切→移除了前置 `setPreferences` 调用；② `restoreOriginalConfig` 保留 `model = "codex-switch"` 导致 OpenAI 返回 400→改为移除 model 行让 OpenAI 用默认值；③ 切 OpenAI 官方/toml 写入后没有提示重启→新增 toast "请重启 Codex Desktop 使配置生效"；④ Claude Desktop/CLI 保存时死板判断供应商而非检查 Key 是否为空→改为 `if (!maskedAgnesKey)` 条件检查。185/185 tests ✅。未 push。
+- **变更文件**：`Settings.tsx`、`writer.ts`、`server.ts`
+
+### [TASK-070] v1.13.0 — Settings 页面重构：三卡片独立供应商选择 + 供应商/模型联动修复
+- **日期**：2026-06-19
+- **类型**：feat / fix
+- **摘要**：按 `docs/DESIGN-claude-agnes-support.md` v2.0 重构设置页。① 四张卡片各用独立 state（provider / codexProvider / claudeDesktopProvider / claudeCliProvider）互不联动；② Codex 供应商切换时 defaultModel 自动联动；③ 代理 resolveAndWarn 简化为根据 upstreamBase 强制覆盖模型——不管 Codex 发什么模型名一律用配置模型。185/185 tests ✅。未 push。
+- **变更文件**：`Settings.tsx`（重写）+ `ModelMappingModal.tsx`（新增）+ `server.ts`（resolveAndWarn 简化）+ 测试更新
+- **关联**：DESIGN-claude-agnes-support.md v2.0
+
+### [TASK-069] v1.13.0 — Agnes AI 供应商接入
+- **日期**：2026-06-19
+- **类型**：feat
+- **摘要**：Settings 新增供应商下拉框（DeepSeek / Agnes），选 Agnes 后 API Key 输入框自动切换。proxy 根据 provider 切换上游 hostname。185/185 tests ✅。未 push。
+- **变更文件**：store.ts / secrets.ts / server.ts / stream.ts / http-routes.ts / http-handler.ts / ws-handler.ts / channels.ts / preload.ts / main.ts / Settings.tsx / global.d.ts / Settings.test.tsx
+- **关联**：DESIGN-agnes-ai-integration.md、ADR-024
+
 ### [TASK-068] v1.13.0 — Review 修复：接入 session-reader fallback + 清理 dead code
 - **日期**：2026-06-19
 - **类型**：fix

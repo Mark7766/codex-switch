@@ -26,14 +26,17 @@ export interface WriteOpts {
   maxBackupsPerFile?: number;
 }
 
+// v1.13.0: config.toml 写死中间模型 codex-switch。
+// 代理根据 activeModelMapping 动态路由到 DeepSeek 或 Agnes。
+// 切供应商不改 config.toml，Codex 不重启。
 const TEMPLATE = (
   port: number,
-  model: string,
+  _model: string,
 ): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
 # 完整配置参考: https://github.com/openai/codex
 
 model_provider = "custom"
-model = "${model}"
+model = "codex-switch"
 model_reasoning_effort = "xhigh"
 # v1.5.5: 注释掉 disable_response_storage。
 # 该行导致 Codex Desktop 切到客户端压缩模式，
@@ -127,6 +130,8 @@ export async function restoreOriginalConfig(): Promise<void> {
   for (const line of lines) {
     // 跳过 model_catalog_json
     if (/^\s*model_catalog_json\s*=/.test(line)) continue;
+    // v1.13.0: 去掉 model 行，让 OpenAI 用默认值
+    if (/^\s*model\s*=/.test(line)) continue;
 
     // 在 [model_providers.custom] section 内
     if (/^\s*\[model_providers\.custom\]/.test(line)) {

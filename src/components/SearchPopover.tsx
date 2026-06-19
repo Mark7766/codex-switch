@@ -12,10 +12,10 @@ interface Props {
 }
 
 const EXAMPLE_QUERIES = [
+  '如何接入免费的 Agnes AI 模型？',
   'Codex 连不上怎么办',
   '如何安装插件',
   '为什么 token 消耗这么快',
-  'Claude Desktop 怎么配置',
 ];
 
 const DEFAULT_W = 384;

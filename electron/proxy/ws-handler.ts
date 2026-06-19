@@ -26,6 +26,11 @@ import { translateError, isContextExceededError } from './errors';
 
 export interface WsHandlerDeps {
   apiKey: string;
+  /** v1.13.0: upstream API hostname. */
+  upstreamBase: string;
+  agnesUpstreamBase: string;
+  agnesApiKey: string;
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
   modelMapping: Record<string, string>;
   defaultModel: string;
   blockBackgroundSuggestions: boolean;
@@ -154,6 +159,11 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
     const requestedModel = msg.model;
     const resolvedModel = deps.resolveAndWarn(requestedModel, reqId, 'ws');
 
+    // v1.13.0: Agnes 上游时用 Agnes Key
+    const isAgnes = deps.upstreamBase.includes('agnes');
+    const reqUpstream = isAgnes ? deps.agnesUpstreamBase || deps.upstreamBase : deps.upstreamBase;
+    const reqApiKey = isAgnes ? deps.agnesApiKey || deps.apiKey : deps.apiKey;
+
     const inputArr = Array.isArray(msg.input) ? (msg.input as Array<Record<string, unknown>>) : [];
     const inputCount = inputArr.length;
     const inputKinds: Record<string, number> = {};
@@ -191,7 +201,7 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
       reqId,
       phase: 'start',
       connId,
-      message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} stream=true ${inputSummary}`,
+      message: `→ 请求开始 model=${requestedModel ?? '<空>'}→${resolvedModel} upstream=${reqUpstream} stream=true ${inputSummary}`,
       requestedModel,
       model: resolvedModel,
     });
@@ -321,7 +331,7 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
       chatReq,
       respId,
       send,
-      { apiKey: deps.apiKey, agent: deps.agent },
+      { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream },
       deps.reasoning,
     )
       .then(({ outputItems, finishReason, endTurn, usage }) => {

@@ -62,6 +62,7 @@ describe('recordSuccess', () => {
       undefined,
       'deepseek-chat',
       200,
+      undefined,
       {
         finishReason: 'blocked-suggestion',
       },
@@ -81,6 +82,7 @@ describe('recordSuccess', () => {
       undefined,
       'deepseek-chat',
       200,
+      undefined,
       {
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       },
@@ -101,6 +103,7 @@ describe('recordSuccess', () => {
       undefined,
       'deepseek-chat',
       200,
+      undefined,
       {
         finishReason: 'blocked-empty-input',
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -146,6 +149,7 @@ describe('recordError', () => {
       'timeout',
       'none',
       undefined,
+      undefined,
     );
     expect(stats.error).toBe(1);
     expect(stats.lastError).toBe('timeout');
@@ -167,6 +171,7 @@ describe('recordError', () => {
       'auth',
       'auth',
       401,
+      undefined,
     );
     expect(onModelCall).toHaveBeenCalledWith(
       expect.objectContaining({ success: false, error_reason: 'auth' }),

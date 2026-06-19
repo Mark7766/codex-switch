@@ -38,6 +38,36 @@
 
 ## 决策记录
 
+### ADR-025: v1.13.0 — Settings 页面三卡片独立供应商架构
+
+- **日期**：2026-06-19
+- **状态**：✅ 已采纳
+- **决策**：放弃全局供应商下拉框统一全家桶的方案。改为三张独立卡片：Codex 接入、Claude Desktop 接入、Claude Code CLI 接入。每张卡片有自己的供应商选择、接入状态显示、模型联动。Claude 工具另有模型映射弹窗。
+- **理由**：用户反馈全局切换不够灵活——不同工具有不同需求，一张卡片管一个工具更清晰。
+
+### ADR-024: v1.13.0 — Agnes AI 多供应商支持（一个下拉框，切换上游）
+
+- **日期**：2026-06-19
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+用户希望接入 Agnes AI（`agnes-2.0-flash`）作为 DeepSeek 之外的第二个 AI 供应商。Agnes API 兼容 OpenAI Chat Completions 格式（与 DeepSeek 相同），Base URL 为 `apihub.agnes-ai.com/v1`。
+
+#### 决策
+> Settings 加一个下拉框选供应商。proxy 根据选择切换上游 hostname 和 API Key。一个全局变量，选完保存，代理自动重启。不做多供应商同时路由、不做供应商级模型映射表。
+
+#### 理由
+1. DeepSeek 和 Agnes 都讲 Chat Completions，协议翻译层零改动
+2. 苹果式简单：一个开关，选完即用，不需要新页面/新向导
+3. 上游 hostname 从硬编码 `api.deepseek.com` 改为 `ProxyOptions.upstreamBase`，未来加新供应商只需加一个选项
+
+#### 影响
+- `stream.ts` 硬编码 `DEEPSEEK_BASE` 常量移除，改为 `deps.upstreamBase`
+- `store.ts` 新增 `provider: 'deepseek' | 'agnes'` 字段
+- `secrets.ts` 新增 Agnes Key keytar 存储
+- Settings 新增供应商下拉框 + 动态 Key 输入
+
 ### ADR-023: v1.13.0 — 删除 LLM compact + ndjson 持久化，改用纯内存 LRU + Codex JSONL fallback
 
 - **日期**：2026-06-19

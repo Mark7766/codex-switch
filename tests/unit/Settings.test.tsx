@@ -28,12 +28,17 @@ const mockApi = {
     lastErrorMessage: '',
     lastErrorAt: 0,
     blockBackgroundSuggestions: true,
+    provider: 'deepseek',
+    activeModelMapping: { 'codex-switch': { model: 'deepseek-v4-flash', provider: 'deepseek' } },
     telemetryEnabled: true,
     serverUrl: '',
   }),
   getApiKey: vi.fn().mockResolvedValue('sk-••••••••'),
   setApiKey: vi.fn().mockResolvedValue(true),
   clearApiKey: vi.fn().mockResolvedValue(true),
+  getAgnesKey: vi.fn().mockResolvedValue(''),
+  setAgnesKey: vi.fn().mockResolvedValue(true),
+  clearAgnesKey: vi.fn().mockResolvedValue(true),
   codexBackups: vi.fn().mockResolvedValue({ config: [], auth: [] }),
   getVersion: vi.fn().mockResolvedValue('1.7.0'),
   applyPreferences: vi.fn().mockResolvedValue({
@@ -76,14 +81,14 @@ describe('Settings page', () => {
     expect(await screen.findByText('设置')).toBeDefined();
   });
 
-  it('renders the API key section', async () => {
+  it('renders the provider settings section', async () => {
     render(<Settings />);
-    expect(await screen.findByText('DeepSeek API Key')).toBeDefined();
+    expect(await screen.findByText('🔑 供应商设置')).toBeDefined();
   });
 
-  it('renders the proxy section with port input', async () => {
+  it('renders the Codex access section', async () => {
     render(<Settings />);
-    expect(await screen.findByText('代理与模型')).toBeDefined();
+    expect(await screen.findByText(/Codex 接入/)).toBeDefined();
     expect(await screen.findByText('本地端口')).toBeDefined();
   });
 

@@ -6,9 +6,11 @@ import Store from 'electron-store';
 
 const SERVICE = 'codex-switch';
 const ACCOUNT = 'deepseek-api-key';
+const AGNES_ACCOUNT = 'agnes-api-key';
 
 interface FallbackShape {
   apiKey: string;
+  agnesApiKey: string;
 }
 
 let fallbackStore: Store<FallbackShape> | null = null;
@@ -17,7 +19,7 @@ function getFallback(): Store<FallbackShape> {
   if (!fallbackStore) {
     fallbackStore = new Store<FallbackShape>({
       name: 'secrets',
-      defaults: { apiKey: '' },
+      defaults: { apiKey: '', agnesApiKey: '' },
       encryptionKey: 'codex-switch-local-only',
     });
   }
@@ -70,4 +72,44 @@ export async function clearApiKey(): Promise<void> {
     }
   }
   getFallback().set('apiKey', '');
+}
+
+// ── Agnes AI Key ───────────────────────────────────────────────────────
+
+export async function getAgnesKey(): Promise<string> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      const v = await keytar.getPassword(SERVICE, AGNES_ACCOUNT);
+      if (v) return v;
+    } catch {
+      /* fall through */
+    }
+  }
+  return getFallback().get('agnesApiKey', '');
+}
+
+export async function setAgnesKey(apiKey: string): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.setPassword(SERVICE, AGNES_ACCOUNT, apiKey);
+      getFallback().set('agnesApiKey', '');
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+  getFallback().set('agnesApiKey', apiKey);
+}
+
+export async function clearAgnesKey(): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.deletePassword(SERVICE, AGNES_ACCOUNT);
+    } catch {
+      /* ignore */
+    }
+  }
 }

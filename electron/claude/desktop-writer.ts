@@ -94,17 +94,30 @@ async function writeMeta(applied: string | null): Promise<void> {
 
 // ─── Profile JSON (the actual gateway settings Claude Desktop reads) ─────────
 
-function buildGatewayProfile(apiKey: string): Record<string, unknown> {
+function buildGatewayProfile(
+  apiKey: string,
+  provider: 'deepseek' | 'agnes' = 'deepseek',
+): Record<string, unknown> {
+  const isAgnes = provider === 'agnes';
+  // v1.13.0: Agnes 走 Codex Switch 代理（Anthropic→Chat 翻译）
+  const baseUrl = isAgnes ? 'http://127.0.0.1:11435' : 'https://api.deepseek.com/anthropic';
+  const models = isAgnes
+    ? [
+        { labelOverride: 'agnes-2.0-flash', name: 'claude-opus-4-7' },
+        { labelOverride: 'agnes-2.0-flash', name: 'claude-sonnet-4-6' },
+        { labelOverride: 'agnes-2.0-flash', name: 'claude-haiku-4-5' },
+      ]
+    : [
+        { labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' },
+        { labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' },
+        { labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' },
+      ];
   return {
     disableDeploymentModeChooser: true,
     inferenceGatewayApiKey: apiKey,
     inferenceGatewayAuthScheme: 'bearer',
-    inferenceGatewayBaseUrl: 'https://api.deepseek.com/anthropic',
-    inferenceModels: [
-      { labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' },
-      { labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' },
-      { labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' },
-    ],
+    inferenceGatewayBaseUrl: baseUrl,
+    inferenceModels: models,
     inferenceProvider: 'gateway',
     [CS_MARKER_KEY]: CS_MARKER_VALUE,
   };
@@ -129,7 +142,10 @@ function buildGatewayProfile(apiKey: string): Record<string, unknown> {
  * DeepSeek URL; Codex Switch no longer intercepts or rewrites Anthropic traffic.
  * Existing files are backed up before being modified.
  */
-export async function writeClaudeDesktopConfig(apiKey: string): Promise<void> {
+export async function writeClaudeDesktopConfig(
+  apiKey: string,
+  provider?: 'deepseek' | 'agnes',
+): Promise<void> {
   const cfg1p = claudeDesktopConfigPath();
   const cfg3p = claudeDesktop3pConfigPath();
 
@@ -142,7 +158,7 @@ export async function writeClaudeDesktopConfig(apiKey: string): Promise<void> {
   await fs.mkdir(claudeDesktopConfigLibraryDir(), { recursive: true });
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
   await backupExisting(profilePath);
-  await writeJsonObject(profilePath, buildGatewayProfile(apiKey));
+  await writeJsonObject(profilePath, buildGatewayProfile(apiKey, provider));
 
   await writeMeta(PROFILE_ID);
 }
