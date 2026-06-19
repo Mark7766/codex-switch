@@ -1,155 +1,83 @@
-# Codex Switch
+# <img src="https://codex-switch.cloud/static/images/logo.png" width="28" height="28"> Codex Switch
 
-> 跨平台桌面图形化代理：让 Codex CLI / Codex Desktop 无痛连接 DeepSeek。
+**让 AI 编程触手可及。**
 
-零命令行、双击安装。在本地 `127.0.0.1:11435` 起一个 HTTP + WebSocket 代理，把 Codex 用的 OpenAI Responses API 实时转换为 DeepSeek Chat Completions（支持 SSE 流式 + `deepseek-reasoner` 的 `reasoning_content` 跨轮回传），并自动写好 `~/.codex/config.toml` 与 `~/.codex/auth.json`。
+Codex Switch 帮你突破网络限制，在国内流畅使用 Codex 和 Claude，接入 DeepSeek 和 Agnes AI——免费、快速、本地安全。
 
-参考实现：[`codex-deepseek-installer`](https://github.com/Mark7766/codex-deepseek-installer)（CLI 版本，本项目是其 GUI 化）。
+[![Release](https://img.shields.io/github/v/release/Mark7766/codex-switch?color=blue)](https://github.com/Mark7766/codex-switch/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](https://codex-switch.cloud/download)
 
 ---
 
-## 下载（v0.1.0）
+## 快速安装
 
-| 平台                              | 架构  | 下载文件                                 |
-| --------------------------------- | ----- | ---------------------------------------- |
-| macOS Apple Silicon (M1/M2/M3/M4) | arm64 | `Codex-Switch-0.1.0-mac-arm64.dmg`       |
-| macOS Intel                       | x64   | `Codex-Switch-0.1.0-mac-x64.dmg`         |
-| Windows x86_64                    | x64   | `Codex-Switch-Setup-0.1.0-win-x64.exe`   |
-| Windows ARM                       | arm64 | `Codex-Switch-Setup-0.1.0-win-arm64.exe` |
+去官网 [codex-switch.cloud](https://codex-switch.cloud) 下载安装包，或者直接走安装指南：
 
-**怎么知道我该下哪个？**
+<p align="center">
+  <a href="https://codex-switch.cloud/guide?platform=windows"><strong>🪟 Windows 安装指南 →</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://codex-switch.cloud/guide?platform=macos"><strong>🍎 Mac 安装指南 →</strong></a>
+</p>
 
-- **Mac**：左上角 → 关于本机 → 看「芯片」是 Apple 还是 Intel。
-- **Windows**：设置 → 系统 → 系统信息 → 看「系统类型」。
+支持 **Windows 11** · **macOS 11+** · 完全免费开源。
+
+---
+
+## 三分钟上手
+
+**1. 安装 Codex Switch** — 去 [下载页面](https://codex-switch.cloud/download) 获取 macOS 或 Windows 安装包，双击安装
+
+**2. 填写 API Key** — 首次启动弹出 Setup 向导，填入 DeepSeek API Key（[免费申请](https://platform.deepseek.com/api_keys)）或 Agnes AI Key（[免费申请](https://platform.agnes-ai.com/)）
+
+**3. 点「完成并启动代理」** — 自动配置 ~/.codex/，打开 Codex Desktop 或 Codex CLI 直接对话
+
+> 安装遇到问题？去官网 [使用指南](https://codex-switch.cloud/guide) 看图文步骤。
+
+---
+
+## 四款工具全部支持
+
+| 工具            | 安装指南                                                        |
+| --------------- | --------------------------------------------------------------- |
+| Codex Desktop   | [📖 配置指南](https://codex-switch.cloud/guide?tool=codex)      |
+| Claude Desktop  | [📖 配置指南](https://codex-switch.cloud/guide?tool=claude)     |
+| Codex CLI       | [📖 配置指南](https://codex-switch.cloud/guide?tool=codex-cli)  |
+| Claude Code CLI | [📖 配置指南](https://codex-switch.cloud/guide?tool=claude-cli) |
+
+每款工具都能自由选择 **DeepSeek** 或 **Agnes AI** 作为 AI 供应商，各自独立配置、互不干扰。
+
+---
+
+## 功能亮点
+
+- **零命令行**：图形界面完成所有配置，不懂终端也能用
+- **免费模型**：支持 Agnes AI，零成本使用，256K 上下文
+- **一键切换供应商**：DeepSeek 和 Agnes 之间秒切，不重启、不等生效
+- **协议自动翻译**：Codex 的 OpenAI Responses API、Claude 的 Anthropic Messages API，自动翻译为上游能理解的格式
+- **Key 安全存储**：API Key 存在操作系统钥匙串，不落盘明文
+- **本地代理**：仅监听 127.0.0.1:11435，外网无法访问
+- **对话持续**：长对话不丢上下文，切供应商不影响进行中的对话
+- **日志脱敏**：请求日志自动隐藏 Key 和敏感信息，方便排查问题
 
 ---
 
 ## 开发
 
-需要 **Node.js 20 LTS**（**不要用 Node 23**，原因见下方 troubleshooting）+ **pnpm 9.x**。
-
 ```bash
-pnpm install                 # 安装依赖
-pnpm dev                     # 开发模式（Vite + Electron 热重载）
-
-pnpm typecheck               # tsc --noEmit
-pnpm test                    # Vitest 单元测试
-pnpm test:coverage           # 覆盖率报告
-pnpm lint                    # ESLint
-pnpm format                  # Prettier
-
-pnpm build                   # 编译主进程 + 渲染层
-pnpm package:mac             # 打 macOS .dmg（x64 + arm64）
-pnpm package:win             # 打 Windows NSIS .exe（需在 Windows 上运行）
+pnpm install
+pnpm dev          # 开发模式（Vite + Electron 热重载）
+pnpm test         # 运行测试
+pnpm package:mac  # 构建 macOS 安装包
 ```
+
+需要 Node.js 20 LTS + pnpm 9.x。
 
 ---
 
-## Troubleshooting
+## 问题反馈
 
-### `pnpm install` 在链接阶段挂起（0% CPU、无子进程）
-
-**症状**：`Packages: +N` 出现 `added N` 后日志再无输出，`ps` 显示 pnpm 主进程 0% CPU、无任何子进程，等多久都不结束。
-
-**根因**：pnpm 9.4.0 在 **Node.js 23.x（非 LTS）** 上偶发死锁。pnpm 的链接阶段大量使用 `worker_threads` 做并行 hardlink；Node 23 的 V8 12.4+ 与 libuv 1.50 在某些场景下与 pnpm 9.4 的线程池调度发生竞态，导致主线程进入事件循环 idle、所有 worker 都退出但 Promise 不 resolve。
-相关上游：
-
-- https://github.com/pnpm/pnpm/issues/8538
-- https://github.com/nodejs/node/issues/55518
-
-**解决方案（按优先级）**：
-
-1. **首选：使用 Node 20 LTS**（项目 CI 已锁 Node 20）：
-
-   ```bash
-   nvm install 20 && nvm use 20
-   rm -rf node_modules pnpm-lock.yaml
-   pnpm install
-   ```
-
-2. **次选：分两步安装**（在 Node 23 上的本地 workaround）：
-
-   ```bash
-   pnpm install --ignore-scripts
-   pnpm rebuild keytar
-   pnpm rebuild electron
-   ```
-
-   这样跳过统一的 postinstall 阶段，把原生依赖的 prebuild 拉取拆成独立步骤，避免触发上述竞态。
-
-3. 升级 pnpm 到 ≥ 9.7（待验证）或回退到 9.0。
-
-### 启动报 `Cannot find module 'conf'`（或其它传递依赖找不到）
-
-pnpm 默认用 **isolated** linker（`node_modules/.pnpm/<pkg>/node_modules/...`），electron-builder 24 把项目 `node_modules` 打进 `app.asar` 时无法跨 `.pnpm/` 子目录解析传递依赖，运行时就会报 `Cannot find module 'conf'`（`conf` 是 `electron-store` 的传递依赖）。
-
-**解决**：在仓库根目录的 `.npmrc` 中加入：
-
-```
-node-linker=hoisted
-```
-
-然后删除 `node_modules` + `pnpm-lock.yaml` 重装并重打包：
-
-```bash
-rm -rf node_modules pnpm-lock.yaml release
-pnpm install
-pnpm package:mac    # 或 package:win
-```
-
-可用 `asar list` 验证传递依赖已进入 asar：
-
-```bash
-npx asar list "release/mac-arm64/Codex Switch.app/Contents/Resources/app.asar" \
-  | grep -E '/(conf|electron-store|keytar)/package\.json$'
-```
-
-### `electron-builder` 报 `cannot find prebuild-install`
-
-`keytar` 的 `install` 脚本调用 `prebuild-install`，但在 electron-builder 的 native rebuild 阶段，PATH 中找不到。这是**良性警告**：electron-builder 会自动 fallback 到 source build，最终 `.app/Contents/Resources/app.asar` 内仍会含 `keytar/build/Release/keytar.node`。可用以下命令验证：
-
-```bash
-node node_modules/.pnpm/@electron+asar@3.4.1/node_modules/@electron/asar/bin/asar.js \
-  list "release/mac-arm64/Codex Switch.app/Contents/Resources/app.asar" | grep keytar
-```
-
-### macOS 打开提示「无法验证开发者」
-
-v0.1.0 未做代码签名 + 公证。临时绕过：右键 → 打开 → 在弹窗里再点「打开」。正式 release 会接入 Developer ID 签名。
-
-### Windows 提示 SmartScreen 警告
-
-同上，v0.1.0 未做 Authenticode 签名。点「更多信息」→「仍要运行」即可。
-
-### Windows PowerShell 开发环境下无法加载或运行 `pnpm`/`npm`/`npx` 等脚本
-
-**症状**：提示 `无法加载文件 ...，因为在此系统上禁止运行脚本。有关详细信息，请参阅 ... 中的 about_Execution_Policies` 或提示 `pnpm : 无法将“pnpm”项识别为 cmdlet... `。
-
-**根因**：Windows PowerShell 默认的执行策略 (`Execution Policy`) 通常为 `Restricted` 或不支持脚本运行。同时若本地未全局安装 `pnpm`。
-
-**解决**：
-
-1. **解除脚本禁用**：在 PowerShell 终端会话运行以下命令（仅对当前终端进程窗口生效，安全绿色的绕过方式）：
-   ```powershell
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
-   ```
-2. **安装全局 pnpm**（与 `package.json` 中的 pnpm 9.4 保持版本一致）：
-   ```powershell
-   npm install -g pnpm
-   ```
-
-### Windows 本地打包时提示 `ERROR: Cannot create symbolic link : 客户端没有所需的特权`
-
-**症状**：运行 `pnpm package:win`，在 `electron-builder` 下载并解压解包 `winCodeSign.7z` 时，提示 `ERROR: Cannot create symbolic link : 客户端没有所需的特权`，导致打包中途报错退出。
-
-**根因**：Windows 系统出于安全考虑，普通非管理员账号默认没有权限在 NTFS 文件系统上创建符号链接 / 软链接（`symlink`）。而 `winCodeSign.7z` 自带了 macOS/darwin 相关的部分符号链接动态库（`.dylib`）。
-
-**解决**：
-
-- **方案 A（无需管理员，最推荐）**：在 Windows 系统上开启 **开发人员模式**（Developer Mode）。这允许标准用户创建符号链接而无需特权。
-  - 打开 Windows **设置** -> **系统** -> **开发者选项**（在 Windows 10 为 **更新与安全** -> **针对开发人员**）。
-  - 将 **开发人员模式**（Developer Mode）选项开启。
-- **方案 B**：以管理员身份运行 VS Code（或以管理员身份启动 PowerShell 终端）后，重新执行命令。
+应用内右上角搜索按钮输入问题，AI 秒回答案。也可以提 [GitHub Issue](https://github.com/Mark7766/codex-switch/issues)。
 
 ---
 
