@@ -3,6 +3,21 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-084] v1.14.0 — 推送代码 + 格式检查 Action 通过 + CHANGELOG 编写
+
+- **日期**：2026-06-20
+- **类型**：chore
+- **摘要**：① 修复 Prettier 格式问题（11 文件）+ ESLint 3 errors 5 warnings（no-empty catch blocks、unused vars）；② 提交全部 v1.14.0 变更（26 files, +1518/-103）并推送 main 分支，触发 CI `🔍 Lint & Format` job 通过；③ 编写 v1.14.0 CHANGELOG，从用户视角突出智谱 GLM 完整接入（Codex + Claude Desktop + Claude Code CLI 三工具支持），外加 6 项修复。
+- **变更文件**：`CHANGELOG.md`（+20 行）、`secrets.ts`、`server.ts`、`ClaudeSettingsSection.tsx`、`Settings.tsx`（lint fixes）
+- **验证**：format:check ✅，lint ✅，CI lint job ✅，已 push。
+
+### [TASK-083] v1.14.0 — 全量提交并推送远程（含 GLM 集成 + Claude Desktop 支持 + Settings 增强）
+
+- **日期**：2026-06-20
+- **类型**：chore
+- **摘要**：将 v1.14.0 所有累积变更（26 files, +1518/-103）提交并推送到 origin/main。包含：GLM 供应商接入、Claude Desktop/CLI 配置注入、Anthropic relay 代理支持、Settings 页面重构、config migrations 扩展、IPC 通道新增、lint & format 修复。
+- **验证**：pre-commit hook ✅，push ✅，CI queued → lint job in_progress
+
 ### [TASK-082] v1.14.1 — 修复重装后 Claude Code CLI 模型映射丢失（glm-5.1 → glm-5.2）
 
 - **日期**：2026-06-20
