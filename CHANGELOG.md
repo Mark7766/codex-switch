@@ -3,6 +3,26 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.14.0] - 2026-06-20
+
+### 重磅新增：智谱 GLM 完整接入 🎉
+
+> 智谱 GLM 是国内大模型供应商，API 兼容性好、中文能力强。现在 Codex Switch 完整支持——设置里选 GLM，填 Key，点保存，Codex / Claude Desktop / Claude Code CLI 全部接上。
+
+- **多供应商再加一员**。设置页四张接入卡片现在都支持「智谱 GLM」选项，DeepSeek、Agnes、GLM 三选一，各工具独立选择
+- **GLM + Codex**。供应商选 GLM 后，代理自动翻译 OpenAI Responses → Chat Completions 发到 `open.bigmodel.cn`，Codex 无感知直接对话
+- **GLM + Claude Desktop / Code CLI**。Claude 全家桶选 GLM 后直连智谱 Anthropic 兼容端点（`open.bigmodel.cn/api/anthropic`），不经过本地代理，延迟更低
+- **模型映射同步更新**。模型映射弹窗新增 glm-5.2 / glm-5.1 / glm-4.7 三个 GLM 模型，开启「管理模型映射」即可选择
+
+### 修复
+
+- **重装不怕丢配置**。修复重装 Codex Switch 后 Claude Code CLI 的 GLM 模型映射被覆盖为默认值的问题——现在启动时先读取已有配置，不一致时自动修正偏好
+- **Claude Desktop 模型映射终于写进去了**。之前在模型映射弹窗里改了模型，但实际写到配置文件的还是默认值，现在已经修好
+- **Claude Desktop 检测不再误报「未配置」**。用 GLM 或 Agnes 的用户之前会被错误检测为"未配置"，现在改用通用标记检测，与供应商无关
+- **模型映射弹窗不会失忆了**。切换页面再回来，模型映射弹窗不再重置为默认值
+- **代理缓存上限统一为 1000 条**。之前有些地方默认 500、有些 1000，现在全部对齐
+- **Agnes 端口不再写死 11435**。修改代理端口后 Claude 工具配置自动跟随，不用手动改
+
 ## [1.13.0] - 2026-06-19
 
 ### 重磅新增：免费模型 Agnes AI 接入 🎉
