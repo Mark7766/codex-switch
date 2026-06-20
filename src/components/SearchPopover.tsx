@@ -12,6 +12,7 @@ interface Props {
 }
 
 const EXAMPLE_QUERIES = [
+  '如何接入智谱 GLM？',
   '如何接入免费的 Agnes AI 模型？',
   'Codex 连不上怎么办',
   '如何安装插件',

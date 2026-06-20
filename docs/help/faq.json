@@ -1,5 +1,11 @@
 [
   {
+    "id": "glm-setup",
+    "tag": "入门",
+    "question": "如何接入智谱 GLM 模型？",
+    "answer": "智谱 GLM 是国内大模型供应商，中文能力强、API 兼容性好，推荐国内用户使用。接入只需三步：\n\n1. 注册并获取 API Key → 访问 https://open.bigmodel.cn/，注册后进入「API Keys」创建 Key 并复制\n2. Codex Switch 设置 → 在「📟 Codex 接入」卡片中将供应商切换为「智谱 GLM」，Key 已在「🔑 供应商设置」中填好（格式要求：长度至少 10 位）\n3. 点「保存并应用」→ Codex 无需重启，下一条消息直接走 GLM\n\nClaude Desktop / Claude Code CLI 想用 GLM？在对应的接入卡片里同样操作即可，各工具独立选择，互不干扰。模型映射弹窗里可选 glm-5.2 / glm-5.1 / glm-4.7 三个版本。想切回 DeepSeek？下拉选回保存即可。"
+  },
+  {
     "id": "agnes-setup",
     "tag": "入门",
     "question": "如何接入免费的 Agnes AI 模型？",
