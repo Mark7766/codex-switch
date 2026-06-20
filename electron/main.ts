@@ -275,19 +275,13 @@ async function applyPreferencesTransaction(
           ? 'open.bigmodel.cn'
           : 'api.deepseek.com';
     const agnesK = next.provider === 'deepseek' ? await getAgnesKey().catch(() => '') : undefined;
-    const newModel =
-      next.provider === 'agnes'
-        ? 'agnes-2.0-flash'
-        : next.provider === 'glm'
-          ? 'glm-5.2'
-          : 'deepseek-v4-flash';
     proxy.updateOptions({
       apiKey: newKey,
       upstreamBase: newUpstream,
       agnesApiKey: agnesK,
-      defaultModel: newModel,
+      defaultModel: next.defaultModel,
       activeModelMapping: {
-        'codex-switch': { model: newModel, provider: next.provider },
+        'codex-switch': { model: next.defaultModel, provider: next.provider },
       },
     });
   }
