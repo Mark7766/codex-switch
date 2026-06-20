@@ -48,7 +48,7 @@ export interface ProxyOptions {
   /** v1.13.0: Agnes API Key。 */
   agnesApiKey?: string;
   /** v1.13.0: 中间模型→实际模型+供应商映射。key=codex-switch。 */
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';
@@ -186,10 +186,17 @@ export class DeepSeekProxy extends EventEmitter {
     return this.opts.upstreamBase ?? 'api.deepseek.com';
   }
 
+  private apiPath(): string {
+    return (this.opts.upstreamBase ?? '').includes('bigmodel')
+      ? '/api/paas/v4/chat/completions'
+      : '/v1/chat/completions';
+  }
+
   constructor(opts: ProxyOptions) {
     super();
     this.opts = opts;
-    this.cacheMaxEntries = opts.cacheMaxEntries ?? 500;
+    // v1.14.1: 默认值对齐 store.ts 的 conversationCacheLimit (1000)
+    this.cacheMaxEntries = opts.cacheMaxEntries ?? 1000;
   }
 
   getStatus(): ProxyStatus {
@@ -510,15 +517,19 @@ export class DeepSeekProxy extends EventEmitter {
   }
 
   private resolveAndWarn(
-    requested: string | undefined,
-    reqId: string,
-    source: 'http' | 'ws',
+    _requested: string | undefined,
+    _reqId: string,
+    _source: 'http' | 'ws',
   ): string {
     // v1.13.0: 上游决定供应商，defaultModel 决定具体模型
     const model = this.opts.defaultModel ?? 'deepseek-v4-flash';
-    const isAgnes = (this.opts.upstreamBase ?? '').includes('agnes');
+    const upstream = this.opts.upstreamBase ?? '';
+    const isAgnes = upstream.includes('agnes');
+    const isGlm = upstream.includes('bigmodel');
     if (isAgnes && !model.includes('agnes')) return 'agnes-2.0-flash';
     if (!isAgnes && model.includes('agnes')) return 'deepseek-v4-flash';
+    if (isGlm && !model.includes('glm')) return 'glm-5.2';
+    if (!isGlm && model.includes('glm')) return 'deepseek-v4-flash';
     return model;
   }
 
@@ -554,6 +565,7 @@ export class DeepSeekProxy extends EventEmitter {
     return {
       apiKey: this.opts.apiKey,
       upstreamBase: upstream,
+      apiPath: this.apiPath(),
       agnesUpstreamBase: this.opts.agnesUpstreamBase ?? 'apihub.agnes-ai.com',
       agnesApiKey: this.opts.agnesApiKey ?? '',
       activeModelMapping: this.opts.activeModelMapping,
@@ -598,6 +610,7 @@ export class DeepSeekProxy extends EventEmitter {
     handleAnthropicMessages(req, res, {
       apiKey: this.opts.apiKey,
       upstreamBase: this.upstreamBase(),
+      apiPath: this.apiPath(),
       agent: this.agent,
       defaultModel: this.opts.defaultModel ?? 'deepseek-v4-flash',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -28,9 +28,11 @@ export interface WsHandlerDeps {
   apiKey: string;
   /** v1.13.0: upstream API hostname. */
   upstreamBase: string;
+  /** v1.14.0: API path */
+  apiPath: string;
   agnesUpstreamBase: string;
   agnesApiKey: string;
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
   modelMapping: Record<string, string>;
   defaultModel: string;
   blockBackgroundSuggestions: boolean;
@@ -331,7 +333,7 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
       chatReq,
       respId,
       send,
-      { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream },
+      { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream, apiPath: deps.apiPath },
       deps.reasoning,
     )
       .then(({ outputItems, finishReason, endTurn, usage }) => {

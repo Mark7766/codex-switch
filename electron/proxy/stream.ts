@@ -9,6 +9,8 @@ export interface DeepSeekDeps {
   agent?: https.Agent;
   /** v1.13.0: upstream API hostname (api.deepseek.com / apihub.agnes-ai.com). */
   upstreamBase: string;
+  /** v1.14.0: upstream API chat completions path (/v1/chat/completions or /api/paas/v4/chat/completions). */
+  apiPath?: string;
 }
 
 export interface SyncResponse {
@@ -25,7 +27,7 @@ export function callDeepSeekSync(body: ChatRequest, deps: DeepSeekDeps): Promise
     const req = https.request(
       {
         hostname: deps.upstreamBase,
-        path: '/v1/chat/completions',
+        path: deps.apiPath ?? '/v1/chat/completions',
         method: 'POST',
         agent: deps.agent,
         headers: {
@@ -101,7 +103,7 @@ export function streamDeepSeek(
     const req = https.request(
       {
         hostname: deps.upstreamBase,
-        path: '/v1/chat/completions',
+        path: deps.apiPath ?? '/v1/chat/completions',
         method: 'POST',
         agent: deps.agent,
         headers: {

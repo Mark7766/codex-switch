@@ -93,13 +93,13 @@ interface CodexSwitchApi {
     lifetimeFirstStartAt: string;
     lastErrorMessage: string;
     lastErrorAt: number;
-    provider: 'deepseek' | 'agnes';
-    claudeDesktopProvider: 'deepseek' | 'agnes';
-    claudeCliProvider: 'deepseek' | 'agnes';
-    activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
+    provider: 'deepseek' | 'agnes' | 'glm';
+    claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm';
+    claudeCliProvider: 'deepseek' | 'agnes' | 'glm';
+    activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
     blockBackgroundSuggestions: boolean;
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
-    claudeDesktop?: { enabled: boolean };
+    claudeDesktop?: { enabled: boolean; modelMap: Record<string, string> };
     migrations?: { v130_claude: boolean; v160_claudeDesktopDirect: boolean };
   }>;
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
@@ -112,6 +112,9 @@ interface CodexSwitchApi {
   getAgnesKey: () => Promise<string>;
   setAgnesKey: (key: string) => Promise<boolean>;
   clearAgnesKey: () => Promise<boolean>;
+  getGlmKey: () => Promise<string>;
+  setGlmKey: (key: string) => Promise<boolean>;
+  clearGlmKey: () => Promise<boolean>;
   proxyStart: () => Promise<{ port: number; status: string }>;
   proxyStop: () => Promise<{ status: string }>;
   proxyInfo: () => Promise<{

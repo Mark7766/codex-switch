@@ -16,6 +16,8 @@ export interface ClaudeCliPrefs {
 export interface ClaudeDesktopPrefs {
   /** Whether Codex Switch should auto-manage Claude Desktop config. */
   enabled: boolean;
+  /** Per-Claude-model → actual-model mapping (e.g. claude-sonnet-4-6 → glm-4.7). */
+  modelMap: Record<string, string>;
 }
 
 export interface MigrationFlags {
@@ -67,17 +69,17 @@ export interface UserPreferences {
   /** §7 最近一次代理错误的时间戳（ms）。 */
   lastErrorAt: number;
   /** v1.13.0: AI 供应商选择。deepseek 或 agnes（Codex 用）。 */
-  provider: 'deepseek' | 'agnes';
+  provider: 'deepseek' | 'agnes' | 'glm';
   /** v1.13.0: Claude Desktop 供应商。 */
-  claudeDesktopProvider: 'deepseek' | 'agnes';
+  claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm';
   /** v1.13.0: Claude Code CLI 供应商。 */
-  claudeCliProvider: 'deepseek' | 'agnes';
+  claudeCliProvider: 'deepseek' | 'agnes' | 'glm';
   /**
    * v1.13.0: 中间模型 → 实际模型 + 供应商 的生效映射。
    * key = 中间模型名（config.toml 里写死的 model），value = 实际模型 + 供应商。
    * 切换供应商时只改这个映射，Codex 和代理都不需要重启。
    */
-  activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
+  activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
   /** 是否拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求（默认 true）。 */
   blockBackgroundSuggestions: boolean;
   /** 生命周期累计输入 token（不含被拦截请求）。 */
@@ -95,7 +97,7 @@ export interface UserPreferences {
 }
 
 /** v3 默认映射表：覆盖 OpenAI / Codex 已知常用模型（含 gpt-5.4 系列）。 */
-export const CURRENT_MAPPING_VERSION = 4;
+export const CURRENT_MAPPING_VERSION = 5;
 
 export const DEFAULT_MAPPING: Record<string, string> = {
   'gpt-5-codex': 'deepseek-v4-flash',
@@ -114,6 +116,10 @@ export const DEFAULT_MAPPING: Record<string, string> = {
   // v1.13.0: Agnes AI models (passthrough — model name is the actual model)
   'agnes-2.0-flash': 'agnes-2.0-flash',
   'agnes-1.5-flash': 'agnes-1.5-flash',
+  // v1.14.0: GLM models (passthrough)
+  'glm-5.2': 'glm-5.2',
+  'glm-5.1': 'glm-5.1',
+  'glm-4.7': 'glm-4.7',
 };
 
 const DEFAULTS: UserPreferences = {
@@ -156,6 +162,7 @@ const DEFAULTS: UserPreferences = {
   },
   claudeDesktop: {
     enabled: true,
+    modelMap: {},
   },
   migrations: {
     v130_claude: false,

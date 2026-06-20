@@ -201,11 +201,10 @@ async function isClaudeDesktopConfigured(profilePath: string): Promise<boolean> 
   try {
     const content = await fs.readFile(profilePath, 'utf-8');
     const cfg = JSON.parse(content) as Record<string, unknown>;
-    return (
-      cfg['inferenceProvider'] === 'gateway' &&
-      typeof cfg['inferenceGatewayBaseUrl'] === 'string' &&
-      (cfg['inferenceGatewayBaseUrl'] as string).includes('deepseek.com')
-    );
+    // 用 __codexSwitch 标记检测（供应商无关）。
+    // 旧逻辑只检查 deepseek.com，GLM/Agnes 用户的 URL 不包含 deepseek.com
+    // 导致检测永远返回 false，UI 显示"未配置"。
+    return cfg['__codexSwitch'] === 'managed';
   } catch {
     return false;
   }

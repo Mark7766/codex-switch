@@ -23,7 +23,10 @@ export const IPC = {
   agnesKeyGet: 'key:agnes-get',
   agnesKeySet: 'key:agnes-set',
   agnesKeyClear: 'key:agnes-clear',
-  // Codex 配置
+  // v1.14.0 GLM
+  glmKeyGet: 'key:glm-get',
+  glmKeySet: 'key:glm-set',
+  glmKeyClear: 'key:glm-clear', // Codex 配置
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',

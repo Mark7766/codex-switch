@@ -13,6 +13,7 @@ function upstreamLabel(host?: string): string {
   if (!host) return '';
   if (host.includes('agnes')) return ' [Agnes]';
   if (host.includes('deepseek')) return ' [DeepSeek]';
+  if (host.includes('bigmodel')) return ' [GLM]';
   return ` [${host}]`;
 }
 

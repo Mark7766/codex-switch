@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { getPreferences } from '../config/store';
+
 import {
   claudeDesktopConfigPath,
   claudeDesktop3pConfigPath,
@@ -96,22 +98,27 @@ async function writeMeta(applied: string | null): Promise<void> {
 
 function buildGatewayProfile(
   apiKey: string,
-  provider: 'deepseek' | 'agnes' = 'deepseek',
+  provider: 'deepseek' | 'agnes' | 'glm' = 'deepseek',
 ): Record<string, unknown> {
   const isAgnes = provider === 'agnes';
-  // v1.13.0: Agnes 走 Codex Switch 代理（Anthropic→Chat 翻译）
-  const baseUrl = isAgnes ? 'http://127.0.0.1:11435' : 'https://api.deepseek.com/anthropic';
-  const models = isAgnes
-    ? [
-        { labelOverride: 'agnes-2.0-flash', name: 'claude-opus-4-7' },
-        { labelOverride: 'agnes-2.0-flash', name: 'claude-sonnet-4-6' },
-        { labelOverride: 'agnes-2.0-flash', name: 'claude-haiku-4-5' },
-      ]
-    : [
-        { labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' },
-        { labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' },
-        { labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' },
-      ];
+  const isGlm = provider === 'glm';
+  const prefs = getPreferences();
+  const proxyPort = prefs.proxyPort;
+  const baseUrl = isAgnes
+    ? `http://127.0.0.1:${proxyPort}`
+    : isGlm
+      ? 'https://open.bigmodel.cn/api/anthropic'
+      : 'https://api.deepseek.com/anthropic';
+  // 供应商默认模型名：Opus 用高端档，Sonnet/Haiku 用快速档
+  const label = isGlm ? 'glm-5.2' : isAgnes ? 'agnes-2.0-flash' : 'deepseek-v4-pro';
+  const labelFlash = isGlm ? 'glm-5.2' : isAgnes ? 'agnes-2.0-flash' : 'deepseek-v4-flash';
+  // 读取用户在模型映射弹窗中自定义的映射，覆盖默认值
+  const mm = prefs.claudeDesktop?.modelMap ?? {};
+  const models = [
+    { labelOverride: mm['claude-opus-4-5'] ?? label, name: 'claude-opus-4-7' },
+    { labelOverride: mm['claude-sonnet-4-6'] ?? labelFlash, name: 'claude-sonnet-4-6' },
+    { labelOverride: mm['claude-haiku-4-5'] ?? labelFlash, name: 'claude-haiku-4-5' },
+  ];
   return {
     disableDeploymentModeChooser: true,
     inferenceGatewayApiKey: apiKey,
@@ -144,7 +151,7 @@ function buildGatewayProfile(
  */
 export async function writeClaudeDesktopConfig(
   apiKey: string,
-  provider?: 'deepseek' | 'agnes',
+  provider?: 'deepseek' | 'agnes' | 'glm',
 ): Promise<void> {
   const cfg1p = claudeDesktopConfigPath();
   const cfg3p = claudeDesktop3pConfigPath();

@@ -39,6 +39,9 @@ const mockApi = {
   getAgnesKey: vi.fn().mockResolvedValue(''),
   setAgnesKey: vi.fn().mockResolvedValue(true),
   clearAgnesKey: vi.fn().mockResolvedValue(true),
+  getGlmKey: vi.fn().mockResolvedValue(''),
+  setGlmKey: vi.fn().mockResolvedValue(true),
+  clearGlmKey: vi.fn().mockResolvedValue(true),
   codexBackups: vi.fn().mockResolvedValue({ config: [], auth: [] }),
   getVersion: vi.fn().mockResolvedValue('1.7.0'),
   applyPreferences: vi.fn().mockResolvedValue({

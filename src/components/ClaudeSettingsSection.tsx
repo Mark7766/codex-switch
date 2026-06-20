@@ -20,10 +20,9 @@ export function ClaudeSettingsSection(): JSX.Element {
 
   useEffect(() => {
     (async () => {
-      const [prefs, detect, backups] = await Promise.all([
+      const [prefs, detect] = await Promise.all([
         window.codexSwitch.getPreferences(),
         window.codexSwitch.claudeDetect(),
-        window.codexSwitch.claudeDesktopBackups(),
       ]);
       const cli = prefs.claudeCli as { enabled: boolean } | undefined;
       const desktop = prefs.claudeDesktop as { enabled: boolean } | undefined;
@@ -42,9 +41,10 @@ export function ClaudeSettingsSection(): JSX.Element {
           enabled: cliEnabled,
           envVars: cliEnabled
             ? {
+                // ⚠️ 与 electron/claude/env-writer.ts DEFAULT_ENV_VARS 保持一致
                 anthropicModel: 'deepseek-v4-pro',
                 anthropicDefaultOpusModel: 'deepseek-v4-pro',
-                anthropicDefaultSonnetModel: 'deepseek-v4-flash',
+                anthropicDefaultSonnetModel: 'deepseek-v4-pro',
                 anthropicDefaultHaikuModel: 'deepseek-v4-flash',
                 claudeCodeSubagentModel: 'deepseek-v4-flash',
               }

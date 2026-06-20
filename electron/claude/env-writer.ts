@@ -10,6 +10,7 @@ import {
   claudeCliConfigJsonPath,
   claudeCliDir,
 } from './paths';
+import { getPreferences } from '../config/store';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +35,48 @@ export const DEFAULT_ENV_VARS: ClaudeCliEnvVars = {
   anthropicDefaultHaikuModel: 'deepseek-v4-flash',
   claudeCodeSubagentModel: 'deepseek-v4-flash',
 };
+
+/** GLM 供应商的 Claude CLI 默认模型名（Anthropic 兼容端点）。 */
+export const GLM_ENV_VARS: ClaudeCliEnvVars = {
+  anthropicModel: 'glm-5.2',
+  anthropicDefaultOpusModel: 'glm-5.2',
+  anthropicDefaultSonnetModel: 'glm-5.2',
+  anthropicDefaultHaikuModel: 'glm-4.7',
+  claudeCodeSubagentModel: 'glm-4.7',
+};
+
+/** Agnes AI 供应商的 Claude CLI 默认模型名（走本地代理 Anthropic→Chat 翻译）。 */
+export const AGNES_ENV_VARS: ClaudeCliEnvVars = {
+  anthropicModel: 'agnes-2.0-flash',
+  anthropicDefaultOpusModel: 'agnes-2.0-flash',
+  anthropicDefaultSonnetModel: 'agnes-2.0-flash',
+  anthropicDefaultHaikuModel: 'agnes-1.5-flash',
+  claudeCodeSubagentModel: 'agnes-1.5-flash',
+};
+
+/**
+ * 根据供应商和已有配置，智能决定 Claude CLI 的模型名。
+ *
+ * - 已有 envVars 非空、且模型名与当前供应商匹配 → 保留用户选择（不覆盖）
+ * - 已有 envVars 为空、或模型名明显属于其他供应商 → 返回当前供应商的默认值（迁移/初始化）
+ */
+export function resolveEnvVars(
+  existing: ClaudeCliEnvVars | undefined,
+  provider: 'deepseek' | 'agnes' | 'glm',
+): { envVars: ClaudeCliEnvVars; changed: boolean } {
+  const defaults =
+    provider === 'glm' ? GLM_ENV_VARS : provider === 'agnes' ? AGNES_ENV_VARS : DEFAULT_ENV_VARS;
+  // 检查已有配置的模型名是否属于当前供应商
+  const model = existing?.anthropicModel?.trim();
+  if (!model) return { envVars: defaults, changed: true };
+  const wrongProvider =
+    (provider === 'glm' && (model.startsWith('deepseek') || model.startsWith('agnes'))) ||
+    (provider === 'agnes' && (model.startsWith('deepseek') || model.startsWith('glm'))) ||
+    (provider === 'deepseek' && (model.startsWith('glm') || model.startsWith('agnes')));
+  if (wrongProvider) return { envVars: defaults, changed: true };
+  // 模型名与供应商匹配，保留用户配置
+  return { envVars: existing!, changed: false };
+}
 
 // ─── Block builder ───────────────────────────────────────────────────────────
 
@@ -290,6 +333,36 @@ async function writeAuthBypass(): Promise<void> {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
+ * Read the current Claude Code CLI env vars from ~/.claude/settings.json.
+ * Returns null if the file doesn't exist or has no managed env keys.
+ * Used by startupApplyClaude to recover user's actual model choices
+ * when the electron-store preferences were lost (e.g., reinstall).
+ */
+export async function readCurrentCliEnvVars(): Promise<ClaudeCliEnvVars | null> {
+  const settings = await readSettingsJson();
+  const env = settings.env;
+  if (!env || !env['ANTHROPIC_MODEL']) return null;
+  return {
+    anthropicModel: env['ANTHROPIC_MODEL'],
+    anthropicDefaultOpusModel: env['ANTHROPIC_DEFAULT_OPUS_MODEL'] ?? env['ANTHROPIC_MODEL'],
+    anthropicDefaultSonnetModel: env['ANTHROPIC_DEFAULT_SONNET_MODEL'] ?? env['ANTHROPIC_MODEL'],
+    anthropicDefaultHaikuModel: env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] ?? env['ANTHROPIC_MODEL'],
+    claudeCodeSubagentModel: env['CLAUDE_CODE_SUBAGENT_MODEL'] ?? env['ANTHROPIC_MODEL'],
+  };
+}
+
+/**
+ * Infer the AI provider from a model name prefix.
+ * Returns null if the model name doesn't match any known provider.
+ */
+export function inferProviderFromModel(model: string): 'deepseek' | 'agnes' | 'glm' | null {
+  if (model.startsWith('deepseek')) return 'deepseek';
+  if (model.startsWith('agnes')) return 'agnes';
+  if (model.startsWith('glm')) return 'glm';
+  return null;
+}
+
+/**
  * Write Claude Code CLI environment variables.  Writes:
  *   1. ~/.claude/settings.json (canonical, no terminal restart needed)
  *   2. ~/.claude/config.json (primaryApiKey:"any" auth-bypass marker)
@@ -298,11 +371,17 @@ async function writeAuthBypass(): Promise<void> {
 export async function writeClaudeCliConfig(
   apiKey: string,
   vars: ClaudeCliEnvVars = DEFAULT_ENV_VARS,
-  provider: 'deepseek' | 'agnes' = 'deepseek',
+  provider: 'deepseek' | 'agnes' | 'glm' = 'deepseek',
 ): Promise<void> {
-  // v1.13.0: Agnes 走 Codex Switch 代理（Anthropic→Chat 翻译）
+  // v1.13.0: Agnes 走代理；v1.14.0: GLM 直连 Anthropic
+  // v1.14.1: Agnes 使用用户配置的实际代理端口，不再硬编码 11435
+  // 注意：调用方负责根据 provider 传入正确的 envVars（模型名），本函数不再内部覆盖。
   const baseUrl =
-    provider === 'agnes' ? 'http://127.0.0.1:11435' : 'https://api.deepseek.com/anthropic';
+    provider === 'agnes'
+      ? `http://127.0.0.1:${getPreferences().proxyPort}`
+      : provider === 'glm'
+        ? 'https://open.bigmodel.cn/api/anthropic'
+        : 'https://api.deepseek.com/anthropic';
   await writeSettingsJson(apiKey, vars, baseUrl);
   await writeAuthBypass();
 

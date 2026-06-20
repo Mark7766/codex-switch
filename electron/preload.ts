@@ -20,6 +20,9 @@ const IPC = {
   agnesKeyGet: 'key:agnes-get',
   agnesKeySet: 'key:agnes-set',
   agnesKeyClear: 'key:agnes-clear',
+  glmKeyGet: 'key:glm-get',
+  glmKeySet: 'key:glm-set',
+  glmKeyClear: 'key:glm-clear',
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',
@@ -85,7 +88,10 @@ const api = {
   getAgnesKey: () => ipcRenderer.invoke(IPC.agnesKeyGet),
   setAgnesKey: (key: string) => ipcRenderer.invoke(IPC.agnesKeySet, key),
   clearAgnesKey: () => ipcRenderer.invoke(IPC.agnesKeyClear),
-  // 代理
+  // v1.14.0 GLM
+  getGlmKey: () => ipcRenderer.invoke(IPC.glmKeyGet),
+  setGlmKey: (key: string) => ipcRenderer.invoke(IPC.glmKeySet, key),
+  clearGlmKey: () => ipcRenderer.invoke(IPC.glmKeyClear), // 代理
   proxyStart: () => ipcRenderer.invoke(IPC.proxyStart),
   proxyStop: () => ipcRenderer.invoke(IPC.proxyStop),
   proxyInfo: () => ipcRenderer.invoke(IPC.proxyInfo),

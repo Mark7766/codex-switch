@@ -18,6 +18,9 @@ import {
   getAgnesKey,
   setAgnesKey,
   clearAgnesKey,
+  getGlmKey,
+  setGlmKey,
+  clearGlmKey,
 } from './config/secrets';
 import {
   DeepSeekProxy,
@@ -39,7 +42,7 @@ import { redactSensitive } from './proxy/errors';
 import { PersistentLog } from './proxy/persistentLog';
 import { lookupPortHolder, killPid } from './proxy/portInfo';
 import { detectAll } from './claude/detect';
-import { writeClaudeCliConfig, removeClaudeCliConfig } from './claude/env-writer';
+import { writeClaudeCliConfig, removeClaudeCliConfig, resolveEnvVars } from './claude/env-writer';
 import {
   writeClaudeDesktopConfig,
   removeClaudeDesktopConfig,
@@ -116,18 +119,35 @@ app.on('second-instance', () => {
 async function ensureProxy(): Promise<DeepSeekProxy> {
   if (proxy) return proxy;
   const prefs = getPreferences();
-  const apiKey = prefs.provider === 'agnes' ? await getAgnesKey() : await getApiKey();
-  const upstreamBase = prefs.provider === 'agnes' ? 'apihub.agnes-ai.com' : 'api.deepseek.com';
+  const apiKey =
+    prefs.provider === 'agnes'
+      ? await getAgnesKey()
+      : prefs.provider === 'glm'
+        ? await getGlmKey()
+        : await getApiKey();
+  const upstreamBase =
+    prefs.provider === 'agnes'
+      ? 'apihub.agnes-ai.com'
+      : prefs.provider === 'glm'
+        ? 'open.bigmodel.cn'
+        : 'api.deepseek.com';
   proxy = new DeepSeekProxy({
     apiKey,
     upstreamBase,
-    agnesApiKey: prefs.provider === 'agnes' ? apiKey : await getAgnesKey().catch(() => ''),
+    agnesApiKey:
+      prefs.provider === 'agnes'
+        ? apiKey
+        : prefs.provider === 'glm'
+          ? ''
+          : await getAgnesKey().catch(() => ''),
     agnesUpstreamBase: 'apihub.agnes-ai.com',
     activeModelMapping: prefs.activeModelMapping,
     port: prefs.proxyPort,
     modelMapping: prefs.modelMapping,
     defaultModel: prefs.defaultModel,
     blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
+    // v1.14.1: 使用用户配置的缓存上限，确保与 store 一致
+    cacheMaxEntries: prefs.conversationCacheLimit,
     // v1.7.0 telemetry: model_call 事件
     onModelCall: (event) => {
       telemetry?.track('model_call', event);
@@ -242,14 +262,30 @@ async function applyPreferencesTransaction(
 
   // 3) 供应商切换：更新 proxy 上游+Key + 映射（不写 config.toml，不重启）
   if (providerChanged && proxy) {
-    const newKey = next.provider === 'agnes' ? await getAgnesKey() : apiKey;
-    const newUpstream = next.provider === 'agnes' ? 'apihub.agnes-ai.com' : 'api.deepseek.com';
+    const newKey =
+      next.provider === 'agnes'
+        ? await getAgnesKey()
+        : next.provider === 'glm'
+          ? await getGlmKey()
+          : apiKey;
+    const newUpstream =
+      next.provider === 'agnes'
+        ? 'apihub.agnes-ai.com'
+        : next.provider === 'glm'
+          ? 'open.bigmodel.cn'
+          : 'api.deepseek.com';
     const agnesK = next.provider === 'deepseek' ? await getAgnesKey().catch(() => '') : undefined;
-    const newModel = next.provider === 'agnes' ? 'agnes-2.0-flash' : 'deepseek-v4-flash';
+    const newModel =
+      next.provider === 'agnes'
+        ? 'agnes-2.0-flash'
+        : next.provider === 'glm'
+          ? 'glm-5.2'
+          : 'deepseek-v4-flash';
     proxy.updateOptions({
       apiKey: newKey,
       upstreamBase: newUpstream,
       agnesApiKey: agnesK,
+      defaultModel: newModel,
       activeModelMapping: {
         'codex-switch': { model: newModel, provider: next.provider },
       },
@@ -364,10 +400,88 @@ function registerIpc(): void {
     if (proxy && getPreferences().provider === 'agnes') {
       proxy.updateOptions({ apiKey: key });
     }
+    // v1.14.0: auto-apply Claude configs only for tools whose provider is Agnes.
+    const prefs = getPreferences();
+    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
+      detectAll()
+        .then(async (result) => {
+          if (
+            prefs.claudeCli.enabled &&
+            (prefs.claudeCliProvider ?? 'deepseek') === 'agnes' &&
+            result.claudeCli.installed &&
+            !result.claudeCli.configApplied
+          ) {
+            await writeClaudeCliConfig(
+              key,
+              resolveEnvVars(prefs.claudeCli.envVars, 'agnes').envVars,
+              'agnes',
+            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
+          }
+          if (
+            prefs.claudeDesktop.enabled &&
+            (prefs.claudeDesktopProvider ?? 'deepseek') === 'agnes' &&
+            result.claudeDesktop.installed &&
+            !result.claudeDesktop.configApplied
+          ) {
+            await writeClaudeDesktopConfig(key, 'agnes').catch((e) =>
+              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+            );
+          }
+        })
+        .catch((e) => log.warn('[main] 保存 Agnes key 后检测失败：', (e as Error).message));
+    }
     return true;
   });
   ipcMain.handle(IPC.agnesKeyClear, async () => {
     await clearAgnesKey();
+    return true;
+  });
+  ipcMain.handle(IPC.glmKeyGet, async () => {
+    const v = await getGlmKey();
+    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
+  });
+  ipcMain.handle(IPC.glmKeySet, async (_e, key: string) => {
+    // H5: validate GLM key (JWT-style token, min 10 chars)
+    if (typeof key !== 'string' || key.trim().length < 10) {
+      throw new Error('GLM Key 格式不正确：长度应至少 10 位');
+    }
+    const trimmed = key.trim();
+    await setGlmKey(trimmed);
+    if (proxy && getPreferences().provider === 'glm') proxy.updateOptions({ apiKey: trimmed });
+    // v1.14.0: auto-apply Claude configs only for tools whose provider is GLM.
+    const prefs = getPreferences();
+    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
+      detectAll()
+        .then(async (result) => {
+          if (
+            prefs.claudeCli.enabled &&
+            (prefs.claudeCliProvider ?? 'deepseek') === 'glm' &&
+            result.claudeCli.installed &&
+            !result.claudeCli.configApplied
+          ) {
+            await writeClaudeCliConfig(
+              trimmed,
+              resolveEnvVars(prefs.claudeCli.envVars, 'glm').envVars,
+              'glm',
+            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
+          }
+          if (
+            prefs.claudeDesktop.enabled &&
+            (prefs.claudeDesktopProvider ?? 'deepseek') === 'glm' &&
+            result.claudeDesktop.installed &&
+            !result.claudeDesktop.configApplied
+          ) {
+            await writeClaudeDesktopConfig(trimmed, 'glm').catch((e) =>
+              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+            );
+          }
+        })
+        .catch((e) => log.warn('[main] 保存 GLM key 后检测失败：', (e as Error).message));
+    }
+    return true;
+  });
+  ipcMain.handle(IPC.glmKeyClear, async () => {
+    await clearGlmKey();
     return true;
   });
   ipcMain.handle(IPC.keySet, async (_e, key: string) => {
@@ -377,26 +491,30 @@ function registerIpc(): void {
     }
     await setApiKey(key);
     if (proxy) proxy.updateOptions({ apiKey: key });
-    // Auto-apply Claude configs for any installed tools when user saves a key.
+    // v1.14.0: auto-apply Claude configs only for tools whose provider is DeepSeek.
     const prefs = getPreferences();
     if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
       detectAll()
         .then(async (result) => {
           if (
             prefs.claudeCli.enabled &&
+            (prefs.claudeCliProvider ?? 'deepseek') === 'deepseek' &&
             result.claudeCli.installed &&
             !result.claudeCli.configApplied
           ) {
-            await writeClaudeCliConfig(key, prefs.claudeCli.envVars).catch((e) =>
-              log.warn('[main] claudeCli 自动写入失败：', (e as Error).message),
-            );
+            await writeClaudeCliConfig(
+              key,
+              resolveEnvVars(prefs.claudeCli.envVars, 'deepseek').envVars,
+              'deepseek',
+            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
           }
           if (
             prefs.claudeDesktop.enabled &&
+            (prefs.claudeDesktopProvider ?? 'deepseek') === 'deepseek' &&
             result.claudeDesktop.installed &&
             !result.claudeDesktop.configApplied
           ) {
-            await writeClaudeDesktopConfig(key).catch((e) =>
+            await writeClaudeDesktopConfig(key, 'deepseek').catch((e) =>
               log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
             );
           }
@@ -634,7 +752,8 @@ function registerIpc(): void {
     // v1.13.0: Claude Desktop 和 CLI 各自独立的供应商
     if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
       const dp = prefs.claudeDesktopProvider ?? 'deepseek';
-      const dk = dp === 'agnes' ? await getAgnesKey() : await getApiKey();
+      const dk =
+        dp === 'agnes' ? await getAgnesKey() : dp === 'glm' ? await getGlmKey() : await getApiKey();
       if (dk) {
         try {
           await writeClaudeDesktopConfig(dk, dp);
@@ -650,10 +769,16 @@ function registerIpc(): void {
 
     if (prefs.claudeCli.enabled && result.claudeCli.installed) {
       const cp = prefs.claudeCliProvider ?? 'deepseek';
-      const ck = cp === 'agnes' ? await getAgnesKey() : await getApiKey();
+      const ck =
+        cp === 'agnes' ? await getAgnesKey() : cp === 'glm' ? await getGlmKey() : await getApiKey();
       if (ck) {
         try {
-          await writeClaudeCliConfig(ck, prefs.claudeCli.envVars, cp);
+          // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值覆盖，保护用户手动选择的模型
+          const { envVars, changed } = resolveEnvVars(prefs.claudeCli.envVars, cp);
+          if (changed) {
+            setPreferences({ claudeCli: { enabled: true, envVars } });
+          }
+          await writeClaudeCliConfig(ck, envVars, cp);
           telemetry?.track('tool_install', { tool: 'claude-cli' });
         } catch (e) {
           telemetry?.track('tool_install_fail', {
@@ -1235,7 +1360,7 @@ app.whenReady().then(async () => {
 
   // 每次启动都重新写入 Claude 配置，确保外部工具更新后仍然生效。
   try {
-    if (apiKey) await startupApplyClaude(apiKey);
+    await startupApplyClaude();
   } catch (e) {
     log.warn('Startup Claude auto-apply 失败：', (e as Error).message);
   }

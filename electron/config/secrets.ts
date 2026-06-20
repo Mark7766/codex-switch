@@ -11,6 +11,7 @@ const AGNES_ACCOUNT = 'agnes-api-key';
 interface FallbackShape {
   apiKey: string;
   agnesApiKey: string;
+  glmApiKey: string;
 }
 
 let fallbackStore: Store<FallbackShape> | null = null;
@@ -19,7 +20,7 @@ function getFallback(): Store<FallbackShape> {
   if (!fallbackStore) {
     fallbackStore = new Store<FallbackShape>({
       name: 'secrets',
-      defaults: { apiKey: '', agnesApiKey: '' },
+      defaults: { apiKey: '', agnesApiKey: '', glmApiKey: '' },
       encryptionKey: 'codex-switch-local-only',
     });
   }
@@ -112,4 +113,48 @@ export async function clearAgnesKey(): Promise<void> {
       /* ignore */
     }
   }
+}
+// GLM key
+
+// ── GLM Key ───────────────────────────────────────────────────────
+
+const GLM_ACCOUNT = 'glm-api-key';
+
+export async function getGlmKey(): Promise<string> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      const v = await keytar.getPassword(SERVICE, GLM_ACCOUNT);
+      if (v) return v;
+    } catch {
+      /* keytar unavailable — fall through to fallback */
+    }
+  }
+  return getFallback().get('glmApiKey', '');
+}
+
+export async function setGlmKey(apiKey: string): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.setPassword(SERVICE, GLM_ACCOUNT, apiKey);
+      getFallback().set('glmApiKey', '');
+      return;
+    } catch {
+      /* keytar unavailable — fall through to fallback */
+    }
+  }
+  getFallback().set('glmApiKey', apiKey);
+}
+
+export async function clearGlmKey(): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.deletePassword(SERVICE, GLM_ACCOUNT);
+    } catch {
+      /* keytar unavailable — fall through to fallback */
+    }
+  }
+  getFallback().set('glmApiKey', '');
 }

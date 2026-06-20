@@ -30,7 +30,9 @@ export interface HttpHandlerDeps {
   agnesUpstreamBase: string;
   agnesApiKey: string;
   /** v1.13.0: 中间模型→实际模型+供应商。 */
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' }>;
+  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
+  /** v1.14.0: upstream API path (GLM uses /api/paas/v4/chat/completions). */
+  apiPath: string;
   modelMapping: Record<string, string>;
   defaultModel: string;
   agent: https.Agent;
@@ -217,7 +219,7 @@ export async function handleResponses(
         chatReq,
         respId,
         sse,
-        { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream },
+        { apiKey: reqApiKey, agent: deps.agent, upstreamBase: reqUpstream, apiPath: deps.apiPath },
         deps.reasoning,
       )
         .then(({ outputItems, finishReason, endTurn, usage }) => {
@@ -283,6 +285,7 @@ export async function handleResponses(
           apiKey: reqApiKey,
           agent: deps.agent,
           upstreamBase: reqUpstream,
+          apiPath: deps.apiPath,
         },
       )
         .then((r) => {

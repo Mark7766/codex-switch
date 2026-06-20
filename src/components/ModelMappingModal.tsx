@@ -1,12 +1,12 @@
 /**
  * Model mapping modal — Claude model → actual model (per provider).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  provider: 'deepseek' | 'agnes';
+  provider: 'deepseek' | 'agnes' | 'glm';
   mapping: Record<string, string>;
   onSave: (m: Record<string, string>) => void;
 }
@@ -17,7 +17,8 @@ const CLAUDE_MODELS = [
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
 ];
 
-function modelOptions(p: 'deepseek' | 'agnes'): string[] {
+function modelOptions(p: 'deepseek' | 'agnes' | 'glm'): string[] {
+  if (p === 'glm') return ['glm-5.2', 'glm-5.1', 'glm-4.7'];
   return p === 'agnes'
     ? ['agnes-2.0-flash', 'agnes-1.5-flash']
     : ['deepseek-v4-pro', 'deepseek-v4-flash'];
@@ -31,6 +32,14 @@ export function ModelMappingModal({
   onSave,
 }: Props): JSX.Element | null {
   const [local, setLocal] = useState<Record<string, string>>({ ...mapping });
+
+  // 弹窗打开时，用最新的 mapping prop 重新同步 local 状态。
+  // useState 初始化器只在组件挂载时执行一次，当页面切换导致
+  // Settings 重新挂载后 mapping 会从空对象变为已保存的值，
+  // 但 local 不会自动更新——必须通过 effect 同步。
+  useEffect(() => {
+    if (open) setLocal({ ...mapping });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 

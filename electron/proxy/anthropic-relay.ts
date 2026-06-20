@@ -27,6 +27,8 @@ interface ChatMessage {
 interface RelayDeps {
   apiKey: string;
   upstreamBase: string;
+  /** v1.14.0: upstream API path (GLM uses /api/paas/v4/chat/completions). */
+  apiPath?: string;
   defaultModel?: string;
   agent: https.Agent;
   log(entry: Record<string, unknown>): void;
@@ -101,7 +103,7 @@ export function handleAnthropicMessages(
     const upstreamReq = https.request(
       {
         hostname: deps.upstreamBase,
-        path: '/v1/chat/completions',
+        path: deps.apiPath ?? '/v1/chat/completions',
         method: 'POST',
         agent: deps.agent,
         headers: {

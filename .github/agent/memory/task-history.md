@@ -3,6 +3,49 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-082] v1.14.1 — 修复重装后 Claude Code CLI 模型映射丢失（glm-5.1 → glm-5.2）
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：用户重装 Codex Switch 后，之前设置的 glm-5.1 被覆盖为 glm-5.2。根因：重装导致 electron-store 偏好丢失，默认值为 `claudeCliProvider:'deepseek'` + `DEFAULT_ENV_VARS`（DeepSeek）。`startupApplyClaude` 不读取 `~/.claude/settings.json` 的实际值，直接用偏好默认值 + `resolveEnvVars` 写入，覆盖了用户在 settings.json 中的 glm-5.1。修复：① `env-writer.ts` 新增 `readCurrentCliEnvVars()` 从 settings.json 读取当前 envVars；② 新增 `inferProviderFromModel()` 从模型名推断供应商；③ `startupApplyClaude` 在 apply 前先对比偏好与 settings.json，不一致时用 settings.json 值修正偏好和供应商。
+- **变更文件**：`electron/claude/env-writer.ts`、`electron/config/migrations.ts`
+- **验证**：197/197 tests ✅，typecheck ✅。未 push。
+
+### [TASK-081] v1.14.1 — 修复 Claude Desktop 模型映射未写入 profile（用户选 glm-4.7 实际写入 glm-5.2）
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：用户在 Settings 的模型映射弹窗中将 Claude Desktop 全部设为 glm-4.7，但实际写入 `Claude-3p/configLibrary/<PROFILE_ID>.json` 的 `inferenceModels.labelOverride` 仍为硬编码的 glm-5.2。根因：`desktop-writer.ts` 的 `buildGatewayProfile()` 完全不读取 `prefs.claudeDesktop.modelMap`，始终使用供应商默认值。修复：从 `getPreferences().claudeDesktop.modelMap` 读取用户自定义映射，覆盖 `labelOverride` 默认值（空 modelMap 时保持旧行为不变）。
+- **变更文件**：`electron/claude/desktop-writer.ts`
+- **验证**：197/197 tests ✅，typecheck ✅。未 push。
+
+### [TASK-080] v1.14.1 — 修复 Claude Desktop 检测逻辑仅检查 deepseek.com 导致 GLM/Agnes 用户显示"未配置"
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：GLM 用户反馈 Claude Desktop 明明已配置，但 Dashboard 刷新检测后显示"未配置"。根因：`detect.ts` 的 `isClaudeDesktopConfigured()` 硬编码检查 `inferenceGatewayBaseUrl.includes('deepseek.com')`，GLM 用户 URL 为 `open.bigmodel.cn`、Agnes 用户 URL 为 `127.0.0.1`，均不包含 `deepseek.com`，检测永远返回 false。修复：改用 `desktop-writer.ts` 已写入的 `__codexSwitch: "managed"` 标记检测（供应商无关）。
+- **变更文件**：`electron/claude/detect.ts`
+- **验证**：197/197 tests ✅，typecheck ✅。未 push。
+
+### [TASK-079] v1.14.1 — 修复 Claude Code CLI 模型映射页面切换后重置为默认值
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：用户在设置中将 Claude Code CLI 模型映射改为 glm-4.7 并保存后，切换到主面板再切回设置，打开"管理模型映射"弹窗发现所有值都变回了 glm-5.2。根因：`ModelMappingModal` 的 `local` 状态仅在组件挂载时从 `mapping` prop 初始化一次（`useState` 特性），当 Settings 页面卸载后重新挂载，`useEffect` 异步加载已保存的映射到 `cliMapping`，但 Modal 的 `local` 状态已经用空对象 `{}` 初始化，不会随 prop 更新。修复：在 Modal 中新增 `useEffect`，当 `open` 变为 `true` 时用最新 `mapping` prop 重新同步 `local` 状态。
+- **变更文件**：`src/components/ModelMappingModal.tsx`
+- **验证**：197/197 tests ✅，typecheck ✅。未 push。
+
+### [TASK-078] v1.14.1 — 修复 3 个 P0 硬编码问题（Agnes 端口 / 缓存默认值 / envVars 不一致）
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：硬编码审计报告后修复 3 个 P0：
+  1. **Agnes 硬编码端口 11435**：`desktop-writer.ts` 和 `env-writer.ts` 的 Agnes 分支改为读取 `getPreferences().proxyPort` 构建 base URL，用户修改代理端口后 Claude 工具配置自动跟随
+  2. **代理缓存默认值不一致**：`server.ts` 构造函数默认值从 500 改为 1000（对齐 store.ts）；`main.ts` `ensureProxy()` 显式传入 `prefs.conversationCacheLimit`
+  3. **ClaudeSettingsSection envVars 与 env-writer.ts 不一致**：`ClaudeSettingsSection.tsx` 中 `anthropicDefaultSonnetModel` 从 `deepseek-v4-flash` 改为 `deepseek-v4-pro`（对齐 `DEFAULT_ENV_VARS`），并添加跨文件注释
+- **变更文件**：`desktop-writer.ts`、`env-writer.ts`、`server.ts`、`main.ts`、`ClaudeSettingsSection.tsx`
+- **验证**：197/197 tests ✅，typecheck ✅。未 push。
+
 ---
 
 ## 记录格式
@@ -20,6 +63,37 @@
 ---
 
 ## 任务记录
+
+### [TASK-077] v1.14.0 — GLM 集成 Review 缺陷修复（P0/P1/P2）
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：针对 TASK-075/076 的第三次 review 发现 7 个缺陷，按优先级全部修复：
+  - 🔴 P0-1：`startupApplyClaude` 每次启动用 DeepSeek Key + 默认 provider 覆盖 GLM 用户配置 → 重写为按工具读取 `claudeDesktopProvider`/`claudeCliProvider` 获取对应 Key 并传入 writer
+  - 🔴 P0-2：`keySet` 自动 apply 不区分供应商 → 三个 keySet handler（DeepSeek/Agnes/GLM）均改为仅对匹配 provider 的工具自动 apply，并显式传入 provider
+  - 🟡 P1-1：GLM Key 保存无格式校验 → `glmKeySet` 新增最小长度 10 + trim 校验
+  - 🟡 P1-2：切换 GLM 时 envVars 模型名不更新 → `claudeApplyAll` 在 provider 为 glm/agnes 时自动写入对应模型名到 `claudeCli.envVars` 并持久化
+  - 🟢 P2-1：`anthropic-relay.ts` 硬编码 `/v1/chat/completions` → 新增 `apiPath` 参数，由 server.ts 传入
+  - 🟢 P2-3：`ensureProxy` GLM 场景多余 keychain 调用 → 跳过 `getAgnesKey()`
+  - 197/197 tests ✅，typecheck ✅。未 push。
+- **变更文件**：`migrations.ts`（startupApplyClaude 重写）、`main.ts`（keySet 三个 + claudeApplyAll envVars + ensureProxy）、`anthropic-relay.ts`（apiPath）、`server.ts`（handleAnthropicRelay 传 apiPath）
+- **关联**：TASK-076、DESIGN-glm-integration.md
+
+### [TASK-076] v1.14.0 — GLM 集成 Settings UI 偏差修复 + 二次 review
+
+- **日期**：2026-06-20
+- **类型**：fix
+- **摘要**：第一次 review 发现 TASK-075 落地有 10 处偏差，全部修复。第二次 review 追加发现 `http-handler.ts` 非流式路径未传 `apiPath`（GLM 非流式请求会 404）。最终变更：前端 Settings.tsx（GLM Key state/saveFn/输入框、Card 2 onChange+模型下拉+标题、Card 3/4 onChange+保存守卫+标题），后端 main.ts（defaultModel）、server.ts（resolveAndWarn GLM 守卫）、http-handler.ts（callDeepSeekSync 补 apiPath）、global.d.ts（activeModelMapping 类型）、Settings.test.tsx（mock）。197/197 tests ✅，typecheck ✅。未 push。
+- **变更文件**：`Settings.tsx`、`main.ts`、`server.ts`、`http-handler.ts`、`global.d.ts`、`Settings.test.tsx`
+- **关联**：TASK-075、DESIGN-glm-integration.md
+
+### [TASK-075] v1.14.0 — 智谱 GLM 供应商接入
+
+- **日期**：2026-06-20
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-glm-integration.md` 实施 GLM 供应商接入。① store/provider 类型新增 `'glm'`，新增 GLM Key keytar 存储；② Codex 走代理 → `open.bigmodel.cn` Chat Completions；③ Claude 直连 → `open.bigmodel.cn/api/anthropic`；④ desktop-writer/env-writer GLM 分支写 Anthropic 端点；⑤ Settings 四张卡片新增「智谱 GLM」下拉选项 + 模型映射弹窗新增 glm-5.2/glm-5.1/glm-4.7；⑥ stats upstreamLabel 新增 `[GLM]`；⑦ claudeApplyAll/ensureProxy/applyPreferencesTransaction 全部支持 GLM。185/185 tests ✅，typecheck ✅。未 push。
+- **关联**：DESIGN-glm-integration.md
+- **注意事项**：TASK-076 修复了 Settings UI 偏差（Key 输入、模型联动、标题显示等 10 处）
 
 ### [TASK-074] v1.13.0 — ai-coding-ok hooks 全覆盖确认 + 智能搜索 Agnes 优先
 
