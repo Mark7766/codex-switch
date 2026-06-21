@@ -3,6 +3,24 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-086] v1.14.2 — 修复消息指数级重复导致的上下文超限假阳性
+
+- **日期**：2026-06-22
+- **类型**：fix
+- **摘要**：用户报告截断 80 条保留 32 条仍然 context exceeded，重启后同样任务能通过。根因：`http-handler.ts` / `ws-handler.ts` 中 `fullMessages = [...storedHistory, ...newMessages]`，Codex 在 `input` 中发送的是完整对话历史（非增量），导致每轮消息在缓存中成倍重复——Turn 3 时 user1 已出现 3 次。10 轮后指数爆炸，截断根本无效（保留的消息也是重度重复的）。重启后缓存清空 → JSONL fallback → 干净消息 → 正常。修复：当 `newMessages.length > 0` 时直接用 input 消息，不再在前面拼接 `storedHistory`；仅保留 `storedHistory` 中的 system 消息作补充。HTTP + WS 双路径均已修复。
+- **变更文件**：`electron/proxy/http-handler.ts`（+9/-1）、`electron/proxy/ws-handler.ts`（+9/-1）
+- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。未 push。
+
+### [TASK-085] v1.14.2 — 修复截断重试方案A落地 2 个 P0 缺陷（response.failed + 孤立 tool_calls）
+
+- **日期**：2026-06-21
+- **类型**：fix
+- **摘要**：Review `docs/ANALYSIS-context-exceeded-false-positive.md` 方案 A 落地代码后，修复 2 个 P0：
+  1. **SSE 流式路径重试失败时缺少 `response.failed`**：`http-handler.ts` 截断重试失败/无法进一步截断时仅 `res.end()`，Codex 收到 `response.created` 后等不到 `response.completed/failed` → spinner 永远旋转。修复：重试 catch + 截断无效两个分支均发送 `sse('response.failed', …)`。
+  2. **孤立 assistant tool_calls 未清理**：`truncateMessages()` 只清理了 tool 消息（role='tool'）的孤立，未清理反向——assistant 消息的 tool_calls 其 tool 结果被截断丢弃后，tool_calls 仍保留 → DeepSeek 收到后可能协议错误。修复：新增 `keptToolResultIds` 集合，反向过滤孤立 tool_calls，移除完全空的 assistant 消息。
+- **变更文件**：`electron/proxy/errors.ts`（+24/-7）、`electron/proxy/http-handler.ts`（+20/-3）
+- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。未 push。
+
 ### [TASK-084] v1.14.0 — 推送代码 + 格式检查 Action 通过 + CHANGELOG 编写
 
 - **日期**：2026-06-20

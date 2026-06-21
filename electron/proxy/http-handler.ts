@@ -173,7 +173,16 @@ export async function handleResponses(
         Array.isArray(parsed.input) ? parsed.input : [],
         deps.reasoning.asMap(),
       );
-      fullMessages = [...storedHistory, ...newMessages];
+      // Codex 在 input 中发送完整对话历史，不要在它前面再拼 storedHistory，
+      // 否则每轮消息数成倍增长（指数级重复导致上下文超限假阳性）。
+      // 仅保留 storedHistory 中的 system 消息（如果 input 里没有）。
+      if (newMessages.length > 0) {
+        const systemMsgs = storedHistory.filter((m) => m.role === 'system');
+        const hasSystem = newMessages.some((m) => m.role === 'system');
+        fullMessages = hasSystem ? newMessages : [...systemMsgs, ...newMessages];
+      } else {
+        fullMessages = storedHistory;
+      }
     } else {
       const sysMsg = parsed.instructions
         ? [{ role: 'system', content: String(parsed.instructions) }]
@@ -281,6 +290,14 @@ export async function handleResponses(
                     friendly.action,
                     friendly.statusCode,
                   );
+                  sse('response.failed', {
+                    response: {
+                      id: respId,
+                      object: 'response',
+                      status: 'failed',
+                      error: { code: 'context_length_exceeded', message: friendly.reason },
+                    },
+                  });
                   res.end();
                 });
               return;
@@ -292,6 +309,29 @@ export async function handleResponses(
               reqId,
               message: `上下文超限（${fullMessages.length} 条消息），无法进一步截断`,
             });
+            sse('response.failed', {
+              response: {
+                id: respId,
+                object: 'response',
+                status: 'failed',
+                error: {
+                  code: 'context_length_exceeded',
+                  message: '对话历史过长，超出了模型上下文窗口上限。建议使用 /new 开启新对话。',
+                },
+              },
+            });
+            deps.recordError(
+              reqId,
+              'http',
+              startedAt,
+              requestedModel,
+              resolvedModel,
+              '对话历史过长，超出了模型上下文窗口上限',
+              'none',
+              413,
+            );
+            res.end();
+            return;
           }
           const friendly = translateStreamError(e as Error);
           deps.recordError(

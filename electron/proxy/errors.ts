@@ -195,13 +195,46 @@ export function truncateMessages(messages: ChatMessage[], keepRecent = 30): Trun
   }
 
   // 移除孤立的 tool 消息（其 tool_call_id 不在保留的 assistant 消息中）
-  const cleaned = kept.filter((m) => {
+  let cleaned = kept.filter((m) => {
     if (m.role !== 'tool') return true;
     return m.tool_call_id ? keptToolCallIds.has(m.tool_call_id) : true;
   });
 
-  // 同样移除孤立的 tool_calls（assistant 消息的 tool_calls 引用了已丢弃的 tool 结果）
-  // 这种情况由 DeepSeek 自己处理，不需要额外过滤
+  // 收集保留的 tool 消息的 tool_call_id（用于反向清理孤立 tool_calls）
+  const keptToolResultIds = new Set<string>();
+  for (const m of cleaned) {
+    if (m.role === 'tool' && m.tool_call_id) {
+      keptToolResultIds.add(m.tool_call_id);
+    }
+  }
+
+  // 清理 assistant 消息中引用了已丢弃 tool 结果的孤立 tool_calls
+  cleaned = cleaned
+    .map((m) => {
+      if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+        const validCalls = m.tool_calls.filter((tc) => {
+          if (!tc.id) return true;
+          return keptToolResultIds.has(tc.id);
+        });
+        if (validCalls.length === 0) {
+          // 所有 tool_calls 都是孤立的 — 移除整个 tool_calls 数组
+          const { tool_calls: _tc, ...rest } = m;
+          void _tc;
+          return rest as ChatMessage;
+        }
+        if (validCalls.length < m.tool_calls.length) {
+          return { ...m, tool_calls: validCalls };
+        }
+      }
+      return m;
+    })
+    .filter((m) => {
+      // 移除完全空的 assistant 消息（无 content、无 tool_calls）
+      if (m.role !== 'assistant') return true;
+      const hasContent = typeof m.content === 'string' && m.content.length > 0;
+      const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+      return hasContent || hasToolCalls;
+    });
 
   return { messages: [...systemMsgs, ...cleaned], dropped };
 }

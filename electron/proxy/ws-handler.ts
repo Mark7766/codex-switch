@@ -290,7 +290,16 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
     let fullMessages: ChatMessage[];
     if (storedHistory !== null) {
       const newMessages = itemsToMessages(workingInput, deps.reasoning.asMap());
-      fullMessages = [...storedHistory, ...newMessages];
+      // Codex 在 input 中发送完整对话历史，不要在它前面再拼 storedHistory，
+      // 否则每轮消息数成倍增长（指数级重复导致上下文超限假阳性）。
+      // 仅保留 storedHistory 中的 system 消息（如果 input 里没有）。
+      if (newMessages.length > 0) {
+        const systemMsgs = storedHistory.filter((m) => m.role === 'system');
+        const hasSystem = newMessages.some((m) => m.role === 'system');
+        fullMessages = hasSystem ? newMessages : [...systemMsgs, ...newMessages];
+      } else {
+        fullMessages = storedHistory;
+      }
     } else {
       const fixedInput = fixOrphanedToolResults(workingInput, lastToolCalls);
       const sysMsg = msg.instructions ? [{ role: 'system', content: msg.instructions }] : [];
