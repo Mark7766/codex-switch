@@ -18,7 +18,7 @@ import {
 import type { ReasoningStore } from './reasoning';
 import { readSessionHistoryAsChatMessages } from '../codex/session-reader';
 import { streamDeepSeek, callDeepSeekSync, type SseEvent } from './stream';
-import { translateError, isContextExceededError } from './errors';
+import { translateError, isContextExceededError, truncateMessages } from './errors';
 
 // ── deps interface ───────────────────────────────────────────────────────
 
@@ -233,37 +233,65 @@ export async function handleResponses(
           res.end();
         })
         .catch(async (e) => {
-          // v1.13.0: 不做 emergencyCompact 重试。上下文超限时直接翻译为中文提示。
+          // v1.14.2: 上下文超限时自动截断重试
           if (isContextExceededError(e as Error) && fullMessages.length > 3) {
+            const { messages: truncated, dropped } = truncateMessages(fullMessages);
+            if (dropped > 0) {
+              deps.log({
+                level: 'warn',
+                source: 'http',
+                reqId,
+                message: `上下文超限，自动截断 ${dropped} 条旧消息后重试（${truncated.length} 条保留）`,
+              });
+              chatReq.messages = truncated;
+              return streamDeepSeek(
+                chatReq,
+                respId,
+                sse,
+                {
+                  apiKey: reqApiKey,
+                  agent: deps.agent,
+                  upstreamBase: reqUpstream,
+                  apiPath: deps.apiPath,
+                },
+                deps.reasoning,
+              )
+                .then(({ outputItems, finishReason, endTurn, usage }) => {
+                  const assistantOutputMessages = itemsToMessages(
+                    outputItems,
+                    deps.reasoning.asMap(),
+                  );
+                  deps.conversationCache.set(respId, [...truncated, ...assistantOutputMessages]);
+                  deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+                    endTurn,
+                    finishReason,
+                    usage,
+                  });
+                  res.end();
+                })
+                .catch((retryErr) => {
+                  const friendly = translateStreamError(retryErr as Error);
+                  deps.recordError(
+                    reqId,
+                    'http',
+                    startedAt,
+                    requestedModel,
+                    resolvedModel,
+                    friendly.reason,
+                    friendly.action,
+                    friendly.statusCode,
+                  );
+                  res.end();
+                });
+              return;
+            }
+            // 截断后没有减少消息（已经是最小集合），仍然报错
             deps.log({
               level: 'warn',
               source: 'http',
               reqId,
-              message: `上下文超限（${fullMessages.length} 条消息），` + '建议使用 /new 开启新对话',
+              message: `上下文超限（${fullMessages.length} 条消息），无法进一步截断`,
             });
-            const f = {
-              reason:
-                '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
-                '建议使用 /new 开启新对话继续。',
-              action: 'none' as const,
-            };
-            deps.recordError(
-              reqId,
-              'http',
-              startedAt,
-              requestedModel,
-              resolvedModel,
-              f.reason,
-              f.action,
-              413,
-            );
-            res.writeHead(413, { 'Content-Type': 'application/json' });
-            res.end(
-              JSON.stringify({
-                error: { code: 'context_length_exceeded', message: f.reason },
-              }),
-            );
-            return;
           }
           const friendly = translateStreamError(e as Error);
           deps.recordError(
@@ -359,17 +387,110 @@ export async function handleResponses(
           });
         })
         .catch(async (e) => {
-          // v1.13.0: 不做 emergencyCompact；上下文超限时翻译为中文提示。
-          // 与 cc-switch 策略一致：不自己实现 compact，让用户 /new 开新对话。
-          const ctxExceeded = isContextExceededError(e as Error);
-          const f = ctxExceeded
-            ? {
-                reason:
-                  '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
-                  '建议使用 /new 开启新对话继续。',
-                action: 'none' as const,
-              }
-            : translateError({ networkErrorMessage: (e as Error).message });
+          // v1.14.2: 上下文超限时自动截断重试
+          if (isContextExceededError(e as Error) && fullMessages.length > 3) {
+            const { messages: truncated, dropped } = truncateMessages(fullMessages);
+            if (dropped > 0) {
+              deps.log({
+                level: 'warn',
+                source: 'http',
+                reqId,
+                message: `上下文超限（非流式），自动截断 ${dropped} 条旧消息后重试`,
+              });
+              chatReq.messages = truncated;
+              return callDeepSeekSync(chatReq, {
+                apiKey: reqApiKey,
+                agent: deps.agent,
+                upstreamBase: reqUpstream,
+                apiPath: deps.apiPath,
+              })
+                .then((r) => {
+                  // 处理成功响应（与上方同步成功逻辑一致）
+                  const syncBody = r.body as {
+                    choices?: Array<{
+                      message?: { role?: string; content?: string; tool_calls?: unknown };
+                      finish_reason?: string;
+                    }>;
+                    usage?: {
+                      prompt_tokens?: number;
+                      completion_tokens?: number;
+                      total_tokens?: number;
+                    };
+                  };
+                  const choices = syncBody.choices;
+                  const msg = choices?.[0]?.message ?? {};
+                  const msgId = `msg_${Date.now()}`;
+                  const finishReason = choices?.[0]?.finish_reason ?? 'stop';
+                  const usage = syncBody.usage
+                    ? {
+                        inputTokens: syncBody.usage.prompt_tokens ?? 0,
+                        outputTokens: syncBody.usage.completion_tokens ?? 0,
+                        totalTokens: syncBody.usage.total_tokens ?? 0,
+                      }
+                    : undefined;
+
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(
+                    JSON.stringify({
+                      id: respId,
+                      object: 'response',
+                      status: 'completed',
+                      model: chatReq.model,
+                      output: [
+                        {
+                          id: msgId,
+                          type: 'message',
+                          status: 'completed',
+                          role: 'assistant',
+                          content: [
+                            { type: 'output_text', text: msg.content || '', annotations: [] },
+                          ],
+                        },
+                      ],
+                      usage: (r.body as { usage?: unknown }).usage || {},
+                    }),
+                  );
+
+                  const outputItems = [
+                    {
+                      id: msgId,
+                      type: 'message',
+                      status: 'completed',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: msg.content || '', annotations: [] }],
+                    },
+                  ];
+                  const assistantOutputMessages = itemsToMessages(
+                    outputItems,
+                    deps.reasoning.asMap(),
+                  );
+                  deps.conversationCache.set(respId, [...truncated, ...assistantOutputMessages]);
+                  deps.recordSuccess(reqId, 'http', startedAt, requestedModel, resolvedModel, 200, {
+                    finishReason,
+                    usage,
+                  });
+                })
+                .catch((retryErr) => {
+                  const friendly = translateError({
+                    networkErrorMessage: (retryErr as Error).message,
+                  });
+                  deps.recordError(
+                    reqId,
+                    'http',
+                    startedAt,
+                    requestedModel,
+                    resolvedModel,
+                    friendly.reason,
+                    friendly.action,
+                    undefined,
+                  );
+                  res.writeHead(500);
+                  res.end(JSON.stringify({ error: { message: (retryErr as Error).message } }));
+                });
+              return;
+            }
+          }
+          const f = translateError({ networkErrorMessage: (e as Error).message });
           deps.recordError(
             reqId,
             'http',

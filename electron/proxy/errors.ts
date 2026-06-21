@@ -3,6 +3,8 @@
  * 同时给出"建议动作"标签，便于「日志」UI 在错误旁附"就地修复"按钮。
  */
 
+import type { ChatMessage } from './translate';
+
 export type ErrorAction =
   | 'open-settings-key'
   | 'open-settings-mapping'
@@ -160,4 +162,46 @@ export function isContextExceededError(e: Error): boolean {
     msg.includes('超过模型') ||
     (msg.includes('400') && msg.includes('context'))
   );
+}
+
+// ── v1.14.2 截断重试 ──────────────────────────────────────────────────────
+
+export interface TruncateResult {
+  messages: ChatMessage[];
+  dropped: number;
+}
+
+/**
+ * 上下文超限时裁剪最早的消息，保留最近 K 条（含 system + 完整 tool 配对）。
+ * 清理因截断而产生的孤立 tool 消息（其 tool_call_id 的 assistant 消息已被丢弃）。
+ */
+export function truncateMessages(messages: ChatMessage[], keepRecent = 30): TruncateResult {
+  const systemMsgs = messages.filter((m) => m.role === 'system');
+  const nonSystem = messages.filter((m) => m.role !== 'system');
+
+  if (nonSystem.length <= keepRecent) return { messages, dropped: 0 };
+
+  const kept = nonSystem.slice(-keepRecent);
+  const dropped = nonSystem.length - keepRecent;
+
+  // 收集保留的 assistant tool_call IDs
+  const keptToolCallIds = new Set<string>();
+  for (const m of kept) {
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls) {
+        if (tc.id) keptToolCallIds.add(tc.id);
+      }
+    }
+  }
+
+  // 移除孤立的 tool 消息（其 tool_call_id 不在保留的 assistant 消息中）
+  const cleaned = kept.filter((m) => {
+    if (m.role !== 'tool') return true;
+    return m.tool_call_id ? keptToolCallIds.has(m.tool_call_id) : true;
+  });
+
+  // 同样移除孤立的 tool_calls（assistant 消息的 tool_calls 引用了已丢弃的 tool 结果）
+  // 这种情况由 DeepSeek 自己处理，不需要额外过滤
+
+  return { messages: [...systemMsgs, ...cleaned], dropped };
 }

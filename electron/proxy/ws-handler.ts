@@ -20,7 +20,7 @@ import {
 import type { ReasoningStore } from './reasoning';
 import { readSessionHistoryAsChatMessages } from '../codex/session-reader';
 import { streamDeepSeek, type SseEvent } from './stream';
-import { translateError, isContextExceededError } from './errors';
+import { translateError, isContextExceededError, truncateMessages } from './errors';
 
 // ── deps interface ───────────────────────────────────────────────────────
 
@@ -350,44 +350,84 @@ export function handleWs(ws: WebSocket, deps: WsHandlerDeps): void {
         });
       })
       .catch(async (e) => {
-        // v1.13.0: 不做 emergencyCompact 重试。上下文超限时翻译错误。
+        // v1.14.2: 上下文超限时自动截断重试
         if (isContextExceededError(e as Error) && fullMessages.length > 3) {
+          const { messages: truncated, dropped } = truncateMessages(fullMessages);
+          if (dropped > 0) {
+            deps.log({
+              level: 'warn',
+              source: 'ws',
+              reqId,
+              connId,
+              message: `上下文超限，自动截断 ${dropped} 条旧消息后重试（${truncated.length} 条保留）`,
+            });
+            chatReq.messages = truncated;
+            // 重新发送 response.created 开启新的响应周期
+            const newRespId = `resp_${Date.now()}`;
+            send('response.created', {
+              response: {
+                id: newRespId,
+                object: 'response',
+                created_at: Math.floor(Date.now() / 1000),
+                status: 'in_progress',
+                error: null,
+                incomplete_details: null,
+                model: chatReq.model,
+                output: [],
+              },
+            });
+            return streamDeepSeek(
+              chatReq,
+              newRespId,
+              send,
+              {
+                apiKey: reqApiKey,
+                agent: deps.agent,
+                upstreamBase: reqUpstream,
+                apiPath: deps.apiPath,
+              },
+              deps.reasoning,
+            )
+              .then(({ outputItems, finishReason, endTurn, usage }) => {
+                lastToolCalls = outputItems.filter(
+                  (o) => (o as ResponsesItem).type === 'function_call',
+                ) as ResponsesItem[];
+                const assistantOutputMessages = itemsToMessages(
+                  outputItems,
+                  deps.reasoning.asMap(),
+                );
+                deps.conversationCache.set(newRespId, [...truncated, ...assistantOutputMessages]);
+                deps.recordSuccess(reqId, 'ws', startedAt, requestedModel, resolvedModel, 200, {
+                  endTurn,
+                  finishReason,
+                  connId,
+                  usage,
+                });
+              })
+              .catch((retryErr) => {
+                const f = translateStreamError(retryErr as Error);
+                deps.recordError(
+                  reqId,
+                  'ws',
+                  startedAt,
+                  requestedModel,
+                  resolvedModel,
+                  f.reason,
+                  f.action,
+                  f.statusCode,
+                );
+                send('error', { error: { message: f.reason, type: 'server_error' } });
+              });
+            return;
+          }
+          // 无法进一步截断
           deps.log({
             level: 'warn',
             source: 'ws',
             reqId,
             connId,
-            message: `上下文超限（${fullMessages.length} 条消息），建议 /new 开启新对话`,
+            message: `上下文超限（${fullMessages.length} 条消息），无法进一步截断`,
           });
-          const f = {
-            reason:
-              '对话历史过长，超出了 DeepSeek 模型的上下文窗口上限（128K tokens）。' +
-              '建议使用 /new 开启新对话继续。',
-            action: 'none' as const,
-          };
-          deps.recordError(
-            reqId,
-            'ws',
-            startedAt,
-            requestedModel,
-            resolvedModel,
-            f.reason,
-            f.action,
-            413,
-          );
-          if (ws.readyState === 1) {
-            try {
-              ws.send(
-                JSON.stringify({
-                  type: 'error',
-                  error: { code: 'context_length_exceeded', message: f.reason },
-                }),
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          return;
         }
         const f = translateStreamError(e as Error);
         deps.recordError(
