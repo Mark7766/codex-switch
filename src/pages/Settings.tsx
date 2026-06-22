@@ -7,16 +7,21 @@ export function Settings(): JSX.Element {
   const pushToast = useAppStore((s) => s.pushToast);
   const [savingKey, setSavingKey] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
-  const [provider, setProvider] = useState<'deepseek' | 'agnes' | 'glm'>('deepseek');
-  const [codexProvider, setCodexProvider] = useState<'deepseek' | 'agnes' | 'glm'>('deepseek');
+  const [provider, setProvider] = useState<'deepseek' | 'agnes' | 'glm' | 'packycode'>('deepseek');
+  const [codexProvider, setCodexProvider] = useState<'deepseek' | 'agnes' | 'glm' | 'packycode'>(
+    'deepseek',
+  );
   const [maskedKey, setMaskedKey] = useState('');
   const [newKey, setNewKey] = useState('');
   const [maskedAgnesKey, setMaskedAgnesKey] = useState('');
   const [newAgnesKey, setNewAgnesKey] = useState('');
   const [maskedGlmKey, setMaskedGlmKey] = useState('');
   const [newGlmKey, setNewGlmKey] = useState('');
+  const [maskedPackyCodeKey, setMaskedPackyCodeKey] = useState('');
+  const [newPackyCodeKey, setNewPackyCodeKey] = useState('');
   const [port, setPort] = useState(11435);
   const [defaultModel, setDefaultModel] = useState('deepseek-v4-flash');
+  const [customModel, setCustomModel] = useState('');
   const [autoStart, setAutoStart] = useState(true);
   const [, setBackups] = useState<{ config: string[]; auth: string[] }>({
     config: [],
@@ -43,12 +48,12 @@ export function Settings(): JSX.Element {
   const [hasOriginalBak, setHasOriginalBak] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   // Claude Desktop / CLI provider (independent from Codex)
-  const [claudeDesktopProvider, setClaudeDesktopProvider] = useState<'deepseek' | 'agnes' | 'glm'>(
-    'deepseek',
-  );
-  const [claudeCliProvider, setClaudeCliProvider] = useState<'deepseek' | 'agnes' | 'glm'>(
-    'deepseek',
-  );
+  const [claudeDesktopProvider, setClaudeDesktopProvider] = useState<
+    'deepseek' | 'agnes' | 'glm' | 'packycode'
+  >('deepseek');
+  const [claudeCliProvider, setClaudeCliProvider] = useState<
+    'deepseek' | 'agnes' | 'glm' | 'packycode'
+  >('deepseek');
   const [showDesktopMapping, setShowDesktopMapping] = useState(false);
   const [showCliMapping, setShowCliMapping] = useState(false);
   const [desktopMapping, setDesktopMapping] = useState<Record<string, string>>({});
@@ -68,7 +73,7 @@ export function Settings(): JSX.Element {
       const cliVars = prefs.claudeCli?.envVars;
       if (cliVars?.anthropicModel) {
         setCliMapping({
-          'claude-opus-4-5': cliVars.anthropicDefaultOpusModel ?? cliVars.anthropicModel,
+          'claude-opus-4-7': cliVars.anthropicDefaultOpusModel ?? cliVars.anthropicModel,
           'claude-sonnet-4-6': cliVars.anthropicDefaultSonnetModel ?? cliVars.anthropicModel,
           'claude-haiku-4-5': cliVars.anthropicDefaultHaikuModel ?? cliVars.anthropicModel,
         });
@@ -78,6 +83,7 @@ export function Settings(): JSX.Element {
       setMaskedKey(await window.codexSwitch.getApiKey());
       setMaskedAgnesKey(await window.codexSwitch.getAgnesKey());
       setMaskedGlmKey(await window.codexSwitch.getGlmKey());
+      setMaskedPackyCodeKey(await window.codexSwitch.getPackyCodeKey());
       setBackups(await window.codexSwitch.codexBackups());
       setVersion(await window.codexSwitch.getVersion());
       setAutoCheckUpdate(prefs.autoCheckUpdate);
@@ -153,13 +159,31 @@ export function Settings(): JSX.Element {
     }
   }
 
+  async function savePackyCodeKey(): Promise<void> {
+    setSavingKey(true);
+    try {
+      await window.codexSwitch.setPackyCodeKey(newPackyCodeKey.trim());
+      setMaskedPackyCodeKey(await window.codexSwitch.getPackyCodeKey());
+      setNewPackyCodeKey('');
+      pushToast({ kind: 'success', message: '已更新 PackyCode Key' });
+    } catch (e) {
+      pushToast({ kind: 'error', message: '保存 Key 失败：' + (e as Error).message });
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
   async function savePrefs(): Promise<void> {
+    if (defaultModel === '__custom__' && !customModel.trim()) {
+      pushToast({ kind: 'info', message: '请输入自定义模型名' });
+      return;
+    }
     setSavingPrefs(true);
     pushToast({ kind: 'info', message: '正在保存并应用…' });
     try {
       const res = await window.codexSwitch.applyPreferences({
         proxyPort: port,
-        defaultModel,
+        defaultModel: defaultModel === '__custom__' ? customModel.trim() : defaultModel,
         provider: codexProvider,
         autoStartProxy: autoStart,
         autoCheckUpdate,
@@ -169,7 +193,7 @@ export function Settings(): JSX.Element {
         maxBackupsPerFile: maxBackups,
         blockBackgroundSuggestions: blockSuggestions,
         telemetryEnabled,
-        codexModel: defaultModel,
+        codexModel: defaultModel === '__custom__' ? customModel.trim() : defaultModel,
       });
       await window.codexSwitch.updateSetMirror(mirror, customMirror);
       setBackups(await window.codexSwitch.codexBackups());
@@ -213,12 +237,15 @@ export function Settings(): JSX.Element {
           <span>选择供应商</span>
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as 'deepseek' | 'agnes' | 'glm')}
+            onChange={(e) =>
+              setProvider(e.target.value as 'deepseek' | 'agnes' | 'glm' | 'packycode')
+            }
             className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
           >
             <option value="deepseek">DeepSeek</option>
             <option value="agnes">Agnes AI</option>
-            <option value="glm">智谱 GLM</option>{' '}
+            <option value="glm">智谱 GLM</option>
+            <option value="packycode">PackyCode · 直连</option>{' '}
           </select>
         </label>
         <div className="border-t border-slate-700 pt-3">
@@ -272,7 +299,7 @@ export function Settings(): JSX.Element {
                 在 platform.agnes-ai.com 获取 API Key
               </div>
             </>
-          ) : (
+          ) : provider === 'glm' ? (
             <>
               <div className="text-sm text-slate-400 mb-2">
                 GLM Key：<code className="text-slate-200">{maskedGlmKey || '尚未设置'}</code>
@@ -297,12 +324,44 @@ export function Settings(): JSX.Element {
                 在 open.bigmodel.cn 或 z.ai 获取 API Key
               </div>
             </>
+          ) : (
+            <>
+              <div className="text-sm text-slate-400 mb-2">
+                PackyCode Key：
+                <code className="text-slate-200">{maskedPackyCodeKey || '尚未设置'}</code>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="PackyCode API Key"
+                  value={newPackyCodeKey}
+                  onChange={(e) => setNewPackyCodeKey(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm"
+                />
+                <button
+                  onClick={savePackyCodeKey}
+                  disabled={savingKey || !newPackyCodeKey.trim()}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-md text-sm min-w-[80px]"
+                >
+                  {savingKey ? '保存中…' : '保存'}
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 mt-2">在 packyapi.com 注册获取 API Key</div>
+            </>
           )}
         </div>
       </Section>
 
       <Section
-        title={`📟 Codex 接入 · ${codexProvider === 'deepseek' ? 'DeepSeek' : codexProvider === 'agnes' ? 'Agnes' : 'GLM'}`}
+        title={`📟 Codex 接入 · ${
+          codexProvider === 'deepseek'
+            ? 'DeepSeek'
+            : codexProvider === 'agnes'
+              ? 'Agnes'
+              : codexProvider === 'glm'
+                ? 'GLM'
+                : 'PackyCode'
+        }`}
       >
         <div className="space-y-3 text-sm">
           <label className="flex items-center justify-between">
@@ -310,17 +369,25 @@ export function Settings(): JSX.Element {
             <select
               value={codexProvider}
               onChange={(e) => {
-                const p = e.target.value as 'deepseek' | 'agnes' | 'glm';
+                const p = e.target.value as 'deepseek' | 'agnes' | 'glm' | 'packycode';
                 setCodexProvider(p);
+                // v1.15.0 PackyCode: 切换时重置模型映射
                 setDefaultModel(
-                  p === 'agnes' ? 'agnes-2.0-flash' : p === 'glm' ? 'glm-5.2' : 'deepseek-v4-flash',
+                  p === 'agnes'
+                    ? 'agnes-2.0-flash'
+                    : p === 'glm'
+                      ? 'glm-5.2'
+                      : p === 'packycode'
+                        ? 'gpt-5.5'
+                        : 'deepseek-v4-flash',
                 );
               }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
               <option value="deepseek">DeepSeek</option>
               <option value="agnes">Agnes AI</option>
-              <option value="glm">智谱 GLM</option>{' '}
+              <option value="glm">智谱 GLM</option>
+              <option value="packycode">PackyCode · 直连</option>{' '}
             </select>
           </label>
           <label className="flex items-center justify-between">
@@ -350,6 +417,16 @@ export function Settings(): JSX.Element {
                   <option value="agnes-2.0-flash">Agnes 2.0 Flash (agnes-2.0-flash)</option>
                   <option value="agnes-1.5-flash">Agnes 1.5 Flash (agnes-1.5-flash)</option>
                 </>
+              ) : codexProvider === 'packycode' ? (
+                <>
+                  <option value="gpt-5.5">GPT-5.5</option>
+                  <option value="gpt-5.4">GPT-5.4</option>
+                  <option value="gpt-5.4-high">GPT-5.4 High</option>
+                  <option value="gpt-5.4-mini">GPT-5.4 Mini</option>
+                  <option value="codex-auto-review">Codex Auto Review</option>
+                  <option disabled>──</option>
+                  <option value="__custom__">✏️ 自定义模型…</option>
+                </>
               ) : (
                 <>
                   <option value="deepseek-v4-flash">DeepSeek V4 Flash (deepseek-v4-flash)</option>
@@ -358,6 +435,18 @@ export function Settings(): JSX.Element {
               )}
             </select>
           </label>
+          {defaultModel === '__custom__' && (
+            <label className="flex items-center justify-between">
+              <span className="text-xs text-slate-400">输入模型名</span>
+              <input
+                type="text"
+                value={customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                placeholder="例如：gpt-5.5"
+                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-sm w-[220px]"
+              />
+            </label>
+          )}
           <label className="flex items-center justify-between">
             <span>启动应用时自动启动代理</span>
             <input
@@ -424,7 +513,15 @@ export function Settings(): JSX.Element {
 
       {/* ── Claude Desktop 接入 ── */}
       <Section
-        title={`🖥 Claude Desktop 接入 · ${claudeDesktopProvider === 'deepseek' ? 'DeepSeek' : claudeDesktopProvider === 'agnes' ? 'Agnes' : 'GLM'}`}
+        title={`🖥 Claude Desktop 接入 · ${
+          claudeDesktopProvider === 'deepseek'
+            ? 'DeepSeek'
+            : claudeDesktopProvider === 'agnes'
+              ? 'Agnes'
+              : claudeDesktopProvider === 'glm'
+                ? 'GLM'
+                : 'PackyCode'
+        }`}
       >
         <div className="space-y-3 text-sm">
           <label className="flex items-center justify-between">
@@ -432,14 +529,17 @@ export function Settings(): JSX.Element {
             <select
               value={claudeDesktopProvider}
               onChange={(e) => {
-                setClaudeDesktopProvider(e.target.value as 'deepseek' | 'agnes' | 'glm');
+                setClaudeDesktopProvider(
+                  e.target.value as 'deepseek' | 'agnes' | 'glm' | 'packycode',
+                );
                 setDesktopMapping({}); // 切换供应商时重置模型映射，使用新供应商默认值
               }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
-              <option value="deepseek">DeepSeek</option>
+              <option value="deepseek">DeepSeek · 直连</option>
               <option value="agnes">Agnes AI</option>
-              <option value="glm">智谱 GLM</option>{' '}
+              <option value="glm">智谱 GLM · 直连</option>
+              <option value="packycode">PackyCode · 直连</option>{' '}
             </select>
           </label>
           <label className="flex items-center justify-between">
@@ -465,6 +565,10 @@ export function Settings(): JSX.Element {
                 pushToast({ kind: 'info', message: '请先在供应商设置中配置 DeepSeek Key' });
                 return;
               }
+              if (claudeDesktopProvider === 'packycode' && !maskedPackyCodeKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 PackyCode Key' });
+                return;
+              }
               try {
                 await window.codexSwitch.setPreferences({
                   claudeDesktopProvider,
@@ -486,7 +590,15 @@ export function Settings(): JSX.Element {
 
       {/* ── Claude Code CLI 接入 ── */}
       <Section
-        title={`⌨️ Claude Code CLI 接入 · ${claudeCliProvider === 'deepseek' ? 'DeepSeek' : claudeCliProvider === 'agnes' ? 'Agnes' : 'GLM'}`}
+        title={`⌨️ Claude Code CLI 接入 · ${
+          claudeCliProvider === 'deepseek'
+            ? 'DeepSeek'
+            : claudeCliProvider === 'agnes'
+              ? 'Agnes'
+              : claudeCliProvider === 'glm'
+                ? 'GLM'
+                : 'PackyCode'
+        }`}
       >
         <div className="space-y-3 text-sm">
           <label className="flex items-center justify-between">
@@ -494,14 +606,15 @@ export function Settings(): JSX.Element {
             <select
               value={claudeCliProvider}
               onChange={(e) => {
-                setClaudeCliProvider(e.target.value as 'deepseek' | 'agnes' | 'glm');
+                setClaudeCliProvider(e.target.value as 'deepseek' | 'agnes' | 'glm' | 'packycode');
                 setCliMapping({}); // 切换供应商时重置模型映射，使用新供应商默认值
               }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
-              <option value="deepseek">DeepSeek</option>
+              <option value="deepseek">DeepSeek · 直连</option>
               <option value="agnes">Agnes AI</option>
-              <option value="glm">智谱 GLM</option>{' '}
+              <option value="glm">智谱 GLM · 直连</option>
+              <option value="packycode">PackyCode · 直连</option>{' '}
             </select>
           </label>
           <label className="flex items-center justify-between">
@@ -527,6 +640,10 @@ export function Settings(): JSX.Element {
                 pushToast({ kind: 'info', message: '请先在供应商设置中配置 DeepSeek Key' });
                 return;
               }
+              if (claudeCliProvider === 'packycode' && !maskedPackyCodeKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 PackyCode Key' });
+                return;
+              }
               try {
                 // 将模型映射转为 envVars 持久化，确保 claudeApplyAll 读取到用户选择
                 const defs =
@@ -534,10 +651,12 @@ export function Settings(): JSX.Element {
                     ? { main: 'glm-5.2', flash: 'glm-4.7' }
                     : claudeCliProvider === 'agnes'
                       ? { main: 'agnes-2.0-flash', flash: 'agnes-1.5-flash' }
-                      : { main: 'deepseek-v4-pro', flash: 'deepseek-v4-flash' };
+                      : claudeCliProvider === 'packycode'
+                        ? { main: 'claude-sonnet-4-6', flash: 'claude-haiku-4-5' }
+                        : { main: 'deepseek-v4-pro', flash: 'deepseek-v4-flash' };
                 const newEnvVars = {
                   anthropicModel: cliMapping['claude-sonnet-4-6'] ?? defs.main,
-                  anthropicDefaultOpusModel: cliMapping['claude-opus-4-5'] ?? defs.main,
+                  anthropicDefaultOpusModel: cliMapping['claude-opus-4-7'] ?? defs.main,
                   anthropicDefaultSonnetModel: cliMapping['claude-sonnet-4-6'] ?? defs.main,
                   anthropicDefaultHaikuModel: cliMapping['claude-haiku-4-5'] ?? defs.flash,
                   claudeCodeSubagentModel: cliMapping['claude-haiku-4-5'] ?? defs.flash,

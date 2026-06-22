@@ -141,15 +141,21 @@ function Sidebar({ page, setPage, status }: SidebarProps): JSX.Element {
     { id: 'logs', label: '日志', emoji: '📜' },
   ];
   const statusColor =
-    status === 'running' ? 'bg-green-500' : status === 'error' ? 'bg-red-500' : 'bg-slate-500';
+    status === 'running' || status === 'direct'
+      ? 'bg-green-500'
+      : status === 'error'
+        ? 'bg-red-500'
+        : 'bg-slate-500';
   const statusText =
     status === 'running'
       ? '运行中'
-      : status === 'starting'
-        ? '启动中'
-        : status === 'error'
-          ? '出错'
-          : '已停止';
+      : status === 'direct'
+        ? '直连'
+        : status === 'starting'
+          ? '启动中'
+          : status === 'error'
+            ? '出错'
+            : '已停止';
 
   // v1.11.0 community
   const [communityCount, setCommunityCount] = useState(0);

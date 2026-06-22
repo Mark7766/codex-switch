@@ -26,7 +26,12 @@ export const IPC = {
   // v1.14.0 GLM
   glmKeyGet: 'key:glm-get',
   glmKeySet: 'key:glm-set',
-  glmKeyClear: 'key:glm-clear', // Codex 配置
+  glmKeyClear: 'key:glm-clear',
+  // v1.15.0 PackyCode
+  packycodeKeyGet: 'key:packycode-get',
+  packycodeKeySet: 'key:packycode-set',
+  packycodeKeyClear: 'key:packycode-clear',
+  // Codex 配置
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',

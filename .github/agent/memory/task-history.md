@@ -3,6 +3,102 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-095] v1.15.0 — FAQ + 智能搜索增加 PackyCode 接入指南
+
+- **日期**：2026-06-22
+- **类型**：docs / feat
+- **摘要**：① faq.json 新增「如何接入 PackyCode？」条目（id: packycode-setup），覆盖注册、配置 Codex/Claude 三工具、可选模型、自定义输入；② SearchPopover 示例问题增加「如何接入 PackyCode？」并置顶；③ main.ts 搜索提示词新增 PackyCode 关键词触发（packy/packycode/聚合/中转/多模型）和回答指引。
+- **变更文件**：`docs/help/faq.json`（+1 条目）、`src/components/SearchPopover.tsx`（+1 示例）、`electron/main.ts`（搜索提示词扩展）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-090、TASK-093
+
+### [TASK-094] v1.15.0 — 修复 ModelMappingModal datalist 只显示一个选项
+
+- **日期**：2026-06-22
+- **类型**：fix
+- **摘要**：TASK-093 将 ModelMappingModal 的 select 改为 input+datalist combo-box，但 datalist 在浏览器中会按输入框当前值过滤建议项——三个 Claude 模型行都 pre-filled 了默认值，点开 dropdown 只显示匹配的那一条。修复：改回 select 下拉 + "__custom__" 选项 + 自定义文本输入框模式（与 Codex 卡片的自定义模型输入保持一致）。弹窗打开时自动识别 mapping 中的非预设值并恢复为自定义态。
+- **变更文件**：`src/components/ModelMappingModal.tsx`（重写：datalist → select + 自定义输入）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-093
+
+### [TASK-093] v1.15.0 — PackyCode 模型选择精简 + Claude 工具自定义模型 + DeepSeek/GLM 直连标注
+
+- **日期**：2026-06-22
+- **类型**：feat
+- **摘要**：① Codex 接入 · PackyCode 默认模型精简为 5 个 GPT 模型（gpt-5.5/5.4/5.4-high/5.4-mini/codex-auto-review） + 自定义输入；② ModelMappingModal 的 PackyCode 选项扩展为 7 个 Claude 模型（opus-4.8/4.7/4.6/4.5 + sonnet-4.6/4.5 + haiku-4.5），下拉改为 `<input>`+`<datalist>` combo-box 支持输入任意模型名；③ Claude Desktop/CLI 卡片中 DeepSeek 和 GLM 选项标注 "· 直连"（对齐 PackyCode · 直连风格，因为这三个供应商在 Claude 工具路径上都是直连不经代理）。
+- **变更文件**：`src/pages/Settings.tsx`（精简 Codex 模型 + 两处 · 直连标注）、`src/components/ModelMappingModal.tsx`（PackyCode 模型 3→7 + select 改 combo-box）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-092、TASK-090
+
+### [TASK-092] v1.15.0 — PackyCode Codex 模型选择扩展 + 自定义模型输入
+
+- **日期**：2026-06-22
+- **类型**：feat
+- **摘要**：根据 PackyAPI 实际支持的模型列表，将 Settings Codex 卡片的 PackyCode 默认模型下拉从仅 1 个（gpt-5.5）扩展到 36 个模型，按系列分 8 组（GPT/Claude/Gemini/DeepSeek/GLM/Kimi/Qwen/其他），支持自定义模型输入。同时修复 writer.ts PACKYCODE_TEMPLATE 硬编码 `model = "gpt-5.5"` 问题——改为接受 model 参数，用户选择的模型名会正确写入 config.toml。
+- **变更文件**：`electron/codex/writer.ts`（PACKYCODE_TEMPLATE 参数化）、`src/pages/Settings.tsx`（+36 模型选项 + customModel state + 自定义输入框 + 校验）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-090、PackyAPI 模型列表（packyapi.com）
+
+### [TASK-091] v1.15.0 — PackyCode 接入 Review 缺陷修复（P0/P1/P2）+ 版本号更新 + CHANGELOG
+
+- **日期**：2026-06-22
+- **类型**：fix / chore
+- **摘要**：按 `docs/DESIGN-packycode-integration.md` Review 报告修复 2 个 P0、3 个 P1、2 个 P2 缺陷：
+  - 🔴 P0-1：`ensureProxy()` 混合模式（Codex=PackyCode + Claude=Agnes）Agnes Key 丢失 → `agnesApiKey` 加载逻辑改为 `desktopNeedsProxy || cliNeedsProxy` 时加载
+  - 🔴 P0-2：Dashboard/Sidebar 不识别 `direct` 状态 → Sidebar 新增绿色"直连"文案，Dashboard 隐藏启停按钮显示直连说明，`proxyStop` 对 direct 状态直接返回
+  - 🟡 P1-1：`desktopNeedsProxy/cliNeedsProxy` 包含 `=== undefined` 判断 → 移除，DeepSeek（undefined 默认值）Claude 接入直连不需要代理
+  - 🟡 P1-2：`desktop-writer.ts` haiku labelOverride 对 PackyCode 默认 fallback 到 sonnet → 新增 `labelHaiku` 变量，默认 `claude-haiku-4-5`
+  - 🟡 P1-3：代理运行中所有工具切到 PackyCode 代理不自动停止 → `applyPreferencesTransaction` 新增全直连检测 + `proxy.stop()`
+  - 🟢 P2-1：日志文案"直连模式（PackyCode/DeepSeek/GLM）"改为"直连模式（PackyCode）"
+  - 🟢 P2-2：Settings 供应商设置卡片 PackyCode 选项补充"· 直连"后缀，四张卡片统一
+- **变更文件**：`electron/main.ts`（P0-1/+P0-2/+P1-1/+P1-3/+P2-1）、`electron/claude/desktop-writer.ts`（P1-2）、`src/App.tsx`（P0-2）、`src/pages/Dashboard.tsx`（P0-2）、`src/pages/Settings.tsx`（P2-2）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-090、docs/DESIGN-packycode-integration.md
+
+### [TASK-090] v1.15.0 — PackyCode 供应商接入（代码实现）
+
+- **日期**：2026-06-22
+- **类型**：feat
+- **摘要**：按 `docs/DESIGN-packycode-integration.md` 方案实施 PackyCode 供应商完整接入。PackyCode（packyapi.com）是一个第三方 AI API 聚合服务，原生同时支持 OpenAI Responses API 和 Anthropic Messages API——不需要协议翻译层。采用"直接配置注入"模式（对齐 cc-switch）：Codex config.toml 直连 `https://www.packyapi.com/v1`，Claude Desktop 3P profile 和 Claude Code CLI env vars 直连 `https://www.packyapi.com`（Anthropic 格式）。本地代理不参与 PackyCode 通信（全直连时代理自动跳过启动）。改动 12 文件，约 140 行新增代码。
+- **变更文件**：
+  - `electron/config/store.ts`（+4 行：provider 类型扩展 4 处）
+  - `electron/config/secrets.ts`（+42 行：PackyCode Key keytar 存取）
+  - `electron/config/migrations.ts`（+2 行：startupApplyClaude PackyCode 分支）
+  - `electron/ipc/channels.ts`（+3 行：packycode key IPC 通道）
+  - `electron/preload.ts`（+6 行：PackyCode Key API 暴露）
+  - `electron/codex/writer.ts`（+24 行：PACKYCODE_TEMPLATE + provider 参数）
+  - `electron/claude/desktop-writer.ts`（+4 行：packycode 分支）
+  - `electron/claude/env-writer.ts`（+18 行：PACKYCODE_ENV_VARS + packycode 分支）
+  - `electron/main.ts`（+60 行：ensureProxy 跳过逻辑 + key handlers + applyPreferences/claudeApplyAll 分支）
+  - `electron/proxy/server.ts`（+1 行：activeModelMapping 类型扩展）
+  - `electron/proxy/http-handler.ts`（+1 行：activeModelMapping 类型扩展）
+  - `electron/proxy/ws-handler.ts`（+1 行：activeModelMapping 类型扩展）
+  - `src/pages/Settings.tsx`（+45 行：PackyCode 供应商选项 + Key 输入框 + 保存守卫）
+  - `src/components/ModelMappingModal.tsx`（+3 行：packycode modelOptions）
+  - `src/types/global.d.ts`（+6 行：packycode 类型 + 3 个 Key API）
+  - `tests/unit/Settings.test.tsx`（+3 行：mock 新增 PackyCode Key API）
+- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-089（方案文档）、docs/DESIGN-packycode-integration.md
+- **注意事项**：
+  1. PackyCode 直连模式下代理不启动（全直连时 ensureProxy 返回 NO_PROXY_NEEDED）
+  2. proxy 层除类型扩展外零改动（无协议翻译需求）
+  3. 混合模式支持：Codex 选 PackyCode + Claude 工具选其他供应商可共存
+  4. PackyCode Key 格式校验：最小长度 10 位（trim）
+
+### [TASK-089] 编写 PackyCode 接入方案文档
+
+- **日期**：2026-06-22
+- **类型**：docs / design
+- **摘要**：参照 cc-switch 的 PackyCode 集成模式，为 codex-switch 撰写 PackyCode 供应商接入方案文档。调研发现 PackyCode 原生同时支持 OpenAI Responses API 和 Anthropic Messages API——与 DeepSeek/GLM/Agnes 讲 Chat Completions 不同，PackyCode 不需要协议翻译。方案采用"直接配置注入"模式（对齐 cc-switch）：Codex config.toml 直接写 `base_url = "https://www.packyapi.com/v1"`，Claude Desktop 3P profile 和 Claude Code CLI env vars 直连 `https://www.packyapi.com`（Anthropic 格式）。本地代理不参与 PackyCode 通信。预估改动 ~137 行 / 10 文件，proxy 层零改动。本次任务未写代码，仅输出方案文档。
+- **变更文件**：
+  - `docs/DESIGN-packycode-integration.md`（新建）
+- **关联**：cc-switch `src/config/codexProviderPresets.ts` L895-912、`src/config/claudeProviderPresets.ts` L656-675、`src/config/claudeDesktopProviderPresets.ts` L628-644
+- **注意事项**：
+  1. PackyCode 与现有供应商的根本区别：讲 Responses 而非 Chat Completions → 不需要代理翻译层
+  2. 直连模式下 Dashboard 失去 Codex 请求日志和 token 统计（数据在 PackyCode 侧）
+  3. 混合模式支持：Codex 选 PackyCode（直连）+ Claude 工具选 DeepSeek（经代理）可共存
+  4. 方案已预留 `endpointCandidates` 双端点（`www.packyapi.com` + `api-slb.packyapi.com`），v1.15.0 先不做自动测速切换
+
 ### [TASK-088] v1.14.3 — 修复切换供应商后 Claude Desktop / CLI 配置文件不更新 + 版本发布
 
 - **日期**：2026-06-22

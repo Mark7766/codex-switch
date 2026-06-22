@@ -21,6 +21,9 @@ import {
   getGlmKey,
   setGlmKey,
   clearGlmKey,
+  getPackyCodeKey,
+  setPackyCodeKey,
+  clearPackyCodeKey,
 } from './config/secrets';
 import {
   DeepSeekProxy,
@@ -119,27 +122,46 @@ app.on('second-instance', () => {
 async function ensureProxy(): Promise<DeepSeekProxy> {
   if (proxy) return proxy;
   const prefs = getPreferences();
+
+  // v1.15.0: PackyCode 直连模式——所有工具直连 PackyCode 时不需要本地代理。
+  // Codex 直连 packyapi.com/v1（Responses API），Claude 工具直连 packyapi.com（Anthropic）。
+  // 如果任一工具选了需要代理的供应商（deepseek/agnes/glm），代理仍需启动。
+  const codexNeedsProxy = prefs.provider !== 'packycode';
+  const desktopNeedsProxy = prefs.claudeDesktopProvider === 'agnes';
+  const cliNeedsProxy = prefs.claudeCliProvider === 'agnes';
+  if (!codexNeedsProxy && !desktopNeedsProxy && !cliNeedsProxy) {
+    log.info('所有工具均为直连模式（PackyCode），跳过代理启动');
+    // Return a non-started proxy stub — callers should handle this gracefully
+    throw Object.assign(new Error('当前所有工具均使用直连供应商，无需启动本地代理'), {
+      code: 'NO_PROXY_NEEDED',
+    });
+  }
+
   const apiKey =
     prefs.provider === 'agnes'
       ? await getAgnesKey()
       : prefs.provider === 'glm'
         ? await getGlmKey()
-        : await getApiKey();
+        : prefs.provider === 'packycode'
+          ? await getPackyCodeKey()
+          : await getApiKey();
   const upstreamBase =
     prefs.provider === 'agnes'
       ? 'apihub.agnes-ai.com'
       : prefs.provider === 'glm'
         ? 'open.bigmodel.cn'
-        : 'api.deepseek.com';
+        : prefs.provider === 'packycode'
+          ? 'www.packyapi.com'
+          : 'api.deepseek.com';
   proxy = new DeepSeekProxy({
     apiKey,
     upstreamBase,
     agnesApiKey:
       prefs.provider === 'agnes'
         ? apiKey
-        : prefs.provider === 'glm'
-          ? ''
-          : await getAgnesKey().catch(() => ''),
+        : desktopNeedsProxy || cliNeedsProxy
+          ? await getAgnesKey().catch(() => '')
+          : '',
     agnesUpstreamBase: 'apihub.agnes-ai.com',
     activeModelMapping: prefs.activeModelMapping,
     port: prefs.proxyPort,
@@ -261,19 +283,25 @@ async function applyPreferencesTransaction(
   }
 
   // 3) 供应商切换：更新 proxy 上游+Key + 映射（不写 config.toml，不重启）
+  // v1.15.0: PackyCode 直连模式下 Codex 不经过代理；但如果 proxy 已在运行（Claude 需要）
+  // 且 Codex 供应商切到 packycode，不需要更新代理上游（代理只服务 Claude 工具）
   if (providerChanged && proxy) {
     const newKey =
       next.provider === 'agnes'
         ? await getAgnesKey()
         : next.provider === 'glm'
           ? await getGlmKey()
-          : apiKey;
+          : next.provider === 'packycode'
+            ? await getPackyCodeKey()
+            : apiKey;
     const newUpstream =
       next.provider === 'agnes'
         ? 'apihub.agnes-ai.com'
         : next.provider === 'glm'
           ? 'open.bigmodel.cn'
-          : 'api.deepseek.com';
+          : next.provider === 'packycode'
+            ? 'www.packyapi.com'
+            : 'api.deepseek.com';
     const agnesK = next.provider === 'deepseek' ? await getAgnesKey().catch(() => '') : undefined;
     proxy.updateOptions({
       apiKey: newKey,
@@ -286,14 +314,29 @@ async function applyPreferencesTransaction(
     });
   }
 
+  // v1.15.0: 所有工具直连时自动停止代理
+  if (proxy && proxy.getStatus() === 'running') {
+    const codexDirect = next.provider === 'packycode';
+    const desktopDirect = next.claudeDesktopProvider !== 'agnes';
+    const cliDirect = next.claudeCliProvider !== 'agnes';
+    if (codexDirect && desktopDirect && cliDirect) {
+      log.info('所有工具均为直连模式，自动停止代理');
+      await proxy.stop();
+    }
+  }
+
   // 4) 写 ~/.codex（必须有 apiKey；供应商切换时不重写）
+  // v1.15.0: PackyCode 直连模式——config.toml 写 packyapi.com，auth.json 写 PackyCode Key
   let codexWritten = false;
-  if (!providerChanged && apiKey) {
+  const effectiveKey =
+    next.provider === 'packycode' ? await getPackyCodeKey().catch(() => '') : apiKey;
+  if (!providerChanged && effectiveKey) {
     try {
       await writeCodexConfig({
         proxyPort: next.proxyPort,
         model: codexModel || next.defaultModel,
-        apiKey,
+        apiKey: effectiveKey,
+        provider: next.provider,
       });
       codexWritten = true;
     } catch (e) {
@@ -478,6 +521,57 @@ function registerIpc(): void {
     await clearGlmKey();
     return true;
   });
+  // v1.15.0 PackyCode
+  ipcMain.handle(IPC.packycodeKeyGet, async () => {
+    const v = await getPackyCodeKey();
+    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
+  });
+  ipcMain.handle(IPC.packycodeKeySet, async (_e, key: string) => {
+    if (typeof key !== 'string' || key.trim().length < 10) {
+      throw new Error('PackyCode Key 格式不正确：长度应至少 10 位');
+    }
+    const trimmed = key.trim();
+    await setPackyCodeKey(trimmed);
+    // PackyCode 直连模式：不需要更新代理 upstream（Codex 直连 packyapi.com）
+    if (proxy && getPreferences().provider === 'packycode') {
+      proxy.updateOptions({ apiKey: trimmed });
+    }
+    // v1.15.0: auto-apply Claude configs only for tools whose provider is PackyCode.
+    const prefs = getPreferences();
+    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
+      detectAll()
+        .then(async (result) => {
+          if (
+            prefs.claudeCli.enabled &&
+            (prefs.claudeCliProvider ?? 'deepseek') === 'packycode' &&
+            result.claudeCli.installed &&
+            !result.claudeCli.configApplied
+          ) {
+            await writeClaudeCliConfig(
+              trimmed,
+              resolveEnvVars(prefs.claudeCli.envVars, 'packycode').envVars,
+              'packycode',
+            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
+          }
+          if (
+            prefs.claudeDesktop.enabled &&
+            (prefs.claudeDesktopProvider ?? 'deepseek') === 'packycode' &&
+            result.claudeDesktop.installed &&
+            !result.claudeDesktop.configApplied
+          ) {
+            await writeClaudeDesktopConfig(trimmed, 'packycode').catch((e) =>
+              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
+            );
+          }
+        })
+        .catch((e) => log.warn('[main] 保存 PackyCode key 后检测失败：', (e as Error).message));
+    }
+    return true;
+  });
+  ipcMain.handle(IPC.packycodeKeyClear, async () => {
+    await clearPackyCodeKey();
+    return true;
+  });
   ipcMain.handle(IPC.keySet, async (_e, key: string) => {
     // H5: validate API key format
     if (typeof key !== 'string' || key.length < 10 || !key.startsWith('sk-')) {
@@ -524,12 +618,22 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.proxyStart, async () => {
-    const p = await ensureProxy();
-    const port = await p.start();
-    return { port, status: p.getStatus() };
+    try {
+      const p = await ensureProxy();
+      const port = await p.start();
+      return { port, status: p.getStatus() };
+    } catch (e) {
+      if ((e as Record<string, unknown>).code === 'NO_PROXY_NEEDED') {
+        return { port: getPreferences().proxyPort, status: 'direct' as const };
+      }
+      throw e;
+    }
   });
   ipcMain.handle(IPC.proxyStop, async () => {
+    // v1.15.0: PackyCode 直连模式下没有代理实例，直接返回
     if (!proxy) return { status: 'stopped' as const };
+    // v1.15.0: 代理未启动（direct 模式）时跳过 stop
+    if (proxy.getStatus() === 'stopped') return { status: 'stopped' as const };
     await proxy.stop();
     return { status: proxy.getStatus() };
   });
@@ -592,12 +696,19 @@ function registerIpc(): void {
       throw new Error('模型名称不能为空');
     }
     const prefs = getPreferences();
-    const apiKey = await getApiKey();
-    if (!apiKey) throw new Error('请先填写 DeepSeek API Key');
+    const provider = prefs.provider;
+    // v1.15.0: PackyCode 直连模式使用 PackyCode Key
+    const apiKey = provider === 'packycode' ? await getPackyCodeKey() : await getApiKey();
+    if (!apiKey) {
+      throw new Error(
+        provider === 'packycode' ? '请先填写 PackyCode API Key' : '请先填写 DeepSeek API Key',
+      );
+    }
     return writeCodexConfig({
       proxyPort: proxy?.getPort() ?? prefs.proxyPort,
       model: payload.model || prefs.defaultModel,
       apiKey,
+      provider,
     });
   });
   ipcMain.handle(IPC.codexBackups, () => listBackups());
@@ -748,7 +859,13 @@ function registerIpc(): void {
     if (prefs.claudeDesktop.enabled) {
       const dp = prefs.claudeDesktopProvider ?? 'deepseek';
       const dk =
-        dp === 'agnes' ? await getAgnesKey() : dp === 'glm' ? await getGlmKey() : await getApiKey();
+        dp === 'agnes'
+          ? await getAgnesKey()
+          : dp === 'glm'
+            ? await getGlmKey()
+            : dp === 'packycode'
+              ? await getPackyCodeKey()
+              : await getApiKey();
       if (dk) {
         try {
           await writeClaudeDesktopConfig(dk, dp);
@@ -762,16 +879,28 @@ function registerIpc(): void {
           });
         }
       } else {
-        errors.push(
-          `缺少 ${dp === 'glm' ? '智谱 GLM' : dp === 'agnes' ? 'Agnes AI' : 'DeepSeek'} API Key，请先在供应商设置中配置`,
-        );
+        const providerLabel =
+          dp === 'glm'
+            ? '智谱 GLM'
+            : dp === 'agnes'
+              ? 'Agnes AI'
+              : dp === 'packycode'
+                ? 'PackyCode'
+                : 'DeepSeek';
+        errors.push(`缺少 ${providerLabel} API Key，请先在供应商设置中配置`);
       }
     }
 
     if (prefs.claudeCli.enabled) {
       const cp = prefs.claudeCliProvider ?? 'deepseek';
       const ck =
-        cp === 'agnes' ? await getAgnesKey() : cp === 'glm' ? await getGlmKey() : await getApiKey();
+        cp === 'agnes'
+          ? await getAgnesKey()
+          : cp === 'glm'
+            ? await getGlmKey()
+            : cp === 'packycode'
+              ? await getPackyCodeKey()
+              : await getApiKey();
       if (ck) {
         try {
           // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值覆盖，保护用户手动选择的模型
@@ -790,9 +919,15 @@ function registerIpc(): void {
           });
         }
       } else {
-        errors.push(
-          `Claude Code CLI：缺少 ${cp === 'glm' ? '智谱 GLM' : cp === 'agnes' ? 'Agnes AI' : 'DeepSeek'} API Key，请先在供应商设置中配置`,
-        );
+        const providerLabel =
+          cp === 'glm'
+            ? '智谱 GLM'
+            : cp === 'agnes'
+              ? 'Agnes AI'
+              : cp === 'packycode'
+                ? 'PackyCode'
+                : 'DeepSeek';
+        errors.push(`Claude Code CLI：缺少 ${providerLabel} API Key，请先在供应商设置中配置`);
       }
     }
 
@@ -1111,8 +1246,9 @@ Codex Switch 帮你突破网络限制，
       const context = contextParts.join('\n\n');
 
       const prompt = `你是 Codex Switch 的智能助手。Codex Switch 是一款桌面应用，
-帮助国内用户使用 Codex Desktop、Codex CLI、Claude Desktop 和 Claude Code CLI 接入 DeepSeek、智谱 GLM 和 Agnes AI（免费模型）。
+帮助国内用户使用 Codex Desktop、Codex CLI、Claude Desktop 和 Claude Code CLI 接入 DeepSeek、智谱 GLM、Agnes AI（免费模型）和 PackyCode（第三方聚合中转）。
 
+用户问"PackyCode""packycode""packy""聚合""中转""多模型"等问题时，推荐 PackyCode——在设置中的【Codex 接入】卡片切换供应商为「PackyCode · 直连」即可，一个 Key 通吃 GPT、Claude、Gemini 等主流模型，直连不经代理延迟更低，可选 gpt-5.5 / gpt-5.4 等模型也支持自定义输入。
 用户问"免费""省钱""不要钱""哪个模型免费"等问题时，优先推荐 Agnes AI——在设置中的【Codex 接入】卡片切换供应商为 Agnes AI 即可。
 用户问"国内""中文""GLM""智谱""zhipu"等问题时，推荐智谱 GLM——在设置中的【Codex 接入】卡片切换供应商为「智谱 GLM」即可，支持 glm-5.2 / glm-5.1 / glm-4.7 三个版本。
 
@@ -1348,12 +1484,17 @@ app.whenReady().then(async () => {
   await createWindow();
 
   const hasApiKey = (await getApiKey().catch(() => '')).length > 0;
+  // v1.15.0: PackyCode 直连模式下跳过代理启动（ensureProxy 会 throw NO_PROXY_NEEDED）
   if ((prefs.hasCompletedSetup || hasApiKey) && prefs.autoStartProxy) {
     try {
       const p = await ensureProxy();
       await p.start();
     } catch (e) {
-      log.error('自动启动代理失败：', (e as Error).message);
+      if ((e as Record<string, unknown>).code === 'NO_PROXY_NEEDED') {
+        log.info('自动启动跳过：所有工具直连模式');
+      } else {
+        log.error('自动启动代理失败：', (e as Error).message);
+      }
     }
   }
 

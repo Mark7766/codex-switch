@@ -48,7 +48,10 @@ export interface ProxyOptions {
   /** v1.13.0: Agnes API Key。 */
   agnesApiKey?: string;
   /** v1.13.0: 中间模型→实际模型+供应商映射。key=codex-switch。 */
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
+  activeModelMapping?: Record<
+    string,
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+  >;
 }
 
 export type LogPhase = 'start' | 'stub' | 'success' | 'error';

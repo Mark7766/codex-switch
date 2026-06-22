@@ -30,7 +30,10 @@ export interface HttpHandlerDeps {
   agnesUpstreamBase: string;
   agnesApiKey: string;
   /** v1.13.0: 中间模型→实际模型+供应商。 */
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
+  activeModelMapping?: Record<
+    string,
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+  >;
   /** v1.14.0: upstream API path (GLM uses /api/paas/v4/chat/completions). */
   apiPath: string;
   modelMapping: Record<string, string>;

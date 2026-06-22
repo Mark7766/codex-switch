@@ -32,7 +32,10 @@ export interface WsHandlerDeps {
   apiPath: string;
   agnesUpstreamBase: string;
   agnesApiKey: string;
-  activeModelMapping?: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
+  activeModelMapping?: Record<
+    string,
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+  >;
   modelMapping: Record<string, string>;
   defaultModel: string;
   blockBackgroundSuggestions: boolean;

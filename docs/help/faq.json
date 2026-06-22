@@ -1,5 +1,11 @@
 [
   {
+    "id": "packycode-setup",
+    "tag": "入门",
+    "question": "如何接入 PackyCode？",
+    "answer": "PackyCode（packyapi.com）是一个第三方 AI API 聚合中转服务，原生支持 Codex 和 Claude 协议——直连即可，延迟更低。接入只需三步：\n\n1. 注册并获取 API Key → 访问 https://www.packyapi.com/ 注册，进入控制台获取 Key 并复制\n2. Codex Switch 设置 → 在「💻 Codex 接入」卡片中将供应商切换为「PackyCode · 直连」，Key 已在「🔑 供应商设置」中填好（格式要求：长度至少 10 位）\n3. 点「保存并应用」→ Codex 无需重启，下一条消息直接走 PackyCode\n\nCodex 接入 PackyCode 可选 GPT-5.5 / GPT-5.4 / GPT-5.4 High / GPT-5.4 Mini / Codex Auto Review，也支持输入任意模型名。Claude Desktop / Claude Code CLI 想用 PackyCode？在对应的接入卡片里同样操作——模型映射支持 Opus / Sonnet 多版本，也可自定义输入。\n\n💡 PackyCode 的好处：多供应商聚合，一个 Key 通吃 GPT、Claude、Gemini、DeepSeek、GLM、Kimi 等主流模型；国内直接访问，按量计费最低 0.5 折。想切回其他供应商？下拉选回保存即可。"
+  },
+  {
     "id": "glm-setup",
     "tag": "入门",
     "question": "如何接入智谱 GLM 模型？",

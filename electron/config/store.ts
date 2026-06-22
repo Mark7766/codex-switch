@@ -69,17 +69,20 @@ export interface UserPreferences {
   /** §7 最近一次代理错误的时间戳（ms）。 */
   lastErrorAt: number;
   /** v1.13.0: AI 供应商选择。deepseek 或 agnes（Codex 用）。 */
-  provider: 'deepseek' | 'agnes' | 'glm';
+  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
   /** v1.13.0: Claude Desktop 供应商。 */
-  claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm';
+  claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
   /** v1.13.0: Claude Code CLI 供应商。 */
-  claudeCliProvider: 'deepseek' | 'agnes' | 'glm';
+  claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
   /**
    * v1.13.0: 中间模型 → 实际模型 + 供应商 的生效映射。
    * key = 中间模型名（config.toml 里写死的 model），value = 实际模型 + 供应商。
    * 切换供应商时只改这个映射，Codex 和代理都不需要重启。
    */
-  activeModelMapping: Record<string, { model: string; provider: 'deepseek' | 'agnes' | 'glm' }>;
+  activeModelMapping: Record<
+    string,
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+  >;
   /** 是否拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求（默认 true）。 */
   blockBackgroundSuggestions: boolean;
   /** 生命周期累计输入 token（不含被拦截请求）。 */

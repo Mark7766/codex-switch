@@ -6,22 +6,37 @@ import { useEffect, useState } from 'react';
 interface Props {
   open: boolean;
   onClose: () => void;
-  provider: 'deepseek' | 'agnes' | 'glm';
+  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
   mapping: Record<string, string>;
   onSave: (m: Record<string, string>) => void;
 }
 
 const CLAUDE_MODELS = [
-  { id: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
 ];
 
-function modelOptions(p: 'deepseek' | 'agnes' | 'glm'): string[] {
+function modelOptions(p: 'deepseek' | 'agnes' | 'glm' | 'packycode'): string[] {
   if (p === 'glm') return ['glm-5.2', 'glm-5.1', 'glm-4.7'];
+  if (p === 'packycode')
+    return [
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-opus-4-5-20251101',
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001',
+    ];
   return p === 'agnes'
     ? ['agnes-2.0-flash', 'agnes-1.5-flash']
     : ['deepseek-v4-pro', 'deepseek-v4-flash'];
+}
+
+/** 判断一个值是不是预设列表里的，不在的就是自定义值 */
+function isPreset(val: string, presets: string[]): boolean {
+  return presets.includes(val);
 }
 
 export function ModelMappingModal({
@@ -32,16 +47,31 @@ export function ModelMappingModal({
   onSave,
 }: Props): JSX.Element | null {
   const [local, setLocal] = useState<Record<string, string>>({ ...mapping });
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
 
   // 弹窗打开时，用最新的 mapping prop 重新同步 local 状态。
-  // useState 初始化器只在组件挂载时执行一次，当页面切换导致
-  // Settings 重新挂载后 mapping 会从空对象变为已保存的值，
-  // 但 local 不会自动更新——必须通过 effect 同步。
   useEffect(() => {
-    if (open) setLocal({ ...mapping });
+    if (open) {
+      setLocal({ ...mapping });
+      // 恢复自定义值：如果 mapping 里的值不在预设列表中，就是之前保存过的自定义值
+      const presets = modelOptions(provider);
+      const restored: Record<string, string> = {};
+      for (const cm of CLAUDE_MODELS) {
+        const val = mapping[cm.id] ?? presets[0];
+        if (!isPreset(val!, presets)) restored[cm.id] = val!;
+      }
+      setCustomValues(restored);
+    }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
+
+  const presets = modelOptions(provider);
+  // v1.15.0: PackyCode 不配置 Haiku（仅 Opus + Sonnet）
+  const visibleModels =
+    provider === 'packycode'
+      ? CLAUDE_MODELS.filter((m) => m.id !== 'claude-haiku-4-5')
+      : CLAUDE_MODELS;
 
   return (
     <div
@@ -53,23 +83,50 @@ export function ModelMappingModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold mb-3">Claude 模型映射</h3>
-        <div className="space-y-2 text-sm">
-          {CLAUDE_MODELS.map((cm) => (
-            <label key={cm.id} className="flex items-center justify-between">
-              <span className="text-slate-300">{cm.label}</span>
-              <select
-                value={local[cm.id] ?? modelOptions(provider)[0]}
-                onChange={(e) => setLocal({ ...local, [cm.id]: e.target.value })}
-                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs"
-              >
-                {modelOptions(provider).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
+        <div className="space-y-3 text-sm">
+          {visibleModels.map((cm) => {
+            const currentValue = local[cm.id] ?? presets[0];
+            const isCustom = currentValue === '__custom__';
+            return (
+              <div key={cm.id}>
+                <label className="flex items-center justify-between">
+                  <span className="text-slate-300">{cm.label}</span>
+                  <select
+                    value={isPreset(currentValue!, presets) ? currentValue : '__custom__'}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setLocal({ ...local, [cm.id]: '__custom__' });
+                        setCustomValues({
+                          ...customValues,
+                          [cm.id]: customValues[cm.id] ?? currentValue ?? '',
+                        });
+                      } else {
+                        setLocal({ ...local, [cm.id]: e.target.value });
+                      }
+                    }}
+                    className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs w-[200px]"
+                  >
+                    {presets.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    <option disabled>──</option>
+                    <option value="__custom__">✏️ 自定义…</option>
+                  </select>
+                </label>
+                {isCustom && (
+                  <input
+                    type="text"
+                    value={customValues[cm.id] ?? ''}
+                    onChange={(e) => setCustomValues({ ...customValues, [cm.id]: e.target.value })}
+                    placeholder="输入模型名"
+                    className="mt-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs w-[200px] float-right"
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
         <div className="flex gap-2 mt-4">
           <button
@@ -80,7 +137,16 @@ export function ModelMappingModal({
           </button>
           <button
             onClick={() => {
-              onSave(local);
+              // 保存时把 __custom__ 替换为实际自定义值
+              const resolved: Record<string, string> = {};
+              for (const cm of visibleModels) {
+                const val = local[cm.id] ?? presets[0];
+                resolved[cm.id] =
+                  val === '__custom__'
+                    ? customValues[cm.id] || presets[0] || ''
+                    : val || presets[0] || '';
+              }
+              onSave(resolved);
               onClose();
             }}
             className="flex-1 px-3 py-1.5 text-xs bg-brand-600 hover:bg-brand-700 rounded"

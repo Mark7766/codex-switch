@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v1.14.3（开发中，GLM 接入 + 上下文超限截断 + 供应商切换修复） |
+| 当前阶段 | v1.15.0（开发中，PackyCode 直连接入） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -134,8 +134,10 @@
 | 对话缓存（内存） | `electron/proxy/server.ts` | 纯内存 LRU（500条），缓存未命中时从 Codex JSONL 回退读取 | ✅ v1.13.0 |
 | Codex 会话读取 | `electron/codex/session-reader.ts` | 扫描 `~/.codex/sessions/YYYY/MM/DD/` 目录，读取 JSONL 对话历史（纯只读） | ✅ v1.13.0 |
 | 上下文窗口配置 | `electron/codex/writer.ts` | "保存并应用"时写入 `model_context_window=1M` + `model_auto_compact_token_limit=900K` + `[features] enable_request_compression=false` | ✅ v1.13.0 |
-| 多供应商支持 | `electron/proxy/server.ts` / `src/pages/Settings.tsx` | 下拉框选择 AI 供应商（DeepSeek / Agnes），自动切换上游 hostname 和 API Key | ✅ v1.13.0 |
+| 多供应商支持 | `electron/proxy/server.ts` / `src/pages/Settings.tsx` | 下拉框选择 AI 供应商（DeepSeek / Agnes / GLM / PackyCode），自动切换上游 hostname 和 API Key。PackyCode 为直连模式（不经代理） | ✅ v1.13.0 |
 | Agnes Key 管理 | `electron/config/secrets.ts` | Agnes API Key 的 keytar 安全存储（与 DeepSeek Key 同模式） | ✅ v1.13.0 |
+| GLM Key 管理 | `electron/config/secrets.ts` | GLM API Key 的 keytar 安全存储 | ✅ v1.14.0 |
+| PackyCode Key 管理 | `electron/config/secrets.ts` | PackyCode API Key 的 keytar 安全存储 | ✅ v1.15.0 |
 | Settings 页重构 | `src/pages/Settings.tsx` | 三卡片独立供应商选择（Codex / Claude Desktop / Claude Code CLI），供应商+模型联动 | ✅ v1.13.0 |
 | 模型映射弹窗 | `src/components/ModelMappingModal.tsx` | Claude 3 模型 → 实际模型的下拉映射，根据供应商联动可选模型 | ✅ v1.13.0 |
 | 插件下载 | `electron/plugins/index.ts` | 离线插件包下载（Server API → COS 302 → 流式写入磁盘），进度推送，安装指令生成 | ✅ v1.10.0 |

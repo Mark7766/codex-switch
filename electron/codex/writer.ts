@@ -8,6 +8,11 @@ export interface WriteCodexConfigInput {
   apiKey: string;
   /** 每个文件保留的最大备份份数。默认 5。 */
   maxBackupsPerFile?: number;
+  /**
+   * v1.15.0: AI 供应商。packycode 时使用直连模板（绕过本地代理），
+   * 其他供应商使用代理模板（base_url 指向 127.0.0.1）。
+   */
+  provider?: 'deepseek' | 'agnes' | 'glm' | 'packycode';
 }
 
 export interface WriteCodexConfigResult {
@@ -59,6 +64,31 @@ requires_openai_auth = true
 # 如果你使用 DeepSeek 等非 OpenAI 服务，且 Codex 需要执行命令，可按需开启：
 # sandbox = "none"
 # approval = "auto-edit"
+
+[features]
+enable_request_compression = false
+remote_compaction_v2 = false
+`;
+
+// v1.15.0: PackyCode 直连模板 —— Codex 直接连接 packyapi.com，不经过本地代理。
+// PackyCode 原生支持 OpenAI Responses API，不需要协议翻译。
+const PACKYCODE_TEMPLATE = (
+  model: string,
+): string => `# Codex CLI 配置（由 Codex Switch 自动生成 · PackyCode 直连模式）
+# 完整配置参考: https://github.com/openai/codex
+
+model_provider = "custom"
+model = "${model}"
+model_reasoning_effort = "xhigh"
+
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+
+[model_providers.custom]
+name = "PackyCode"
+base_url = "https://www.packyapi.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
 
 [features]
 enable_request_compression = false
@@ -224,7 +254,13 @@ export async function writeCodexConfig(
   const authPath = authJsonPath();
   const keep = Math.max(0, input.maxBackupsPerFile ?? 5);
 
-  const cfg = await writeWithBackup(configPath, TEMPLATE(input.proxyPort, input.model), keep);
+  const cfg = await writeWithBackup(
+    configPath,
+    input.provider === 'packycode'
+      ? PACKYCODE_TEMPLATE(input.model)
+      : TEMPLATE(input.proxyPort, input.model),
+    keep,
+  );
   const auth = await writeWithBackup(authPath, AUTH_TEMPLATE(input.apiKey), keep);
 
   // auth.json 必须 0o600

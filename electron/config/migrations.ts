@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import log from 'electron-log';
 
 import { getPreferences, setPreferences } from './store';
-import { getAgnesKey, getGlmKey, getApiKey } from './secrets';
+import { getAgnesKey, getGlmKey, getApiKey, getPackyCodeKey } from './secrets';
 import { detectAll } from '../claude/detect';
 import {
   writeClaudeCliConfig,
@@ -162,7 +162,13 @@ export async function startupApplyClaude(): Promise<void> {
     }
 
     const ck =
-      cp === 'agnes' ? await getAgnesKey() : cp === 'glm' ? await getGlmKey() : await getApiKey();
+      cp === 'agnes'
+        ? await getAgnesKey()
+        : cp === 'glm'
+          ? await getGlmKey()
+          : cp === 'packycode'
+            ? await getPackyCodeKey()
+            : await getApiKey();
     if (ck) {
       try {
         // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值，保护用户手动选择的模型
@@ -181,7 +187,13 @@ export async function startupApplyClaude(): Promise<void> {
   if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
     const dp = prefs.claudeDesktopProvider ?? 'deepseek';
     const dk =
-      dp === 'agnes' ? await getAgnesKey() : dp === 'glm' ? await getGlmKey() : await getApiKey();
+      dp === 'agnes'
+        ? await getAgnesKey()
+        : dp === 'glm'
+          ? await getGlmKey()
+          : dp === 'packycode'
+            ? await getPackyCodeKey()
+            : await getApiKey();
     if (dk) {
       try {
         await writeClaudeDesktopConfig(dk, dp);

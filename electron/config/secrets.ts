@@ -12,6 +12,7 @@ interface FallbackShape {
   apiKey: string;
   agnesApiKey: string;
   glmApiKey: string;
+  packycodeApiKey: string;
 }
 
 let fallbackStore: Store<FallbackShape> | null = null;
@@ -20,7 +21,7 @@ function getFallback(): Store<FallbackShape> {
   if (!fallbackStore) {
     fallbackStore = new Store<FallbackShape>({
       name: 'secrets',
-      defaults: { apiKey: '', agnesApiKey: '', glmApiKey: '' },
+      defaults: { apiKey: '', agnesApiKey: '', glmApiKey: '', packycodeApiKey: '' },
       encryptionKey: 'codex-switch-local-only',
     });
   }
@@ -157,4 +158,47 @@ export async function clearGlmKey(): Promise<void> {
     }
   }
   getFallback().set('glmApiKey', '');
+}
+
+// ── PackyCode Key ───────────────────────────────────────────────────────
+
+const PACKYCODE_ACCOUNT = 'packycode-api-key';
+
+export async function getPackyCodeKey(): Promise<string> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      const v = await keytar.getPassword(SERVICE, PACKYCODE_ACCOUNT);
+      if (v) return v;
+    } catch {
+      /* fall through */
+    }
+  }
+  return getFallback().get('packycodeApiKey', '');
+}
+
+export async function setPackyCodeKey(apiKey: string): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.setPassword(SERVICE, PACKYCODE_ACCOUNT, apiKey);
+      getFallback().set('packycodeApiKey', '');
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+  getFallback().set('packycodeApiKey', apiKey);
+}
+
+export async function clearPackyCodeKey(): Promise<void> {
+  const keytar = await loadKeytar();
+  if (keytar) {
+    try {
+      await keytar.deletePassword(SERVICE, PACKYCODE_ACCOUNT);
+    } catch {
+      /* ignore */
+    }
+  }
+  getFallback().set('packycodeApiKey', '');
 }

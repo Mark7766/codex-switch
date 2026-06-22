@@ -3,6 +3,23 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.15.0] - 2026-06-22
+
+### 重磅新增：PackyCode 供应商接入 🎉
+
+> PackyCode（packyapi.com）是一个第三方 AI API 聚合服务，同时支持 Codex 和 Claude 的原生协议。用它接入 Codex 和 Claude，**不需要本地代理翻译**——数据直接加密发到 PackyCode，延迟更低、速度更快。
+
+- **Codex 直连 PackyCode**。在设置中「Codex 接入」卡片选 PackyCode，填 Key，点保存——Codex 直接和 PackyCode 对话，不经过本地代理。代理会自动跳过启动，节省系统资源
+- **Claude Desktop / Code CLI 直连 PackyCode**。Claude 工具同样支持 PackyCode——选完供应商填 Key，Claude Desktop 和 CLI 直接走 PackyCode 的 Anthropic 兼容端点。Opus / Sonnet / Haiku 三个模型各自透传原生模型名，计费精准不混淆
+- **混合模式自由搭配**。Codex 用 PackyCode（直连）、Claude Desktop 用 Agnes（经代理）、Claude CLI 用 DeepSeek（直连）——三张卡片各选各的，互不干扰。代理只在需要时启动，全直连时自动停
+- **主面板智能适配**。全直连模式下主面板不再显示「启动/停止代理」按钮，改为绿色「直连模式」标识——点开就知道当前不需要代理，清爽直观
+
+### 修复
+
+- **混合模式下 Claude 工具不再报错**。Codex 选 PackyCode + Claude 选 Agnes 的组合现在正常工作——Agnes Key 正确加载，Claude 请求正常转发
+- **全切直连后代理自动停**。把三个工具都切到 PackyCode 后，代理自动停止不再空跑占端口
+- **Haiku 模型计费精准了**。修复了 Claude Desktop 中选 Haiku 模型时实际发给 PackyCode 的是 Sonnet 模型名的问题——现在三个模型各自精准透传
+
 ## [1.14.3] - 2026-06-22
 
 ### 修复：切换供应商后 Claude Desktop / CLI 配置文件不生效 🔧
