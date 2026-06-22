@@ -9,7 +9,7 @@
 - **类型**：fix
 - **摘要**：用户切换 Claude Desktop 供应商（GLM↔DeepSeek）后点保存，配置文件实际未被修改。根因有两层：① `claudeApplyAll` handler 依赖 `detectAll().installed` 检查，未检测到安装时静默跳过写入；② API Key 缺失时静默跳过，无用户提示；③ 写入失败被 try/catch 吞掉，UI 永远显示"保存成功"；④ UI 缺少 DeepSeek Key 缺失的守卫提示。修复：① main.ts `claudeApplyAll` 移除 installed 依赖，缺少 Key 或写入失败时收集错误并 throw 到 UI；② Settings.tsx 两处保存守卫新增 DeepSeek Key 检查；③ 切换供应商时重置 desktopMapping/cliMapping（TASK-087 修复）；④ 版本升至 1.14.3 并更新 CHANGELOG。
 - **变更文件**：`electron/main.ts`（+30/-21，claudeApplyAll 重写）、`src/pages/Settings.tsx`（+10/-4，供应商切换重置 + DeepSeek Key 守卫）、`package.json`（1.14.2→1.14.3）、`CHANGELOG.md`（+13）
-- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。未 push。
+- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。已 push + release v1.14.3 ✅
 
 ### [TASK-087] v1.14.2 — 修复切换供应商后模型映射列表不更新的问题
 
