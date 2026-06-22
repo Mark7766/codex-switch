@@ -38,6 +38,34 @@
 
 ## 决策记录
 
+### ADR-026: v1.14.3 — claudeApplyAll 不再依赖 installed 检测，用户显式保存时强制执行写入
+
+- **日期**：2026-06-22
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+用户反馈切换 Claude Desktop 供应商（GLM↔DeepSeek）后点「保存并应用」，配置文件实际未被修改。排查发现 `claudeApplyAll` handler 有三层静默失败：
+1. `result.claudeDesktop.installed` 检测为 false 时跳过写入（例如应用未安装在预期路径、非标准安装位置）
+2. API Key 缺失时 `if(!dk)` 静默跳过，UI 显示"保存成功"
+3. `writeClaudeDesktopConfig` 异常被 catch 吞掉，只发遥测
+
+任一条件满足，用户看到「保存成功」但文件实际未改动。
+
+#### 决策
+> `claudeApplyAll` 的 Desktop 和 CLI 路径均移除 `installed` 检测。用户点保存即强制执行写入。Key 缺失或写入失败时，收集错误信息并 throw 到 UI 层，让用户看到明确提示。
+
+#### 理由
+1. 用户点「保存并应用」是显式意图，应无条件执行，不应被环境检测拦截
+2. 写入配置文件到磁盘无副作用——即便 Claude Desktop 尚未安装，写了配置文件等安装后也能自动生效
+3. 静默失败是最差的 UX——用户以为操作成功，实际上什么都没发生
+4. startupApplyClaude 保留 installed 检测（启动时自动 apply 不应在未安装时写文件），两条路径各有分工
+
+#### 影响
+- `electron/main.ts` `claudeApplyAll` handler：移除 `detectAll()` 调用（该 handler 不再需要 installed 信息）
+- `src/pages/Settings.tsx`：新增 DeepSeek Key 缺失的 UI 守卫（之前只有 Agnes/GLM）
+- handler 返回时若 errors 非空则 throw `Error`（含 `errors` 数组），UI 的 try/catch 展示具体失败原因
+
 ### ADR-025: v1.13.0 — Settings 页面三卡片独立供应商架构
 
 - **日期**：2026-06-19

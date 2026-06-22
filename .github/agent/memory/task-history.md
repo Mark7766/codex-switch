@@ -3,6 +3,22 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-088] v1.14.3 — 修复切换供应商后 Claude Desktop / CLI 配置文件不更新 + 版本发布
+
+- **日期**：2026-06-22
+- **类型**：fix
+- **摘要**：用户切换 Claude Desktop 供应商（GLM↔DeepSeek）后点保存，配置文件实际未被修改。根因有两层：① `claudeApplyAll` handler 依赖 `detectAll().installed` 检查，未检测到安装时静默跳过写入；② API Key 缺失时静默跳过，无用户提示；③ 写入失败被 try/catch 吞掉，UI 永远显示"保存成功"；④ UI 缺少 DeepSeek Key 缺失的守卫提示。修复：① main.ts `claudeApplyAll` 移除 installed 依赖，缺少 Key 或写入失败时收集错误并 throw 到 UI；② Settings.tsx 两处保存守卫新增 DeepSeek Key 检查；③ 切换供应商时重置 desktopMapping/cliMapping（TASK-087 修复）；④ 版本升至 1.14.3 并更新 CHANGELOG。
+- **变更文件**：`electron/main.ts`（+30/-21，claudeApplyAll 重写）、`src/pages/Settings.tsx`（+10/-4，供应商切换重置 + DeepSeek Key 守卫）、`package.json`（1.14.2→1.14.3）、`CHANGELOG.md`（+13）
+- **验证**：typecheck ✅，lint ✅，format:check ✅，197/197 tests ✅。未 push。
+
+### [TASK-087] v1.14.2 — 修复切换供应商后模型映射列表不更新的问题
+
+- **日期**：2026-06-22
+- **类型**：fix
+- **摘要**：用户从智谱GLM切换回DeepSeek后，Claude Desktop和Claude Code CLI的模型映射列表仍显示GLM的存储值。根因：Settings.tsx 中切换供应商下拉框时（ProviderDropdown onChange），仅更新了 `claudeDesktopProvider` / `claudeCliProvider` 本地状态，`desktopMapping` / `cliMapping` 保持从 store 加载的旧供应商映射值。保存时旧映射被持久化到新供应商，`buildGatewayProfile` 优先使用 modelMap 中的旧值覆盖 per-provider 默认值。修复：切换供应商时同步重置对应 `desktopMapping={}` / `cliMapping={}`，让 `buildGatewayProfile` 的 per-provider 默认值生效。
+- **变更文件**：`src/pages/Settings.tsx`（+4/-2，两处 onChange 各加状态重置）
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+
 ### [TASK-086] v1.14.2 — 修复消息指数级重复导致的上下文超限假阳性
 
 - **日期**：2026-06-22

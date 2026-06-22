@@ -431,9 +431,10 @@ export function Settings(): JSX.Element {
             <span>供应商</span>
             <select
               value={claudeDesktopProvider}
-              onChange={(e) =>
-                setClaudeDesktopProvider(e.target.value as 'deepseek' | 'agnes' | 'glm')
-              }
+              onChange={(e) => {
+                setClaudeDesktopProvider(e.target.value as 'deepseek' | 'agnes' | 'glm');
+                setDesktopMapping({}); // 切换供应商时重置模型映射，使用新供应商默认值
+              }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
               <option value="deepseek">DeepSeek</option>
@@ -458,6 +459,10 @@ export function Settings(): JSX.Element {
               }
               if (claudeDesktopProvider === 'glm' && !maskedGlmKey) {
                 pushToast({ kind: 'info', message: '请先在供应商设置中配置 GLM Key' });
+                return;
+              }
+              if (claudeDesktopProvider === 'deepseek' && !maskedKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 DeepSeek Key' });
                 return;
               }
               try {
@@ -488,7 +493,10 @@ export function Settings(): JSX.Element {
             <span>供应商</span>
             <select
               value={claudeCliProvider}
-              onChange={(e) => setClaudeCliProvider(e.target.value as 'deepseek' | 'agnes' | 'glm')}
+              onChange={(e) => {
+                setClaudeCliProvider(e.target.value as 'deepseek' | 'agnes' | 'glm');
+                setCliMapping({}); // 切换供应商时重置模型映射，使用新供应商默认值
+              }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
               <option value="deepseek">DeepSeek</option>
@@ -513,6 +521,10 @@ export function Settings(): JSX.Element {
               }
               if (claudeCliProvider === 'glm' && !maskedGlmKey) {
                 pushToast({ kind: 'info', message: '请先在供应商设置中配置 GLM Key' });
+                return;
+              }
+              if (claudeCliProvider === 'deepseek' && !maskedKey) {
+                pushToast({ kind: 'info', message: '请先在供应商设置中配置 DeepSeek Key' });
                 return;
               }
               try {

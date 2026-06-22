@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v1.13.0（开发中，对话缓存改为纯内存 LRU + Codex JSONL fallback） |
+| 当前阶段 | v1.14.3（开发中，GLM 接入 + 上下文超限截断 + 供应商切换修复） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |

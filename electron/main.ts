@@ -741,10 +741,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC.claudeDetect, () => detectAll());
   ipcMain.handle(IPC.claudeApplyAll, async () => {
     const prefs = getPreferences();
-    const result = await detectAll();
+    const errors: string[] = [];
 
     // v1.13.0: Claude Desktop 和 CLI 各自独立的供应商
-    if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
+    // v1.14.3: 不再依赖 installed 检测（用户显式保存时即使未检测到安装也应写入配置）
+    if (prefs.claudeDesktop.enabled) {
       const dp = prefs.claudeDesktopProvider ?? 'deepseek';
       const dk =
         dp === 'agnes' ? await getAgnesKey() : dp === 'glm' ? await getGlmKey() : await getApiKey();
@@ -753,15 +754,21 @@ function registerIpc(): void {
           await writeClaudeDesktopConfig(dk, dp);
           telemetry?.track('tool_install', { tool: 'claude-desktop' });
         } catch (e) {
+          const msg = (e as Error).message?.slice(0, 50) ?? 'unknown';
+          errors.push(`Claude Desktop 配置写入失败：${msg}`);
           telemetry?.track('tool_install_fail', {
             tool: 'claude-desktop',
-            error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+            error_code: msg,
           });
         }
+      } else {
+        errors.push(
+          `缺少 ${dp === 'glm' ? '智谱 GLM' : dp === 'agnes' ? 'Agnes AI' : 'DeepSeek'} API Key，请先在供应商设置中配置`,
+        );
       }
     }
 
-    if (prefs.claudeCli.enabled && result.claudeCli.installed) {
+    if (prefs.claudeCli.enabled) {
       const cp = prefs.claudeCliProvider ?? 'deepseek';
       const ck =
         cp === 'agnes' ? await getAgnesKey() : cp === 'glm' ? await getGlmKey() : await getApiKey();
@@ -775,11 +782,17 @@ function registerIpc(): void {
           await writeClaudeCliConfig(ck, envVars, cp);
           telemetry?.track('tool_install', { tool: 'claude-cli' });
         } catch (e) {
+          const msg = (e as Error).message?.slice(0, 50) ?? 'unknown';
+          errors.push(`Claude Code CLI 配置写入失败：${msg}`);
           telemetry?.track('tool_install_fail', {
             tool: 'claude-cli',
-            error_code: (e as Error).message?.slice(0, 50) ?? 'unknown',
+            error_code: msg,
           });
         }
+      } else {
+        errors.push(
+          `Claude Code CLI：缺少 ${cp === 'glm' ? '智谱 GLM' : cp === 'agnes' ? 'Agnes AI' : 'DeepSeek'} API Key，请先在供应商设置中配置`,
+        );
       }
     }
 
@@ -795,6 +808,10 @@ function registerIpc(): void {
           defaultModel: 'agnes-2.0-flash',
         });
       }
+    }
+
+    if (errors.length > 0) {
+      throw Object.assign(new Error(errors.join('；')), { errors });
     }
 
     return detectAll();
