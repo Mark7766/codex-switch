@@ -42,9 +42,9 @@ const mockApi = {
   getGlmKey: vi.fn().mockResolvedValue(''),
   setGlmKey: vi.fn().mockResolvedValue(true),
   clearGlmKey: vi.fn().mockResolvedValue(true),
-  getPackyCodeKey: vi.fn().mockResolvedValue(''),
-  setPackyCodeKey: vi.fn().mockResolvedValue(true),
-  clearPackyCodeKey: vi.fn().mockResolvedValue(true),
+  getCustomKey: vi.fn().mockResolvedValue(''),
+  setCustomKey: vi.fn().mockResolvedValue(true),
+  clearCustomKey: vi.fn().mockResolvedValue(true),
   codexBackups: vi.fn().mockResolvedValue({ config: [], auth: [] }),
   getVersion: vi.fn().mockResolvedValue('1.7.0'),
   applyPreferences: vi.fn().mockResolvedValue({

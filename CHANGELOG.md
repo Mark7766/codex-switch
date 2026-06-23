@@ -3,6 +3,22 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.16.0] - 2026-06-24
+
+### 重磅变更：PackyCode 升级为「自定义供应商」🔓
+
+> v1.15.0 引入的 PackyCode 是一个特定第三方服务。v1.16.0 把它升级为**通用自定义供应商**——不再绑定任何特定服务商，你自己填 Base URL，想接哪个兼容 API 就接哪个。完全自主、完全灵活。
+
+- **「自定义」取代「PackyCode」**。设置中所有供应商选择已从「PackyCode」改为「自定义」——不再预置任何服务商名称。用什么服务、填什么地址，完全由你决定
+- **两个 Base URL，各管各的**。Codex 接入和 Claude 工具接入现在各有独立的 Base URL 输入框——Codex URL（OpenAI Responses 兼容端点，通常带 `/v1` 后缀）和 Claude URL（Anthropic Messages 兼容端点，通常不带后缀）。填写后点保存即生效，适配任意兼容的第三方 API
+- **存量用户平滑迁移**。之前选了 PackyCode 的用户，供应商类型会自动改为「自定义」，API Key 保留不动——只需补填两个 Base URL 即可继续使用（URL 字段留空，等你自行填写）
+- **模型列表完全不动**。自定义供应商的模型选项和之前 PackyCode 一样——无需重新配置模型映射
+
+### 变更
+
+- **全局去品牌化**。FAQ 帮助文档、智能搜索、设置页、主面板——所有提到「PackyCode」的地方都已替换为「自定义供应商」的中性表述。强调「选择什么供应商完全由用户自主决定」
+- **代码层重命名**。底层 provider 标识从 `packycode` 改为 `custom`，配置存储新增 `customProvider` 字段（含 `codexBaseUrl` 和 `claudeBaseUrl`）。自定义供应商依然是直连模式，不经过本地代理
+
 ## [1.15.0] - 2026-06-22
 
 ### 重磅新增：PackyCode 供应商接入 🎉

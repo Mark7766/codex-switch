@@ -1,9 +1,9 @@
 [
   {
-    "id": "packycode-setup",
+    "id": "custom-setup",
     "tag": "入门",
-    "question": "如何接入 PackyCode？",
-    "answer": "PackyCode（packyapi.com）是一个第三方 AI API 聚合中转服务，原生支持 Codex 和 Claude 协议——直连即可，延迟更低。接入只需三步：\n\n1. 注册并获取 API Key → 访问 https://www.packyapi.com/ 注册，进入控制台获取 Key 并复制\n2. Codex Switch 设置 → 在「💻 Codex 接入」卡片中将供应商切换为「PackyCode · 直连」，Key 已在「🔑 供应商设置」中填好（格式要求：长度至少 10 位）\n3. 点「保存并应用」→ Codex 无需重启，下一条消息直接走 PackyCode\n\nCodex 接入 PackyCode 可选 GPT-5.5 / GPT-5.4 / GPT-5.4 High / GPT-5.4 Mini / Codex Auto Review，也支持输入任意模型名。Claude Desktop / Claude Code CLI 想用 PackyCode？在对应的接入卡片里同样操作——模型映射支持 Opus / Sonnet 多版本，也可自定义输入。\n\n💡 PackyCode 的好处：多供应商聚合，一个 Key 通吃 GPT、Claude、Gemini、DeepSeek、GLM、Kimi 等主流模型；国内直接访问，按量计费最低 0.5 折。想切回其他供应商？下拉选回保存即可。"
+    "question": "如何接入自定义 API？",
+    "answer": "如果你有兼容 OpenAI Responses API 或 Anthropic Messages API 的第三方 API 服务，可以在 Codex Switch 中配置自定义供应商。只需两步：\n\n1. 获取 Codex Base URL 和 Claude Base URL → 在你的 API 服务商后台获取（Codex URL 通常以 /v1 结尾，Claude URL 通常为根路径）\n2. Codex Switch 设置 → 在「🔑 供应商设置」中将供应商切换为「自定义 · 直连」，填写两个 Base URL 和 API Key\n3. 在「📟 Codex 接入」卡片中选择供应商为「自定义 · 直连」，选择或输入模型名，点「保存并应用」\n\n同样的操作适用于 Claude Desktop 和 Claude Code CLI——在对应的接入卡片里切换到「自定义 · 直连」即可。\n\n💡 选择什么供应商完全由你自主决定。Base URL 填入你信任的 API 地址，模型名请参考该 API 提供商的文档。想切回其他供应商？下拉选回保存即可。"
   },
   {
     "id": "glm-setup",

@@ -12,7 +12,7 @@ interface FallbackShape {
   apiKey: string;
   agnesApiKey: string;
   glmApiKey: string;
-  packycodeApiKey: string;
+  customApiKey: string;
 }
 
 let fallbackStore: Store<FallbackShape> | null = null;
@@ -21,7 +21,7 @@ function getFallback(): Store<FallbackShape> {
   if (!fallbackStore) {
     fallbackStore = new Store<FallbackShape>({
       name: 'secrets',
-      defaults: { apiKey: '', agnesApiKey: '', glmApiKey: '', packycodeApiKey: '' },
+      defaults: { apiKey: '', agnesApiKey: '', glmApiKey: '', customApiKey: '' },
       encryptionKey: 'codex-switch-local-only',
     });
   }
@@ -160,45 +160,45 @@ export async function clearGlmKey(): Promise<void> {
   getFallback().set('glmApiKey', '');
 }
 
-// ── PackyCode Key ───────────────────────────────────────────────────────
+// ── Custom Provider Key ───────────────────────────────────────────────────────
 
-const PACKYCODE_ACCOUNT = 'packycode-api-key';
+const CUSTOM_ACCOUNT = 'custom-api-key';
 
-export async function getPackyCodeKey(): Promise<string> {
+export async function getCustomKey(): Promise<string> {
   const keytar = await loadKeytar();
   if (keytar) {
     try {
-      const v = await keytar.getPassword(SERVICE, PACKYCODE_ACCOUNT);
+      const v = await keytar.getPassword(SERVICE, CUSTOM_ACCOUNT);
       if (v) return v;
     } catch {
       /* fall through */
     }
   }
-  return getFallback().get('packycodeApiKey', '');
+  return getFallback().get('customApiKey', '');
 }
 
-export async function setPackyCodeKey(apiKey: string): Promise<void> {
+export async function setCustomKey(apiKey: string): Promise<void> {
   const keytar = await loadKeytar();
   if (keytar) {
     try {
-      await keytar.setPassword(SERVICE, PACKYCODE_ACCOUNT, apiKey);
-      getFallback().set('packycodeApiKey', '');
+      await keytar.setPassword(SERVICE, CUSTOM_ACCOUNT, apiKey);
+      getFallback().set('customApiKey', '');
       return;
     } catch {
       /* fall through */
     }
   }
-  getFallback().set('packycodeApiKey', apiKey);
+  getFallback().set('customApiKey', apiKey);
 }
 
-export async function clearPackyCodeKey(): Promise<void> {
+export async function clearCustomKey(): Promise<void> {
   const keytar = await loadKeytar();
   if (keytar) {
     try {
-      await keytar.deletePassword(SERVICE, PACKYCODE_ACCOUNT);
+      await keytar.deletePassword(SERVICE, CUSTOM_ACCOUNT);
     } catch {
       /* ignore */
     }
   }
-  getFallback().set('packycodeApiKey', '');
+  getFallback().set('customApiKey', '');
 }

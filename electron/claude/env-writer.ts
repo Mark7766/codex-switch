@@ -54,8 +54,8 @@ export const AGNES_ENV_VARS: ClaudeCliEnvVars = {
   claudeCodeSubagentModel: 'agnes-1.5-flash',
 };
 
-/** PackyCode 供应商的 Claude CLI 默认模型名（直连 PackyCode Anthropic 端点，透传 Claude 名）。 */
-export const PACKYCODE_ENV_VARS: ClaudeCliEnvVars = {
+/** v1.16.0 自定义供应商的 Claude CLI 默认模型名（直连自定义 Anthropic 端点，透传 Claude 名）。 */
+export const CUSTOM_ENV_VARS: ClaudeCliEnvVars = {
   anthropicModel: 'claude-sonnet-4-6',
   anthropicDefaultOpusModel: 'claude-opus-4-7',
   anthropicDefaultSonnetModel: 'claude-sonnet-4-6',
@@ -71,15 +71,15 @@ export const PACKYCODE_ENV_VARS: ClaudeCliEnvVars = {
  */
 export function resolveEnvVars(
   existing: ClaudeCliEnvVars | undefined,
-  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode',
+  provider: 'deepseek' | 'agnes' | 'glm' | 'custom',
 ): { envVars: ClaudeCliEnvVars; changed: boolean } {
   const defaults =
     provider === 'glm'
       ? GLM_ENV_VARS
       : provider === 'agnes'
         ? AGNES_ENV_VARS
-        : provider === 'packycode'
-          ? PACKYCODE_ENV_VARS
+        : provider === 'custom'
+          ? CUSTOM_ENV_VARS
           : DEFAULT_ENV_VARS;
   // 检查已有配置的模型名是否属于当前供应商
   const model = existing?.anthropicModel?.trim();
@@ -92,7 +92,7 @@ export function resolveEnvVars(
       (model.startsWith('deepseek') || model.startsWith('glm') || isClaudeModel)) ||
     (provider === 'deepseek' &&
       (model.startsWith('glm') || model.startsWith('agnes') || isClaudeModel)) ||
-    (provider === 'packycode' &&
+    (provider === 'custom' &&
       (model.startsWith('deepseek') || model.startsWith('glm') || model.startsWith('agnes')));
   if (wrongProvider) return { envVars: defaults, changed: true };
   // 模型名与供应商匹配，保留用户配置
@@ -378,11 +378,13 @@ export async function readCurrentCliEnvVars(): Promise<ClaudeCliEnvVars | null> 
  */
 export function inferProviderFromModel(
   model: string,
-): 'deepseek' | 'agnes' | 'glm' | 'packycode' | null {
+): 'deepseek' | 'agnes' | 'glm' | 'custom' | null {
   if (model.startsWith('deepseek')) return 'deepseek';
   if (model.startsWith('agnes')) return 'agnes';
   if (model.startsWith('glm')) return 'glm';
-  if (model.startsWith('claude-')) return 'packycode';
+  // claude-* 模型名可能是自定义供应商，也可能是用户在其他供应商下手动输入的，
+  // 此处推断为 best guess，仅在 startupApplyClaude 中用于检测不匹配的唤醒场景。
+  if (model.startsWith('claude-')) return 'custom';
   return null;
 }
 
@@ -395,9 +397,9 @@ export function inferProviderFromModel(
 export async function writeClaudeCliConfig(
   apiKey: string,
   vars: ClaudeCliEnvVars = DEFAULT_ENV_VARS,
-  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' = 'deepseek',
+  provider: 'deepseek' | 'agnes' | 'glm' | 'custom' = 'deepseek',
 ): Promise<void> {
-  // v1.13.0: Agnes 走代理；v1.14.0: GLM 直连 Anthropic；v1.15.0: PackyCode 直连 Anthropic
+  // v1.13.0: Agnes 走代理；v1.14.0: GLM 直连 Anthropic；v1.16.0: custom 直连用户指定 Anthropic 端点
   // v1.14.1: Agnes 使用用户配置的实际代理端口，不再硬编码 11435
   // 注意：调用方负责根据 provider 传入正确的 envVars（模型名），本函数不再内部覆盖。
   const baseUrl =
@@ -405,8 +407,8 @@ export async function writeClaudeCliConfig(
       ? `http://127.0.0.1:${getPreferences().proxyPort}`
       : provider === 'glm'
         ? 'https://open.bigmodel.cn/api/anthropic'
-        : provider === 'packycode'
-          ? 'https://www.packyapi.com'
+        : provider === 'custom'
+          ? getPreferences().customProvider.claudeBaseUrl
           : 'https://api.deepseek.com/anthropic';
   await writeSettingsJson(apiKey, vars, baseUrl);
   await writeAuthBypass();

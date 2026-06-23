@@ -32,7 +32,7 @@ export interface HttpHandlerDeps {
   /** v1.13.0: 中间模型→实际模型+供应商。 */
   activeModelMapping?: Record<
     string,
-    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'custom' }
   >;
   /** v1.14.0: upstream API path (GLM uses /api/paas/v4/chat/completions). */
   apiPath: string;

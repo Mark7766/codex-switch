@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 interface Props {
   open: boolean;
   onClose: () => void;
-  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+  provider: 'deepseek' | 'agnes' | 'glm' | 'custom';
   mapping: Record<string, string>;
   onSave: (m: Record<string, string>) => void;
 }
@@ -17,9 +17,9 @@ const CLAUDE_MODELS = [
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
 ];
 
-function modelOptions(p: 'deepseek' | 'agnes' | 'glm' | 'packycode'): string[] {
+function modelOptions(p: 'deepseek' | 'agnes' | 'glm' | 'custom'): string[] {
   if (p === 'glm') return ['glm-5.2', 'glm-5.1', 'glm-4.7'];
-  if (p === 'packycode')
+  if (p === 'custom')
     return [
       'claude-opus-4-8',
       'claude-opus-4-7',
@@ -67,9 +67,9 @@ export function ModelMappingModal({
   if (!open) return null;
 
   const presets = modelOptions(provider);
-  // v1.15.0: PackyCode 不配置 Haiku（仅 Opus + Sonnet）
+  // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet）
   const visibleModels =
-    provider === 'packycode'
+    provider === 'custom'
       ? CLAUDE_MODELS.filter((m) => m.id !== 'claude-haiku-4-5')
       : CLAUDE_MODELS;
 

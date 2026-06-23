@@ -23,9 +23,9 @@ const IPC = {
   glmKeyGet: 'key:glm-get',
   glmKeySet: 'key:glm-set',
   glmKeyClear: 'key:glm-clear',
-  packycodeKeyGet: 'key:packycode-get',
-  packycodeKeySet: 'key:packycode-set',
-  packycodeKeyClear: 'key:packycode-clear',
+  customKeyGet: 'key:custom-get',
+  customKeySet: 'key:custom-set',
+  customKeyClear: 'key:custom-clear',
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',
   codexRestore: 'codex:restore',
@@ -95,10 +95,10 @@ const api = {
   getGlmKey: () => ipcRenderer.invoke(IPC.glmKeyGet),
   setGlmKey: (key: string) => ipcRenderer.invoke(IPC.glmKeySet, key),
   clearGlmKey: () => ipcRenderer.invoke(IPC.glmKeyClear),
-  // v1.15.0 PackyCode
-  getPackyCodeKey: () => ipcRenderer.invoke(IPC.packycodeKeyGet),
-  setPackyCodeKey: (key: string) => ipcRenderer.invoke(IPC.packycodeKeySet, key),
-  clearPackyCodeKey: () => ipcRenderer.invoke(IPC.packycodeKeyClear),
+  // v1.16.0 自定义供应商
+  getCustomKey: () => ipcRenderer.invoke(IPC.customKeyGet),
+  setCustomKey: (key: string) => ipcRenderer.invoke(IPC.customKeySet, key),
+  clearCustomKey: () => ipcRenderer.invoke(IPC.customKeyClear),
   // 代理
   proxyStart: () => ipcRenderer.invoke(IPC.proxyStart),
   proxyStop: () => ipcRenderer.invoke(IPC.proxyStop),

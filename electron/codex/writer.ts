@@ -9,10 +9,12 @@ export interface WriteCodexConfigInput {
   /** 每个文件保留的最大备份份数。默认 5。 */
   maxBackupsPerFile?: number;
   /**
-   * v1.15.0: AI 供应商。packycode 时使用直连模板（绕过本地代理），
+   * v1.16.0: AI 供应商。custom 时使用直连模板（绕过本地代理，读取 customProvider 字段），
    * 其他供应商使用代理模板（base_url 指向 127.0.0.1）。
    */
-  provider?: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+  provider?: 'deepseek' | 'agnes' | 'glm' | 'custom';
+  /** v1.16.0: 自定义供应商 Codex Base URL（仅 provider='custom' 时使用）。 */
+  customCodexBaseUrl?: string;
 }
 
 export interface WriteCodexConfigResult {
@@ -70,11 +72,11 @@ enable_request_compression = false
 remote_compaction_v2 = false
 `;
 
-// v1.15.0: PackyCode 直连模板 —— Codex 直接连接 packyapi.com，不经过本地代理。
-// PackyCode 原生支持 OpenAI Responses API，不需要协议翻译。
-const PACKYCODE_TEMPLATE = (
+// v1.16.0: 自定义供应商直连模板 —— Codex 直接连接用户指定的 API，不经过本地代理。
+const CUSTOM_TEMPLATE = (
   model: string,
-): string => `# Codex CLI 配置（由 Codex Switch 自动生成 · PackyCode 直连模式）
+  baseUrl: string,
+): string => `# Codex CLI 配置（由 Codex Switch 自动生成 · 自定义供应商直连模式）
 # 完整配置参考: https://github.com/openai/codex
 
 model_provider = "custom"
@@ -85,8 +87,8 @@ model_context_window = 1000000
 model_auto_compact_token_limit = 900000
 
 [model_providers.custom]
-name = "PackyCode"
-base_url = "https://www.packyapi.com/v1"
+name = "自定义"
+base_url = "${baseUrl}"
 wire_api = "responses"
 requires_openai_auth = true
 
@@ -256,8 +258,8 @@ export async function writeCodexConfig(
 
   const cfg = await writeWithBackup(
     configPath,
-    input.provider === 'packycode'
-      ? PACKYCODE_TEMPLATE(input.model)
+    input.provider === 'custom'
+      ? CUSTOM_TEMPLATE(input.model, input.customCodexBaseUrl ?? '')
       : TEMPLATE(input.proxyPort, input.model),
     keep,
   );

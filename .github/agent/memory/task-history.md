@@ -3,13 +3,95 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-103] v1.16.0 — CHANGELOG 编写
+
+- **日期**：2026-06-24
+- **类型**：docs
+- **摘要**：从用户视角编写 v1.16.0 CHANGELOG 条目。核心信息：PackyCode 升级为「自定义供应商」，两个独立 Base URL 输入框（Codex + Claude），存量用户平滑迁移，全局去品牌化。文案风格对齐已有条目（用户友好中文、非技术视角）。
+- **变更文件**：`CHANGELOG.md`（+16 行，新增 v1.16.0 条目）
+- **关联**：TASK-100、TASK-101、TASK-102、ADR-027
+
+### [TASK-100] v1.16.0 — 自定义供应商方案设计（PackyCode → Custom）
+
+- **日期**：2026-06-24
+- **类型**：design
+- **摘要**：编写 v1.16.0 自定义供应商方案文档，经过三轮迭代定稿。核心需求：① 不能以 "PackyCode" 名称出现 → 改为 "自定义"；② Base URL 不能预置 → 用户自己填两个 URL（`codexBaseUrl` + `claudeBaseUrl`），不再做字符串拼接；③ 接入逻辑通过 `provider === 'custom'` 标识，读取 `customProvider` 字段替代硬编码 URL；④ 存量 PackyCode 用户不做 URL 迁移，和新用户一样手动填写（API Key 保留）；⑤ FAQ + 智能搜索 + CHANGELOG 全部去品牌化，强调"选择什么供应商完全由用户自主决定"。方案极简：全局 `packycode` → `custom` 重命名 + store 新增 `customProvider` 两个 URL 字段 + Settings 加两个 URL 输入框。模型映射列表不动。
+- **变更文件**：
+  - `docs/DESIGN-custom-provider-v1.16.0.md`（新建并多次修订）
+- **关联**：TASK-090（PackyCode 原始接入）、ADR-027
+- **注意事项**：
+  1. custom 永远是直连模式（不经本地代理），和 PackyCode 逻辑一致
+  2. Codex URL 通常带 `/v1` 后缀、Claude URL 不带，用户自行按服务商文档填写
+  3. 存量用户仅 provider 类型自动改名，URL 字段留空不预填
+  4. 预估变更 ~17 文件（含 FAQ/SearchPopover），代码净变化约 +60/-70 行
+
+### [TASK-101] v1.16.0 — 自定义供应商代码实现
+
+- **日期**：2026-06-24
+- **类型**：feat
+- **摘要**：按方案完整实施 v1.16.0。全局 `packycode`→`custom` 重命名 + store 新增 `customProvider` 两个 URL 字段 + Settings 新增两个 Base URL 输入框 + FAQ/智能搜索/SearchPopover 全部去 PackyCode 品牌化。存量用户仅 provider 类型自动改名，URL 不预填。共变更 20 个文件。
+- **变更文件**：store.ts / secrets.ts / channels.ts / writer.ts / desktop-writer.ts / env-writer.ts / main.ts / migrations.ts / preload.ts / server.ts / http-handler.ts / ws-handler.ts / Settings.tsx / ModelMappingModal.tsx / Dashboard.tsx / SearchPopover.tsx / global.d.ts / faq.json / package.json / Settings.test.tsx
+- **验证**：typecheck ✅，197/197 tests ✅。未 push。
+- **关联**：TASK-100（方案设计）、ADR-027
+- **注意事项**：custom 永远直连不经代理；两个 URL 字段各自独立不拼接；模型列表完全不动
+
+### [TASK-102] v1.16.0 — Review 缺陷修复（P0-1/P0-3/P1-1/P1-2/P2-2）
+
+- **日期**：2026-06-24
+- **类型**：fix
+- **摘要**：按落地审查报告修复 5 个缺陷：P0-1 store.ts migrateIfNeeded() 新增 v1.16.0 迁移（packycode→custom）；P0-3 codexWrite handler 补充 customCodexBaseUrl 传参；P1-1 Settings useEffect 补充 URL 状态恢复；P1-2 Claude 保存增加 URL 非空校验；P2-2 inferProviderFromModel + desktop-writer 注释修正。
+- **变更文件**：store.ts（+7）、main.ts（+1）、Settings.tsx（+8）、desktop-writer.ts（1行注释）、env-writer.ts（+2注释）、global.d.ts（+1类型）
+- **验证**：typecheck ✅，197/197 tests ✅。未 push。
+
+### [TASK-099] v1.15.1 — 增强遥测事件字段（platform/version/error_details）
+
+- **日期**：2026-06-23
+- **类型**：feat
+- **摘要**：按生产环境分析报告建议，为 3 种遥测事件补齐缺失的诊断字段。① `proxy_error` 新增 `error_message`、`platform`、`app_version`；② `tool_install_fail`（两处：claude-desktop + claude-cli）新增 `platform`、`app_version`；③ `error`（uncaughtException + unhandledRejection）新增 `error_message`、`error_stack`（截断 500 字符）、`platform`、`app_version`。全局异常 handler 增加 try/catch 防递归（遥测本身失败不触发新的 uncaughtException）。所有新增字段中的字符串值经 TASK-098 中心化脱敏自动保护。
+- **变更文件**：`electron/main.ts`（+38/-7，5 处修改）
+- **验证**：typecheck ✅，197/197 tests ✅。不 push
+- **关联**：TASK-098（遥测脱敏）、docs/error-event-analysis-2026-06-23.md
+
+### [TASK-098] v1.15.1 — 遥测层 API Key 脱敏（安全修复）
+
+- **日期**：2026-06-23
+- **类型**：fix（安全）
+- **摘要**：生产环境分析发现 `tool_install_fail` 事件的 `error_code` 字段包含完整 Anthropic API Key（`sk-ant-api03-...`），通过遥测被明文写入广州服务器数据库。修复分两层：① **中心化脱敏**—`telemetry.ts` 新增 `sanitizeProperties()` 递归脱敏函数，在 `track()` 入口对所有 string 类型 properties 值调用 `redactSensitive()`，确保任何经由遥测的字符串都在源头被脱敏；② **加固脱敏正则**—`errors.ts` `SENSITIVE_PATTERNS` 中 `sk-` 最小长度从 `{8,}` 降为 `{4,}`，避免 `.slice(0,50)` 截断后残留 6 字符的 Token 片段逃逸。版本 1.15.0→1.15.1。不 push。
+- **变更文件**：
+  - `electron/server-client/telemetry.ts`（+21 行：import + sanitizeProperties + track() 调用）
+  - `electron/proxy/errors.ts`（1 行：`{8,}`→`{4,}`）
+  - `package.json`（1 行：1.15.0→1.15.1）
+- **验证**：typecheck ✅，197/197 tests ✅。未 push
+- **注意事项**：
+  1. 数据库中已泄露的 Key 需手动清理（本次仅止血，不涉及服务端清理）
+  2. 受影响客户端 `f2083c158919bbab`（13次上报）、`87a99c91913067b9`（1次上报）需通知轮换 Key
+  3. `sanitizeProperties` 递归处理嵌套对象，覆盖未来新增的任何 properties 字段
+  4. 中心化方案优于散点修补——后续任何新增的遥测调用点自动受保护
+
+### [TASK-097] v1.15.0 — Release 发布
+
+- **日期**：2026-06-22
+- **类型**：release
+- **摘要**：打 tag `v1.15.0` 并推送，触发 GitHub Actions Release workflow（version-check → macOS/Windows build → publish）。package.json 版本 1.15.0 与 tag 一致，CHANGELOG 已含完整的 v1.15.0 发布说明（PackyCode 供应商接入 + 5 项修复 + 3 项优化）。
+- **验证**：tag 已推送 ✅，Release workflow 已触发，待构建完成
+- **关联**：TASK-096、TASK-090
+
+### [TASK-096] v1.15.0 — 推送全部累积变更到远程仓库
+
+- **日期**：2026-06-22
+- **类型**：chore
+- **摘要**：将 v1.15.0 所有累积变更（25 files, +1303/-135）提交并推送到 origin/main。包含：PackyCode 供应商完整接入（TASK-090）、PackyCode Review 缺陷修复（TASK-091）、模型选择精简+自定义模型（TASK-092/093）、datalist→select 修复（TASK-094）、FAQ+搜索更新（TASK-095）。pre-commit hook ✅，push ✅，CI Lint & Format job 待触发。
+- **变更文件**：25 files（详见 commit `83e7987`）
+- **验证**：lint ✅，format ✅，197/197 tests ✅。已 push ✅
+
 ### [TASK-095] v1.15.0 — FAQ + 智能搜索增加 PackyCode 接入指南
 
 - **日期**：2026-06-22
 - **类型**：docs / feat
 - **摘要**：① faq.json 新增「如何接入 PackyCode？」条目（id: packycode-setup），覆盖注册、配置 Codex/Claude 三工具、可选模型、自定义输入；② SearchPopover 示例问题增加「如何接入 PackyCode？」并置顶；③ main.ts 搜索提示词新增 PackyCode 关键词触发（packy/packycode/聚合/中转/多模型）和回答指引。
 - **变更文件**：`docs/help/faq.json`（+1 条目）、`src/components/SearchPopover.tsx`（+1 示例）、`electron/main.ts`（搜索提示词扩展）
-- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。已 push（TASK-096）。
+
 - **关联**：TASK-090、TASK-093
 
 ### [TASK-094] v1.15.0 — 修复 ModelMappingModal datalist 只显示一个选项
@@ -18,7 +100,7 @@
 - **类型**：fix
 - **摘要**：TASK-093 将 ModelMappingModal 的 select 改为 input+datalist combo-box，但 datalist 在浏览器中会按输入框当前值过滤建议项——三个 Claude 模型行都 pre-filled 了默认值，点开 dropdown 只显示匹配的那一条。修复：改回 select 下拉 + "__custom__" 选项 + 自定义文本输入框模式（与 Codex 卡片的自定义模型输入保持一致）。弹窗打开时自动识别 mapping 中的非预设值并恢复为自定义态。
 - **变更文件**：`src/components/ModelMappingModal.tsx`（重写：datalist → select + 自定义输入）
-- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。已 push（TASK-096）。
 - **关联**：TASK-093
 
 ### [TASK-093] v1.15.0 — PackyCode 模型选择精简 + Claude 工具自定义模型 + DeepSeek/GLM 直连标注
@@ -27,7 +109,8 @@
 - **类型**：feat
 - **摘要**：① Codex 接入 · PackyCode 默认模型精简为 5 个 GPT 模型（gpt-5.5/5.4/5.4-high/5.4-mini/codex-auto-review） + 自定义输入；② ModelMappingModal 的 PackyCode 选项扩展为 7 个 Claude 模型（opus-4.8/4.7/4.6/4.5 + sonnet-4.6/4.5 + haiku-4.5），下拉改为 `<input>`+`<datalist>` combo-box 支持输入任意模型名；③ Claude Desktop/CLI 卡片中 DeepSeek 和 GLM 选项标注 "· 直连"（对齐 PackyCode · 直连风格，因为这三个供应商在 Claude 工具路径上都是直连不经代理）。
 - **变更文件**：`src/pages/Settings.tsx`（精简 Codex 模型 + 两处 · 直连标注）、`src/components/ModelMappingModal.tsx`（PackyCode 模型 3→7 + select 改 combo-box）
-- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。已 push（TASK-096）。
+
 - **关联**：TASK-092、TASK-090
 
 ### [TASK-092] v1.15.0 — PackyCode Codex 模型选择扩展 + 自定义模型输入
@@ -36,7 +119,7 @@
 - **类型**：feat
 - **摘要**：根据 PackyAPI 实际支持的模型列表，将 Settings Codex 卡片的 PackyCode 默认模型下拉从仅 1 个（gpt-5.5）扩展到 36 个模型，按系列分 8 组（GPT/Claude/Gemini/DeepSeek/GLM/Kimi/Qwen/其他），支持自定义模型输入。同时修复 writer.ts PACKYCODE_TEMPLATE 硬编码 `model = "gpt-5.5"` 问题——改为接受 model 参数，用户选择的模型名会正确写入 config.toml。
 - **变更文件**：`electron/codex/writer.ts`（PACKYCODE_TEMPLATE 参数化）、`src/pages/Settings.tsx`（+36 模型选项 + customModel state + 自定义输入框 + 校验）
-- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。未 push。
+- **验证**：typecheck ✅，lint ✅，197/197 tests ✅。已 push（TASK-096）。
 - **关联**：TASK-090、PackyAPI 模型列表（packyapi.com）
 
 ### [TASK-091] v1.15.0 — PackyCode 接入 Review 缺陷修复（P0/P1/P2）+ 版本号更新 + CHANGELOG

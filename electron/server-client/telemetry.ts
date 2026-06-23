@@ -14,6 +14,7 @@ import log from 'electron-log';
 
 import { type ServerClient } from './client';
 import type { ServerConfig } from './config';
+import { redactSensitive } from '../proxy/errors';
 
 export interface TelemetryEvent {
   event_type: string;
@@ -47,6 +48,24 @@ const STOP_FLUSH_TIMEOUT = 3_000;
 const MODEL_CALL_FLUSH_INTERVAL = 5 * 60 * 1000;
 /** model_call 聚合上报阈值：累积 50 次立即上报 */
 const MODEL_CALL_FLUSH_THRESHOLD = 50;
+
+/**
+ * 递归脱敏 properties 中所有字符串值。
+ * 防御性措施：确保任何经由 properties 传入的 API Key 都在源头被脱敏，不会抵达服务端数据库。
+ */
+function sanitizeProperties(props: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (typeof value === 'string') {
+      out[key] = redactSensitive(value);
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      out[key] = sanitizeProperties(value as Record<string, unknown>);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 export class TelemetryClient {
   private buffer: TelemetryEvent[] = [];
@@ -110,7 +129,7 @@ export class TelemetryClient {
     this.buffer.push({
       event_type: eventType,
       timestamp: new Date().toISOString(),
-      properties: properties ?? {},
+      properties: sanitizeProperties(properties ?? {}),
     });
 
     if (this.buffer.length > BUFFER_MAX) {

@@ -118,9 +118,7 @@ export function Dashboard(): JSX.Element {
                   : '未启动'}
             </div>
             {isDirect && (
-              <div className="text-xs text-slate-400 mt-1">
-                所有工具直接连接 PackyCode，不经过本地代理
-              </div>
+              <div className="text-xs text-slate-400 mt-1">所有工具直连模式，不经过本地代理</div>
             )}
           </div>
           {!isDirect && (

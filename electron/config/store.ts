@@ -69,11 +69,11 @@ export interface UserPreferences {
   /** §7 最近一次代理错误的时间戳（ms）。 */
   lastErrorAt: number;
   /** v1.13.0: AI 供应商选择。deepseek 或 agnes（Codex 用）。 */
-  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+  provider: 'deepseek' | 'agnes' | 'glm' | 'custom';
   /** v1.13.0: Claude Desktop 供应商。 */
-  claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+  claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
   /** v1.13.0: Claude Code CLI 供应商。 */
-  claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+  claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
   /**
    * v1.13.0: 中间模型 → 实际模型 + 供应商 的生效映射。
    * key = 中间模型名（config.toml 里写死的 model），value = 实际模型 + 供应商。
@@ -81,8 +81,15 @@ export interface UserPreferences {
    */
   activeModelMapping: Record<
     string,
-    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'custom' }
   >;
+  /** v1.16.0: 自定义供应商配置。 */
+  customProvider: {
+    /** Codex 接入：OpenAI Responses API 兼容端点 Base URL。 */
+    codexBaseUrl: string;
+    /** Claude 工具接入：Anthropic Messages API 兼容端点 Base URL。 */
+    claudeBaseUrl: string;
+  };
   /** 是否拦截 Codex Desktop 后台 "hyperpersonalized suggestions" 请求（默认 true）。 */
   blockBackgroundSuggestions: boolean;
   /** 生命周期累计输入 token（不含被拦截请求）。 */
@@ -159,6 +166,11 @@ const DEFAULTS: UserPreferences = {
   lifetimeInputTokens: 0,
   lifetimeOutputTokens: 0,
   tokenSavingEnabled: false,
+  /** v1.16.0: 自定义供应商 Base URL（Codex 和 Claude 各一个）。 */
+  customProvider: {
+    codexBaseUrl: '',
+    claudeBaseUrl: '',
+  },
   claudeCli: {
     enabled: true,
     envVars: DEFAULT_ENV_VARS,
@@ -204,6 +216,15 @@ export function migrateIfNeeded(s: Store<UserPreferences>): void {
   const currentMirror = s.get('updateMirror') as string;
   if (currentMirror === 'auto') {
     s.set('updateMirror', 'server');
+  }
+  // v1.16.0: 存量 PackyCode 用户 provider 类型重命名为 custom
+  const legacyProviders = ['packycode'] as const;
+  const providerFields = ['provider', 'claudeDesktopProvider', 'claudeCliProvider'] as const;
+  for (const field of providerFields) {
+    const val = s.get(field) as string;
+    if ((legacyProviders as readonly string[]).includes(val)) {
+      s.set(field as keyof UserPreferences, 'custom');
+    }
   }
 }
 

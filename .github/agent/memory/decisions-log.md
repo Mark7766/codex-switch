@@ -38,6 +38,34 @@
 
 ## 决策记录
 
+### ADR-027: v1.16.0 — PackyCode 替换为自定义供应商（custom provider）
+
+- **日期**：2026-06-24
+- **状态**：✅ 已采纳（方案设计阶段，未编码）
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v1.15.0 引入的 PackyCode 供应商名称和 Base URL 硬编码在产品中。现在需要：① 不能以 PackyCode 名称出现；② Base URL 不能预置；③ 接入逻辑需适配任意第三方 API。
+
+#### 决策
+> 将 `'packycode'` provider 类型全局重命名为 `'custom'`，新增一个 `customBaseUrl` 字段让用户自行填写。Codex 和 Claude 工具共用这一个 URL。模型映射列表不做任何改动。存量 PackyCode 用户自动迁移（预填旧 URL `www.packyapi.com`）。
+
+#### 理由
+1. **极简化**：只加一个字段、一个输入框，其余全是机械重命名
+2. **零破坏**：存量用户迁移后配置不变，Base URL 自动预填
+3. **模型映射不动**：保留 PackyCode 已有的模型列表，用户无需重新配置
+4. **自定义永远是直连**：不经本地代理（代理只做 Responses⇄Chat 翻译，对未知协议无效）
+
+#### 影响
+- ~15 文件，代码净变化约 +50/-60 行
+- `store.ts` 新增 `customBaseUrl: string` 字段
+- `secrets.ts` 重命名 keytar account（packycode → custom）
+- `writer.ts` / `desktop-writer.ts` / `env-writer.ts` 硬编码 URL → `customBaseUrl`
+- `Settings.tsx` 新增一个 Base URL 输入框
+- 存量迁移：`runV160CustomProviderMigration()` 自动将 `packycode` → `custom` + 预填旧 URL
+
+---
+
 ### ADR-026: v1.14.3 — claudeApplyAll 不再依赖 installed 检测，用户显式保存时强制执行写入
 
 - **日期**：2026-06-22

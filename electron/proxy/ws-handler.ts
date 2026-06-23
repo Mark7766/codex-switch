@@ -34,7 +34,7 @@ export interface WsHandlerDeps {
   agnesApiKey: string;
   activeModelMapping?: Record<
     string,
-    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+    { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'custom' }
   >;
   modelMapping: Record<string, string>;
   defaultModel: string;

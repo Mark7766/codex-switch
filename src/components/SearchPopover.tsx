@@ -12,7 +12,7 @@ interface Props {
 }
 
 const EXAMPLE_QUERIES = [
-  '如何接入 PackyCode？',
+  '如何接入自定义 API？',
   '如何接入智谱 GLM？',
   '如何接入免费的 Agnes AI 模型？',
   'Codex 连不上怎么办',

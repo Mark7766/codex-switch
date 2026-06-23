@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import log from 'electron-log';
 
 import { getPreferences, setPreferences } from './store';
-import { getAgnesKey, getGlmKey, getApiKey, getPackyCodeKey } from './secrets';
+import { getAgnesKey, getGlmKey, getApiKey, getCustomKey } from './secrets';
 import { detectAll } from '../claude/detect';
 import {
   writeClaudeCliConfig,
@@ -166,8 +166,8 @@ export async function startupApplyClaude(): Promise<void> {
         ? await getAgnesKey()
         : cp === 'glm'
           ? await getGlmKey()
-          : cp === 'packycode'
-            ? await getPackyCodeKey()
+          : cp === 'custom'
+            ? await getCustomKey()
             : await getApiKey();
     if (ck) {
       try {
@@ -191,8 +191,8 @@ export async function startupApplyClaude(): Promise<void> {
         ? await getAgnesKey()
         : dp === 'glm'
           ? await getGlmKey()
-          : dp === 'packycode'
-            ? await getPackyCodeKey()
+          : dp === 'custom'
+            ? await getCustomKey()
             : await getApiKey();
     if (dk) {
       try {

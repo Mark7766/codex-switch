@@ -27,10 +27,10 @@ export const IPC = {
   glmKeyGet: 'key:glm-get',
   glmKeySet: 'key:glm-set',
   glmKeyClear: 'key:glm-clear',
-  // v1.15.0 PackyCode
-  packycodeKeyGet: 'key:packycode-get',
-  packycodeKeySet: 'key:packycode-set',
-  packycodeKeyClear: 'key:packycode-clear',
+  // v1.16.0 自定义供应商
+  customKeyGet: 'key:custom-get',
+  customKeySet: 'key:custom-set',
+  customKeyClear: 'key:custom-clear',
   // Codex 配置
   codexWrite: 'codex:write',
   codexBackups: 'codex:backups',

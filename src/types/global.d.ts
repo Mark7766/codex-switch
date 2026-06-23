@@ -93,14 +93,15 @@ interface CodexSwitchApi {
     lifetimeFirstStartAt: string;
     lastErrorMessage: string;
     lastErrorAt: number;
-    provider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
-    claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
-    claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'packycode';
+    provider: 'deepseek' | 'agnes' | 'glm' | 'custom';
+    claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
+    claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
     activeModelMapping: Record<
       string,
-      { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' }
+      { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'custom' }
     >;
     blockBackgroundSuggestions: boolean;
+    customProvider?: { codexBaseUrl: string; claudeBaseUrl: string };
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
     claudeDesktop?: { enabled: boolean; modelMap: Record<string, string> };
     migrations?: { v130_claude: boolean; v160_claudeDesktopDirect: boolean };
@@ -118,9 +119,9 @@ interface CodexSwitchApi {
   getGlmKey: () => Promise<string>;
   setGlmKey: (key: string) => Promise<boolean>;
   clearGlmKey: () => Promise<boolean>;
-  getPackyCodeKey: () => Promise<string>;
-  setPackyCodeKey: (key: string) => Promise<boolean>;
-  clearPackyCodeKey: () => Promise<boolean>;
+  getCustomKey: () => Promise<string>;
+  setCustomKey: (key: string) => Promise<boolean>;
+  clearCustomKey: () => Promise<boolean>;
   proxyStart: () => Promise<{ port: number; status: string }>;
   proxyStop: () => Promise<{ status: string }>;
   proxyInfo: () => Promise<{

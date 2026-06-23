@@ -131,7 +131,7 @@ export function translateError(input: {
 }
 
 const SENSITIVE_PATTERNS: Array<[RegExp, string]> = [
-  [/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***'],
+  [/sk-[A-Za-z0-9_-]{4,}/g, 'sk-***'],
   [/(authorization\s*[:=]\s*)(?:bearer\s+)?[A-Za-z0-9._-]+/gi, '$1***'],
   [/("OPENAI_API_KEY"\s*:\s*")[^"]+(")/g, '$1***$2'],
   [/(api[_-]?key\s*[:=]\s*)[A-Za-z0-9_-]+/gi, '$1***'],

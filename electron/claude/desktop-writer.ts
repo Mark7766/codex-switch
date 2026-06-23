@@ -98,45 +98,45 @@ async function writeMeta(applied: string | null): Promise<void> {
 
 function buildGatewayProfile(
   apiKey: string,
-  provider: 'deepseek' | 'agnes' | 'glm' | 'packycode' = 'deepseek',
+  provider: 'deepseek' | 'agnes' | 'glm' | 'custom' = 'deepseek',
 ): Record<string, unknown> {
   const isAgnes = provider === 'agnes';
   const isGlm = provider === 'glm';
-  const isPackyCode = provider === 'packycode';
+  const isCustom = provider === 'custom';
   const prefs = getPreferences();
   const proxyPort = prefs.proxyPort;
   const baseUrl = isAgnes
     ? `http://127.0.0.1:${proxyPort}`
     : isGlm
       ? 'https://open.bigmodel.cn/api/anthropic'
-      : isPackyCode
-        ? 'https://www.packyapi.com'
+      : isCustom
+        ? prefs.customProvider.claudeBaseUrl
         : 'https://api.deepseek.com/anthropic';
   // 供应商默认模型名：Opus 用高端档，Sonnet/Haiku 用快速档
-  // PackyCode 的 Anthropic 端点内部做模型路由，labelOverride 透传 Claude 原生名
+  // 自定义供应商透传 Claude 原生名作为默认值（用户可在模型映射弹窗中修改）
   const label = isGlm
     ? 'glm-5.2'
     : isAgnes
       ? 'agnes-2.0-flash'
-      : isPackyCode
+      : isCustom
         ? 'claude-opus-4-7'
         : 'deepseek-v4-pro';
   const labelFlash = isGlm
     ? 'glm-5.2'
     : isAgnes
       ? 'agnes-2.0-flash'
-      : isPackyCode
+      : isCustom
         ? 'claude-sonnet-4-6'
         : 'deepseek-v4-flash';
-  const labelHaiku = isPackyCode ? 'claude-haiku-4-5' : labelFlash;
+  const labelHaiku = isCustom ? 'claude-haiku-4-5' : labelFlash;
   // 读取用户在模型映射弹窗中自定义的映射，覆盖默认值
   const mm = prefs.claudeDesktop?.modelMap ?? {};
   const models: Array<{ labelOverride: string; name: string }> = [
     { labelOverride: mm['claude-opus-4-7'] ?? label, name: 'claude-opus-4-7' },
     { labelOverride: mm['claude-sonnet-4-6'] ?? labelFlash, name: 'claude-sonnet-4-6' },
   ];
-  // v1.15.0: PackyCode 不配置 Haiku（仅 Opus + Sonnet）
-  if (!isPackyCode) {
+  // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet），与 PackyCode 行为一致
+  if (!isCustom) {
     models.push({
       labelOverride: mm['claude-haiku-4-5'] ?? labelHaiku,
       name: 'claude-haiku-4-5',
@@ -174,7 +174,7 @@ function buildGatewayProfile(
  */
 export async function writeClaudeDesktopConfig(
   apiKey: string,
-  provider?: 'deepseek' | 'agnes' | 'glm' | 'packycode',
+  provider?: 'deepseek' | 'agnes' | 'glm' | 'custom',
 ): Promise<void> {
   const cfg1p = claudeDesktopConfigPath();
   const cfg3p = claudeDesktop3pConfigPath();
