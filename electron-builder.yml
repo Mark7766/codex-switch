@@ -9,6 +9,8 @@ files:
   - package.json
   - '!**/*.map'
 extraResources:
+  - from: LICENSE
+    to: LICENSE
   - from: CHANGELOG.md
     to: CHANGELOG.md
   - from: build/logo-codex.png

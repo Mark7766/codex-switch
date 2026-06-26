@@ -3,6 +3,43 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-106] 补齐 MIT LICENSE 文件（合规修复 — LEGAL-RISK Risk 5）
+
+- **日期**：2026-06-26
+- **类型**：fix / compliance
+- **摘要**：修复 LEGAL-RISK-CHINA.md Risk 5（软件著作权与许可证合规）——仓库根目录缺少 LICENSE 文件。① 新建 `LICENSE` 文件，标准 MIT 许可证全文 + `Copyright (c) 2026 Codex Switch Contributors`；② `electron-builder.yml` extraResources 新增 LICENSE → 安装包内包含许可证文件；③ README.md 已有 MIT badge 指向 LICENSE，此前为死链，现已修复。
+- **变更文件**：`LICENSE`（新建）、`electron-builder.yml`（+2 行）
+- **关联**：LEGAL-RISK-CHINA.md Risk 5
+- **注意事项**：
+  1. 版权持有人 "Codex Switch Contributors" 与 package.json author 字段一致
+  2. README badge `[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)` 现已指向有效文件
+  3. 后续如更改版权年份或持有人，需同步更新 LICENSE 文件
+
+### [TASK-105] 中国法律风险评估报告
+
+- **日期**：2026-06-24
+- **类型**：docs / compliance
+- **摘要**：对 Codex Switch v1.16.0 完整代码库进行中国法律合规风险评估，生成 `docs/LEGAL-RISK-CHINA.md`。识别出 12 项风险（🔴严重 2 项、🟠高 3 项、🟡中 4 项、🟢低 3 项）：
+  - 🔴 严重：① 本地代理服务可能触及电信业务准入监管；② AI 代理转接服务的合规定性不明确（《生成式人工智能服务管理暂行办法》）
+  - 🟠 高：③ 遥测默认开启收集违反 PIPL 知情同意；④ 数据传输至 codex-switch.cloud 缺乏透明度；⑤ 缺少 LICENSE 文件
+  - 🟡 中：⑥ 配置文件修改授权安全性；⑦ API Key 降级存储加密弱；⑧ 依赖供应链合规；⑨ 软件分发代码签名缺失
+  - 🟢 低：⑩ 非 CII 运营者；⑪ 未触及数据出境安全评估门槛；⑫ 加密技术使用合规
+- **变更文件**：`docs/LEGAL-RISK-CHINA.md`（新建）
+- **关联**：无直接关联 TASK
+- **注意事项**：
+  1. 报告附有按优先级排列的合规行动检查清单（立即处理/近期处理/中长期）
+  2. 报告声明不构成法律意见，建议咨询持有中国律师执业资格的专业人士
+  3. 最紧迫的两项：遥测改为 opt-in + 撰写隐私政策
+
+### [TASK-104] v1.16.0 — Push + Release
+
+- **日期**：2026-06-24
+- **类型**：release
+- **摘要**：提交全部 v1.16.0 变更（28 files, +1140/-222），打 tag `v1.16.0`，推送 main 分支和 tag 到 origin。GitHub Actions Release workflow 由 tag 触发，将自动构建 macOS x64/arm64 + Windows x64/arm64 安装包并发布。
+- **变更文件**：28 files（commit `7746731`）
+- **验证**：pre-commit hook ✅ (prettier)，typecheck ✅，197/197 tests ✅，push ✅，tag ✅
+- **关联**：TASK-103、TASK-100/101/102
+
 ### [TASK-103] v1.16.0 — CHANGELOG 编写
 
 - **日期**：2026-06-24
