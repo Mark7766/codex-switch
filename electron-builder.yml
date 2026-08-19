@@ -33,11 +33,12 @@ mac:
   identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
+  # 架构由 CLI（--arm64 / --x64 / --universal）控制。
+  # 若在此显式写 arch: [x64, arm64]，electron-builder --mac --arm64 也会构建 x64 DMG，
+  # 两个 DMG 并发挂载同名卷导致 hdiutil detach / background.tiff 失败（APFS 模式已知问题）。
   target:
-    - target: dmg
-      arch: [x64, arm64]
-    - target: zip
-      arch: [x64, arm64]
+    - dmg
+    - zip
   artifactName: Codex-Switch-${version}-mac-${arch}.${ext}
 win:
   icon: build/icon.ico

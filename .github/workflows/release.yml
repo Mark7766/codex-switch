@@ -82,6 +82,10 @@ jobs:
               if [ "$i" = "3" ]; then return 1; fi
               echo "Build $arch attempt $i failed; cleaning and retrying..."
               rm -rf release/mac* /tmp/t-* 2>/dev/null || true
+              # 卸载可能残留的 DMG 卷，避免卷名冲突（APFS 模式已知问题）
+              for vol in /Volumes/Codex*; do
+                [ -e "$vol" ] && hdiutil detach "$vol" -force 2>/dev/null || true
+              done
               sleep 10
             done
           }
