@@ -125,3 +125,70 @@ describe('restoreCodexConfig', () => {
     expect(restored).toContain('11435');
   });
 });
+
+// ─── v2.0.0 DeepSeek 官方直连 ─────────────────────────────────────────────
+describe('writeCodexConfig — deepseek direct mode (v2.0.0)', () => {
+  it('writes official direct template to config.toml', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-deepseek-key',
+      provider: 'deepseek',
+    });
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).toContain('model = "deepseek-v4-flash"');
+    expect(config).toContain('model_provider = "deepseek"');
+    expect(config).toContain('preferred_auth_method = "apikey"');
+    expect(config).toContain('forced_login_method = "api"');
+    expect(config).toContain('model_reasoning_effort = "high"');
+    expect(config).toContain('model_catalog_json = "~/.codex/models.json"');
+    expect(config).toContain('base_url = "https://api.deepseek.com/"');
+    expect(config).toContain('wire_api = "responses"');
+    expect(config).toContain('experimental_bearer_token = "sk-deepseek-key"');
+    expect(config).not.toContain('127.0.0.1');
+  });
+
+  it('still writes auth.json mirroring the DeepSeek key', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-deepseek-key',
+      provider: 'deepseek',
+    });
+    const auth = await fs.readFile(r.authPath, 'utf8');
+    expect(auth).toContain('sk-deepseek-key');
+  });
+
+  it('writes models.json once, then skips on identical content', async () => {
+    const input = {
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-x',
+      provider: 'deepseek' as const,
+    };
+    const r1 = await writeCodexConfig(input);
+    expect(r1.modelsSkipped).toBe(false);
+    const modelsJson = path.join(TMP_ROOT, 'models.json');
+    const first = await fs.readFile(modelsJson, 'utf8');
+    expect(first).toContain('"slug": "deepseek-v4-flash"');
+    expect(first).toContain('"slug": "deepseek-v4-pro"');
+
+    const r2 = await writeCodexConfig(input);
+    expect(r2.modelsSkipped).toBe(true);
+    expect(r2.modelsBackup).toBeNull();
+  });
+
+  it('does NOT write models.json for agnes (still proxy template)', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-agnes',
+      provider: 'agnes',
+    });
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).toContain('127.0.0.1');
+    expect(config).toContain('model_provider = "custom"');
+    expect(r.modelsBackup).toBeNull();
+    await expect(fs.access(path.join(TMP_ROOT, 'models.json'))).rejects.toThrow();
+  });
+});

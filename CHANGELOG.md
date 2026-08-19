@@ -3,6 +3,23 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-08-19
+
+### 重磅变更：Codex 直连 DeepSeek 🚀
+
+> DeepSeek 官方已原生支持 Codex 使用的 Responses API。从 v2.0.0 开始，Codex 直接连接 DeepSeek 官方接口，**不再经过本地代理**——配置方式与 DeepSeek 官方一键脚本完全一致，延迟更低、少一层转发。
+
+- **Codex 直连 DeepSeek**。在设置中选 DeepSeek，填 Key，点保存——Codex 直接连 `api.deepseek.com`，本地代理自动跳过启动。Dashboard 会显示「直连」状态
+- **官方模型目录**。自动写入 `~/.codex/models.json`，Codex 能像使用内置模型一样使用 `deepseek-v4-flash` / `deepseek-v4-pro`，推理强度、上下文窗口等元数据与官方一致
+- **存量用户自动迁移**。从旧版本升级的用户，Codex 配置会自动从代理模式改写为直连模式，无需手动操作
+- **代理仅保留给 Agnes / 智谱 GLM**。这两个供应商仍走本地代理做协议翻译；全直连时代理不会启动
+
+### 变更
+
+- **侧边栏「和 X 位朋友一起使用」数字口径更新**。从「30 天活跃用户」改为「累计注册客户端数」——更真实地反映有多少人用上了 Codex Switch
+- **注意（已知取舍）**：直连模式下，Codex 的请求日志、token 用量统计、对话缓存这些原本由本地代理提供的能力不再生效。这是直连的固有特性——请求数据直接到 DeepSeek，不再经过本机
+- **版本要求**：`~/.codex/models.json` 模型目录需要 Codex 0.144 或更高版本才能正确读取；旧版 Codex 仍可直连使用，但可能退化为默认模型行为
+
 ## [1.16.0] - 2026-06-24
 
 ### 重磅变更：PackyCode 升级为「自定义供应商」🔓

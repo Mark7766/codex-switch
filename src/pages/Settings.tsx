@@ -244,7 +244,7 @@ export function Settings(): JSX.Element {
             onChange={(e) => setProvider(e.target.value as 'deepseek' | 'agnes' | 'glm' | 'custom')}
             className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
           >
-            <option value="deepseek">DeepSeek</option>
+            <option value="deepseek">DeepSeek · 直连</option>
             <option value="agnes">Agnes AI</option>
             <option value="glm">智谱 GLM</option>
             <option value="custom">自定义 · 直连</option>{' '}
@@ -437,7 +437,7 @@ export function Settings(): JSX.Element {
               }}
               className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md"
             >
-              <option value="deepseek">DeepSeek</option>
+              <option value="deepseek">DeepSeek · 直连</option>
               <option value="agnes">Agnes AI</option>
               <option value="glm">智谱 GLM</option>
               <option value="custom">自定义 · 直连</option>{' '}

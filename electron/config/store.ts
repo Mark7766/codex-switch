@@ -25,6 +25,8 @@ export interface MigrationFlags {
   v130_claude?: boolean;
   /** True once the v1.6.0 Claude Desktop direct-DeepSeek migration has run. */
   v160_claudeDesktopDirect?: boolean;
+  /** True once the v2.0.0 DeepSeek direct (official) migration has run. */
+  v200_deepseekDirect?: boolean;
 }
 
 export interface UserPreferences {

@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v1.16.0（代码已实现，未 push。自定义供应商替代 PackyCode，typecheck ✅ / 197 tests ✅） |
+| 当前阶段 | v2.0.0（Codex 直连 DeepSeek（官方模板 + models.json）+ 社区数字改为累计注册客户端数；未 push，205/205 tests ✅） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -73,11 +73,13 @@
 ### 核心特征
 - **进程边界严格**：主进程独占文件系统/网络/Codex 配置；渲染层只通过 IPC 间接访问。`contextIsolation: true`、`nodeIntegration: false` 不可变更。
 - **代理仅监听 loopback**：默认 `127.0.0.1:11435`，与参考工程保持一致；端口被占自动 +1 重试并通知用户，绝不绑定 `0.0.0.0`。
-- **协议双通道**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；均支持 `previous_response_id` 状态管理、`fixToolMessageOrder` 序列修复、以及正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
+- **DeepSeek 官方直连（v2.0.0）**：Codex 连 DeepSeek 不再走本地代理——config.toml 写 `[model_providers.deepseek]`（base_url=api.deepseek.com + wire_api=responses + experimental_bearer_token）并写入官方 `~/.codex/models.json`（模型目录，打包资产 `electron/codex/deepseek-models.json`，76KB，Prettier 忽略）。`provider==='deepseek'` 与 `'custom'` 均视为直连；代理仅保留给 Agnes/GLM。直连后代理层功能（请求日志 / token 统计 / 对话缓存）对 DeepSeek 失效。
+- **协议双通道（代理路径）**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；均支持 `previous_response_id` 状态管理、`fixToolMessageOrder` 序列修复、以及正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
 - **凭据安全**：DeepSeek API Key 走 OS keychain（macOS Keychain / Windows Credential Manager），不落盘到普通配置文件。
 - **配置可还原**：所有对 `~/.codex/*` 的写入都先备份成 `*.bak.<timestamp>`，提供"一键还原"。
 - **跨平台一套代码**：Electron 同时产出 **macOS x64 / arm64** 两个 `.dmg`（可选 universal）与 **Windows x64 / arm64** 两个 NSIS `.exe` 安装包；图标 / 路径 / 安装器脚本全部兼容。
 - **零门槛 UX**：对标 Claude Desktop，简洁界面、人话文案、状态用大色块 + 文字双重表达。
+- **社区数字口径（v2.0.0）**：侧边栏「和 X 位朋友一起使用」显示**累计注册客户端数**（Server `GET /client/community` 的 `total_clients` = COUNT(client_registry)），不再用「30 天活跃用户」。客户端 `communityGetCount` 读 `total_clients`（回退 `active_users` 兜底，避免数字消失）。**Server 已部署**：生产实测 `{"active_users":172,"total_clients":381}`。回归测试 `codex-switch-server/tests/integration/test_client_community.py`。
 
 ---
 

@@ -36,7 +36,11 @@ export function Dashboard(): JSX.Element {
 
   async function toggle(): Promise<void> {
     if (busy) return;
-    if (status === 'direct') return; // 直连模式无需启停代理
+    if (status === 'direct') {
+      // v2.0.0: 全直连时按钮常驻，点击给出明确提示（当前工具均无需本地代理）
+      pushToast({ kind: 'info', message: '当前工具均无需本地代理（DeepSeek / 自定义直连）' });
+      return;
+    }
     setBusy(true);
     const stopping = status === 'running';
     pushToast({
@@ -118,23 +122,23 @@ export function Dashboard(): JSX.Element {
                   : '未启动'}
             </div>
             {isDirect && (
-              <div className="text-xs text-slate-400 mt-1">所有工具直连模式，不经过本地代理</div>
+              <div className="text-xs text-slate-400 mt-1">
+                DeepSeek / 自定义供应商直连，无需本地代理；GLM / Agnes 仍需本地代理
+              </div>
             )}
           </div>
-          {!isDirect && (
-            <button
-              onClick={toggle}
-              disabled={busy}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition inline-flex items-center gap-2 min-w-[110px] justify-center ${
-                running ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'
-              } disabled:bg-slate-700 disabled:cursor-not-allowed`}
-            >
-              {busy && (
-                <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              )}
-              {busy ? (running ? '正在停止…' : '正在启动…') : running ? '停止代理' : '启动代理'}
-            </button>
-          )}
+          <button
+            onClick={toggle}
+            disabled={busy}
+            className={`px-5 py-2 rounded-md text-sm font-medium transition inline-flex items-center gap-2 min-w-[110px] justify-center ${
+              running ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'
+            } disabled:bg-slate-700 disabled:cursor-not-allowed`}
+          >
+            {busy && (
+              <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            )}
+            {busy ? (running ? '正在停止…' : '正在启动…') : running ? '停止代理' : '启动代理'}
+          </button>
         </div>
 
         <div className="grid grid-cols-3 gap-4 text-sm">

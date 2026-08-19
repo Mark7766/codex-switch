@@ -3,6 +3,61 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-111] 社区端点 Server 部署确认 + 回归测试补回
+
+- **日期**：2026-08-19
+- **类型**：chore / test
+- **摘要**：核实社区数字「和 X 位朋友一起使用」的 Server 支持：① 生产接口实测——部署前 `{"active_users":172}`（无 total_clients），用户部署 `src/api/v1/client.py` 改动后为 `{"active_users":172,"total_clients":381}`，**已上线**；客户端 `communityGetCount`（`total_clients ?? active_users ?? 0`）现读到 381，端到端打通。② 补回 Server 回归测试 `tests/integration/test_client_community.py`（ASGI + 内存 SQLite：注册 2 client + 1 app_start + 1 referral → 断言 `total_clients==2`、`active_users==1`）。
+- **变更文件**：Server `tests/integration/test_client_community.py`（新增）；Server `src/api/v1/client.py` 已于此前改动并部署
+- **验证**：Server `uv run pytest` 25 passed（24 现有 + 1 新增）；Client `pnpm test` 209/209（无客户端改动）
+- **注意事项**：无 schema / 迁移 / 其他端点改动；admin 的 active_users 是另一功能不受影响。
+
+### [TASK-110] 修复 Codex Desktop 安装检测（macOS 漏检 ChatGPT 桌面端）
+
+- **日期**：2026-08-19
+- **类型**：fix
+- **摘要**：Dashboard「工具连接状态」把本机已安装的 Codex Desktop 显示为「未安装」。根因：`codexDesktopAppPaths()` 在 macOS 只检测 `/Applications/Codex.app`，但 Codex Desktop 实际是 OpenAI 的 **ChatGPT 桌面端**（DeepSeek 官方文档：Codex CLI、ChatGPT 桌面端、VS Code Codex 插件共用同一份 `~/.codex` 配置）。本机装的是 `/Applications/ChatGPT.app`，故漏检。修复：macOS 候选路径改为 `['/Applications/Codex.app', '/Applications/ChatGPT.app']`；Windows 侧补充 ChatGPT.exe 候选（`Programs/ChatGPT/ChatGPT.exe`、`OpenAI/ChatGPT.exe`）。
+- **变更文件**：`electron/claude/paths.ts`（codexDesktopAppPaths）
+- **验证**：本机 tsx 实测 `detectAll()` → `codexDesktop: {installed:true, configApplied:true}`；typecheck ✅、lint ✅、format ✅、209/209 tests ✅
+- **注意事项**：Codex Desktop 的「已配置」仍以 `~/.codex/config.toml` 是否存在为准（与 Codex CLI 共用），无需区分 app 名称。
+
+### [TASK-109] v2.0.0 回归修复 — 代理启停回归 + Dashboard 直连文案 + 社区数字消失
+
+- **日期**：2026-08-19
+- **类型**：fix
+- **摘要**：用户实测 v2.0.0 反馈三个问题，全部修复：
+  1. **代理自动启动回归**：`applyPreferencesTransaction` 的代理启停原先只跟踪 Codex 供应商的直连/代理边界（`crossedDirectBoundary`），导致「Codex=DeepSeek（直连）+ Claude 工具切 Agnes（需代理）」时代理不自动启动。改为按**系统级全直连**判定（`beforeAllDirect`/`afterAllDirect`，含 Codex=glm/agnes 与 Claude Desktop/CLI=agnes），任一工具需要代理就确保代理创建/启动。
+  2. **社区数字消失**：客户端 `communityGetCount` 改读 Server `total_clients`，但线上 Server 未部署该字段 → 返回 undefined → 0 → 侧边栏数字隐藏。修复：`total_clients ?? active_users ?? 0` 回退，Server 部署前先显示旧口径，避免数字消失。
+  3. **Dashboard 直连文案 + 启停按钮**：全直连时文案「所有工具直连模式，不经过本地代理」改为准确表述「DeepSeek / 自定义供应商直连，无需本地代理；GLM / Agnes 仍需本地代理」；启停按钮不再隐藏（用户选择「始终显示」），全直连时点击给出 toast「当前工具均无需本地代理」。
+- **变更文件**：`electron/main.ts`（代理启停 + communityGetCount）、`src/pages/Dashboard.tsx`（按钮常驻 + 文案 + 直连点击 toast）、`tests/unit/Dashboard.test.tsx`（新增直连按钮用例）
+- **验证**：typecheck ✅、lint ✅、format ✅、209/209 tests ✅（+1 Dashboard 直连用例）
+- **关联**：ADR-028、TASK-107
+- **注意事项**：代理启停判定统一为「任一工具需要代理」原则；`crossedDirectBoundary` 变量已删除。
+
+### [TASK-108] 修复更新日志弹窗块引用渲染（字面 `>` 显示）
+
+- **日期**：2026-08-19
+- **类型**：fix / UI
+- **摘要**：应用内「更新记录」弹窗（ChangelogModal）是极简 Markdown 渲染器，不支持块引用，导致 CHANGELOG 里以 `>` 开头的引述段落在界面上显示为字面 `>` 字符（v1.16.0 与新增的 v2.0.0 条目都有）。修复：`renderMarkdown` 新增 `> ` 块引用解析（连续 `>` 行合并为一个 `<blockquote>`，左侧竖线 + 灰字样式）；`renderMarkdown` 导出便于单测。
+- **变更文件**：`src/components/ChangelogModal.tsx`、`tests/unit/changelog.test.tsx`（新增 3 用例：块引用渲染无字面 `>`、连续行合并、标题/列表不受影响）
+- **验证**：typecheck ✅、lint ✅、format ✅、208/208 tests ✅
+- **注意事项**：不引入 react-markdown，保持极简渲染器的打包体积与攻击面；后续 CHANGELOG 可放心使用 `>` 引述。
+
+### [TASK-107] v2.0.0 — Codex 直连 DeepSeek（官方模式）+ 社区数字改为累计注册客户端数
+
+- **日期**：2026-08-19
+- **类型**：feat
+- **摘要**：Codex 的 DeepSeek 连接从本地代理改为官方直连（参照 DeepSeek 官方 Codex 集成文档）。① writer.ts 新增 `DEEPSEEK_DIRECT_TEMPLATE`（`model_provider="deepseek"`、`experimental_bearer_token`、`model_catalog_json`、`wire_api="responses"`、`base_url="https://api.deepseek.com/"`），deepseek 时同步写入官方 models.json；② 新增 `electron/codex/models-catalog.ts`（modelsJsonPath / readModelsJsonAsset / writeModelsJson）+ 打包资产 `deepseek-models.json`（76KB，deepseek-v4-flash/pro 模型目录，Prettier 忽略保持逐字节一致）；③ main.ts 把 deepseek 视为直连（ensureProxy `codexNeedsProxy` 仅 agnes/glm；applyPreferencesTransaction beforeDirect/afterDirect/codexDirect；proxyInfo 无代理且全直连时返回 `status:'direct'`；修复 custom↔deepseek 切换重写 config.toml 的 shouldWriteCodex 逻辑）；④ 新增 `runV200DeepSeekDirectMigration`（启动时把老 127.0.0.1 代理模板重写为直连，flag `v200_deepseekDirect`）；⑤ Settings Codex 卡片 DeepSeek 选项标注「· 直连」；⑥ 侧边栏社区数字改为累计注册客户端数——Server `community_stats` 新增 `total_clients`，客户端 `communityGetCount` 改读它。版本 1.16.0→2.0.0。
+- **变更文件**：`electron/codex/writer.ts`、`electron/codex/models-catalog.ts`（新增）、`electron/codex/deepseek-models.json`（新增）、`electron/main.ts`、`electron/config/migrations.ts`、`electron/config/store.ts`、`electron-builder.yml`、`src/pages/Settings.tsx`、`package.json`、`CHANGELOG.md`、`tests/unit/writer.test.ts`、`tests/unit/migrations.test.ts`（新增）、Server `src/api/v1/client.py`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、205/205 tests ✅（新增 8 个：deepseek 直连模板/models.json/agnes 不写 models.json/迁移幂等/迁移重写）
+- **关联**：ADR-028
+- **注意事项**：
+  1. 直连后代理层功能（请求日志 / token 统计 / 对话缓存）对 DeepSeek 失效——Dashboard 显示「直连」，已在 CHANGELOG 注明
+  2. models.json 要求 Codex ≥ 0.144.0（资产内 minimal_client_version）
+  3. auth.json 仍照旧写入（deepseek 时写 DeepSeek Key），直连下 inert（Codex 优先 experimental_bearer_token）
+  4. 社区口径变更依赖 Server 端部署（community 返回 total_clients）；Server 未更新时客户端返回 0 隐藏数字
+  5. 未 push / 未 release（本地实现 + 测试）
+
 ### [TASK-106] 补齐 MIT LICENSE 文件（合规修复 — LEGAL-RISK Risk 5）
 
 - **日期**：2026-06-26

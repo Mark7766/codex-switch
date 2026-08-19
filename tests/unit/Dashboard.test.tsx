@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { useAppStore } from '../../src/lib/store';
 import { Dashboard } from '../../src/pages/Dashboard';
 
@@ -70,5 +70,20 @@ describe('Dashboard page', () => {
   it('renders lifetime request count', () => {
     render(<Dashboard />);
     expect(screen.getByText(/42/)).toBeDefined();
+  });
+
+  it('direct mode: start button stays visible and explains on click', () => {
+    useAppStore.setState({ proxyStatus: 'direct' });
+    render(<Dashboard />);
+    // 文案改为准确表述：GLM / Agnes 仍需本地代理
+    expect(screen.getByText(/DeepSeek \/ 自定义供应商直连/)).toBeDefined();
+    // 启停按钮常驻
+    const btn = screen.getByRole('button', { name: /启动代理/ });
+    expect(btn).toBeDefined();
+    fireEvent.click(btn);
+    const toasts = useAppStore.getState().toasts;
+    expect(toasts.some((t) => (t as { message?: string }).message?.includes('无需本地代理'))).toBe(
+      true,
+    );
   });
 });

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authJsonPath, backupPath, codexDir, configTomlPath } from './paths';
+import { writeModelsJson } from './models-catalog';
 
 export interface WriteCodexConfigInput {
   proxyPort: number;
@@ -9,7 +10,8 @@ export interface WriteCodexConfigInput {
   /** 每个文件保留的最大备份份数。默认 5。 */
   maxBackupsPerFile?: number;
   /**
-   * v1.16.0: AI 供应商。custom 时使用直连模板（绕过本地代理，读取 customProvider 字段），
+   * v1.16.0: AI 供应商。custom 时使用直连模板（绕过本地代理，读取 customProvider 字段）。
+   * v2.0.0: deepseek 使用官方直连模板（base_url 指向 api.deepseek.com，写入 models.json）。
    * 其他供应商使用代理模板（base_url 指向 127.0.0.1）。
    */
   provider?: 'deepseek' | 'agnes' | 'glm' | 'custom';
@@ -27,6 +29,10 @@ export interface WriteCodexConfigResult {
   authSkipped: boolean;
   /** 本次写入新备份后被滚动删除的旧备份路径列表。 */
   prunedBackups: string[];
+  /** v2.0.0: deepseek 直连时写入的 models.json 备份路径（非 deepseek 为 null）。 */
+  modelsBackup: string | null;
+  /** v2.0.0: models.json 是否因内容相同而跳过写入。 */
+  modelsSkipped: boolean;
 }
 
 export interface WriteOpts {
@@ -95,6 +101,24 @@ requires_openai_auth = true
 [features]
 enable_request_compression = false
 remote_compaction_v2 = false
+`;
+
+// v2.0.0: DeepSeek 官方直连模板 —— Codex 直接连 DeepSeek Responses API，不经过本地代理。
+// 参照 https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/codex
+const DEEPSEEK_DIRECT_TEMPLATE = (model: string, apiKey: string): string =>
+  `# Codex CLI 配置（由 Codex Switch 自动生成 · DeepSeek 官方直连）
+model = "${model}"
+model_provider = "deepseek"
+preferred_auth_method = "apikey"
+forced_login_method = "api"
+model_reasoning_effort = "high"
+model_catalog_json = "~/.codex/models.json"
+
+[model_providers.deepseek]
+name = "deepseek"
+base_url = "https://api.deepseek.com/"
+wire_api = "responses"
+experimental_bearer_token = "${apiKey}"
 `;
 
 const AUTH_TEMPLATE = (apiKey: string): string =>
@@ -256,14 +280,18 @@ export async function writeCodexConfig(
   const authPath = authJsonPath();
   const keep = Math.max(0, input.maxBackupsPerFile ?? 5);
 
-  const cfg = await writeWithBackup(
-    configPath,
-    input.provider === 'custom'
-      ? CUSTOM_TEMPLATE(input.model, input.customCodexBaseUrl ?? '')
-      : TEMPLATE(input.proxyPort, input.model),
-    keep,
-  );
+  // v2.0.0: 三态模板选择 —— deepseek 官方直连 / custom 直连 / 其余走本地代理
+  const configContent =
+    input.provider === 'deepseek'
+      ? DEEPSEEK_DIRECT_TEMPLATE(input.model, input.apiKey)
+      : input.provider === 'custom'
+        ? CUSTOM_TEMPLATE(input.model, input.customCodexBaseUrl ?? '')
+        : TEMPLATE(input.proxyPort, input.model);
+  const cfg = await writeWithBackup(configPath, configContent, keep);
   const auth = await writeWithBackup(authPath, AUTH_TEMPLATE(input.apiKey), keep);
+
+  // v2.0.0: DeepSeek 直连需同步写入官方模型目录 models.json
+  const models = input.provider === 'deepseek' ? await writeModelsJson() : null;
 
   // auth.json 必须 0o600
   try {
@@ -280,6 +308,8 @@ export async function writeCodexConfig(
     configSkipped: cfg.skipped,
     authSkipped: auth.skipped,
     prunedBackups: [...cfg.pruned, ...auth.pruned],
+    modelsBackup: models?.backup ?? null,
+    modelsSkipped: models?.skipped ?? false,
   };
 }
 

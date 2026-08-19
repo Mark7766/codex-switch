@@ -156,11 +156,14 @@ export function codexDir(): string {
 
 /**
  * Ordered list of candidate paths where Codex Desktop (OpenAI) may be installed.
+ * On macOS, Codex Desktop 是 OpenAI ChatGPT 桌面端（官方文档：Codex CLI、ChatGPT 桌面端、
+ * VS Code Codex 插件共用同一份 ~/.codex 配置），因此同时检测 Codex.app 与 ChatGPT.app。
  * On Windows, multiple locations are tried to handle different electron-builder
  * productName configurations used across releases.
  */
 export function codexDesktopAppPaths(): string[] {
-  if (process.platform === 'darwin') return ['/Applications/Codex.app'];
+  if (process.platform === 'darwin')
+    return ['/Applications/Codex.app', '/Applications/ChatGPT.app'];
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
     return [
@@ -171,6 +174,9 @@ export function codexDesktopAppPaths(): string[] {
       // Squirrel-style
       path.join(localAppData, 'OpenAI Codex', 'Codex.exe'),
       path.join(localAppData, 'codex', 'Codex.exe'),
+      // ChatGPT 桌面端（同为 Codex 客户端）
+      path.join(localAppData, 'Programs', 'ChatGPT', 'ChatGPT.exe'),
+      path.join(localAppData, 'OpenAI', 'ChatGPT.exe'),
       // Microsoft Store (AppX/MSIX) packages
       path.join(
         localAppData,

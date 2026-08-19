@@ -12,6 +12,8 @@ import {
 } from '../claude/env-writer';
 import { writeClaudeDesktopConfig, PROFILE_ID } from '../claude/desktop-writer';
 import { claudeDesktopProfilePath } from '../claude/paths';
+import { configTomlPath } from '../codex/paths';
+import { writeCodexConfig } from '../codex/writer';
 
 /**
  * Run the v1.3.0 one-time migration:
@@ -114,6 +116,50 @@ export async function runV160ClaudeDesktopMigration(apiKey: string): Promise<boo
 
   setPreferences({ migrations: { v160_claudeDesktopDirect: true } });
   log.info('[migrations] v1.6.0 Claude Desktop 直连迁移完成');
+  return true;
+}
+
+/**
+ * v2.0.0 one-time migration: rewrite existing DeepSeek Codex config from the
+ * local-proxy template (base_url = 127.0.0.1) to the official direct template
+ * (base_url = api.deepseek.com + models.json). Flag-guarded, never re-runs.
+ */
+export async function runV200DeepSeekDirectMigration(): Promise<boolean> {
+  const prefs = getPreferences();
+  if (prefs.migrations?.v200_deepseekDirect) return false;
+  if (prefs.provider !== 'deepseek') {
+    setPreferences({ migrations: { v200_deepseekDirect: true } });
+    return true;
+  }
+
+  log.info('[migrations] 运行 v2.0.0 DeepSeek 直连迁移…');
+
+  try {
+    const apiKey = await getApiKey().catch(() => '');
+    if (apiKey) {
+      let current = '';
+      try {
+        current = await fs.readFile(configTomlPath(), 'utf8');
+      } catch {
+        // config.toml 不存在 → 无需迁移
+      }
+      const stillProxy = current.includes('127.0.0.1') || current.includes('localhost');
+      if (stillProxy) {
+        await writeCodexConfig({
+          proxyPort: prefs.proxyPort,
+          model: prefs.defaultModel,
+          apiKey,
+          provider: 'deepseek',
+        });
+        log.info('[migrations] Codex config 已迁移为 DeepSeek 官方直连');
+      }
+    }
+  } catch (e) {
+    log.warn('[migrations] v2.0.0 DeepSeek 直连迁移失败：', (e as Error).message);
+  }
+
+  setPreferences({ migrations: { v200_deepseekDirect: true } });
+  log.info('[migrations] v2.0.0 DeepSeek 直连迁移完成');
   return true;
 }
 

@@ -6,3 +6,5 @@ pnpm-lock.yaml
 CHANGELOG.md
 docs/help/*.json
 .github/agent/memory/
+# v2.0.0: DeepSeek 官方模型目录资产 —— 必须与官方文档逐字节一致，禁止格式化
+electron/codex/deepseek-models.json

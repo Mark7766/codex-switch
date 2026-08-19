@@ -17,6 +17,8 @@ extraResources:
     to: build/logo-codex.png
   - from: build/logo-claude.svg
     to: build/logo-claude.svg
+  - from: electron/codex/deepseek-models.json
+    to: electron/codex/deepseek-models.json
   - from: docs/help
     to: docs/help
     filter: ['**/*']

@@ -55,6 +55,7 @@ import {
 import {
   runV130ClaudeMigration,
   runV160ClaudeDesktopMigration,
+  runV200DeepSeekDirectMigration,
   startupApplyClaude,
 } from './config/migrations';
 import { ServerClient } from './server-client/client';
@@ -124,9 +125,10 @@ async function ensureProxy(): Promise<DeepSeekProxy> {
   const prefs = getPreferences();
 
   // v1.16.0: 自定义供应商直连模式——Codex 直连用户指定的 URL（Responses API），
-  // Claude 工具直连用户指定的 Anthropic 端点。如果任一工具选了需要代理的
-  // 供应商（deepseek/agnes/glm），代理仍需启动。
-  const codexNeedsProxy = prefs.provider !== 'custom';
+  // Claude 工具直连用户指定的 Anthropic 端点。
+  // v2.0.0: DeepSeek 官方直连（原生 Responses API），不再需要本地代理。
+  // 因此仅 agnes/glm 需要代理。
+  const codexNeedsProxy = prefs.provider === 'agnes' || prefs.provider === 'glm';
   const desktopNeedsProxy = prefs.claudeDesktopProvider === 'agnes';
   const cliNeedsProxy = prefs.claudeCliProvider === 'agnes';
   if (!codexNeedsProxy && !desktopNeedsProxy && !cliNeedsProxy) {
@@ -291,9 +293,9 @@ async function applyPreferencesTransaction(
 
   // 3) 供应商切换：更新 proxy 上游+Key + 映射
   // v1.16.0: 检测是否跨直连/代理边界——跨边界时需要重写 config.toml 并启停代理
-  const beforeDirect = before.provider === 'custom';
-  const afterDirect = next.provider === 'custom';
-  const crossedDirectBoundary = providerChanged && beforeDirect !== afterDirect;
+  // v2.0.0: DeepSeek 官方直连，custom/deepseek 均视为直连
+  const beforeDirect = before.provider === 'custom' || before.provider === 'deepseek';
+  const afterDirect = next.provider === 'custom' || next.provider === 'deepseek';
   if (providerChanged && proxy) {
     const newKey =
       next.provider === 'agnes'
@@ -324,20 +326,29 @@ async function applyPreferencesTransaction(
   }
 
   // v1.16.0: 所有工具直连时自动停止代理；反之，从直连切回代理时自动启动
+  // v2.0.0: DeepSeek 官方直连（custom/deepseek 均直连）。以「系统级全直连」判定
+  // 代理启停——任一工具需要代理（Codex=glm/agnes，或 Claude Desktop/CLI=agnes）
+  // 就确保代理在跑，避免「Codex 直连 + Claude 工具切 Agnes」时代理不自动启动。
+  const codexDirectBefore = before.provider === 'custom' || before.provider === 'deepseek';
+  const codexDirectAfter = next.provider === 'custom' || next.provider === 'deepseek';
+  const desktopDirectBefore = before.claudeDesktopProvider !== 'agnes';
+  const desktopDirectAfter = next.claudeDesktopProvider !== 'agnes';
+  const cliDirectBefore = before.claudeCliProvider !== 'agnes';
+  const cliDirectAfter = next.claudeCliProvider !== 'agnes';
+  const beforeAllDirect = codexDirectBefore && desktopDirectBefore && cliDirectBefore;
+  const afterAllDirect = codexDirectAfter && desktopDirectAfter && cliDirectAfter;
+  const allDirectChanged = beforeAllDirect !== afterAllDirect;
+
   if (proxy) {
-    const codexDirect = next.provider === 'custom';
-    const desktopDirect = next.claudeDesktopProvider !== 'agnes';
-    const cliDirect = next.claudeCliProvider !== 'agnes';
-    const allDirect = codexDirect && desktopDirect && cliDirect;
-    if (allDirect && proxy.getStatus() === 'running') {
+    if (afterAllDirect && proxy.getStatus() === 'running') {
       log.info('所有工具均为直连模式，自动停止代理');
       await proxy.stop();
-    } else if (!allDirect && crossedDirectBoundary && proxy.getStatus() !== 'running') {
+    } else if (!afterAllDirect && allDirectChanged && proxy.getStatus() !== 'running') {
       log.info('工具从直连切换为代理模式，自动启动代理');
       await proxy.start();
     }
-  } else if (crossedDirectBoundary && !afterDirect) {
-    // proxy 实例不存在（之前全直连）→ 从直连切换到需要代理的供应商时，创建并启动代理
+  } else if (!afterAllDirect && allDirectChanged) {
+    // proxy 实例不存在（之前全直连）→ 现在有工具需要代理时创建并启动
     log.info('从全直连切换到代理模式，创建并启动代理');
     try {
       const newProxy = await ensureProxy();
@@ -351,9 +362,11 @@ async function applyPreferencesTransaction(
   // - 供应商未变或有 apiKey 时写入
   // - 跨直连/代理边界时必须重写（因为 config.toml 的 base_url 会变）
   // v1.16.0: 自定义供应商直连模式——config.toml 写用户指定 URL，auth.json 写 Custom Key
+  // v2.0.0: 直连模板内容因供应商而异（deepseek/custom 各写各的 base_url），
+  // 供应商变更时只要任意一侧是直连就需重写 config.toml（纯代理 agnes↔glm 模板相同，无需重写）。
   let codexWritten = false;
   const effectiveKey = next.provider === 'custom' ? await getCustomKey().catch(() => '') : apiKey;
-  const shouldWriteCodex = (!providerChanged || crossedDirectBoundary) && effectiveKey;
+  const shouldWriteCodex = (!providerChanged || beforeDirect || afterDirect) && effectiveKey;
   if (shouldWriteCodex) {
     try {
       await writeCodexConfig({
@@ -675,8 +688,13 @@ function registerIpc(): void {
       ? { message: prefs.lastErrorMessage, ts: prefs.lastErrorAt }
       : null;
     if (!proxy) {
+      // v2.0.0: 无代理实例时区分「全直连（deepseek/custom + Claude 非 agnes）」与「已停止」
+      const codexDirect = prefs.provider === 'deepseek' || prefs.provider === 'custom';
+      const desktopDirect = prefs.claudeDesktopProvider !== 'agnes';
+      const cliDirect = prefs.claudeCliProvider !== 'agnes';
+      const allDirect = codexDirect && desktopDirect && cliDirect;
       return {
-        status: 'stopped' as const,
+        status: allDirect ? ('direct' as const) : ('stopped' as const),
         port: prefs.proxyPort,
         uptimeMs: 0,
         requestCount: 0,
@@ -1172,8 +1190,13 @@ Codex Switch 帮你突破网络限制，
     if (!serverClient) return 0;
     try {
       const res = await serverClient.get('/client/community');
-      const data = res.data as { code?: number; data?: { active_users?: number } };
-      return data?.data?.active_users ?? 0;
+      // v2.0.0: 侧边栏「和 X 位朋友一起使用」显示累计注册客户端数（Server 端 total_clients）；
+      // Server 尚未部署该字段时回退到 active_users，避免数字消失。
+      const data = res.data as {
+        code?: number;
+        data?: { total_clients?: number; active_users?: number };
+      };
+      return data?.data?.total_clients ?? data?.data?.active_users ?? 0;
     } catch {
       return 0;
     }
@@ -1539,6 +1562,12 @@ app.whenReady().then(async () => {
     if (apiKey) await runV160ClaudeDesktopMigration(apiKey);
   } catch (e) {
     log.warn('v1.6.0 Claude Desktop 迁移失败：', (e as Error).message);
+  }
+  // v2.0.0: DeepSeek 官方直连迁移（老代理模板 → 直连 + models.json）
+  try {
+    await runV200DeepSeekDirectMigration();
+  } catch (e) {
+    log.warn('v2.0.0 DeepSeek 直连迁移失败：', (e as Error).message);
   }
 
   // 每次启动都重新写入 Claude 配置，确保外部工具更新后仍然生效。

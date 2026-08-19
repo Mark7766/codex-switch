@@ -1,6 +1,6 @@
 /**
- * 极简 Markdown 渲染：仅支持 #/##/###、空行、列表 (- *)、行内 `code` 与 [text](url)。
- * 故意不引入 react-markdown 以减小打包体积与攻击面。
+ * 极简 Markdown 渲染：仅支持 #/##/###、空行、列表 (- *)、块引用 (>)、
+ * 行内 `code` 与 [text](url)。故意不引入 react-markdown 以减小打包体积与攻击面。
  */
 import { useEffect, useState, type ReactNode } from 'react';
 
@@ -66,10 +66,11 @@ export function ChangelogModal({
   );
 }
 
-function renderMarkdown(md: string): ReactNode[] {
+export function renderMarkdown(md: string): ReactNode[] {
   const lines = md.split(/\r?\n/);
   const out: ReactNode[] = [];
   let listBuf: string[] = [];
+  let quoteBuf: string[] = [];
 
   const flushList = (): void => {
     if (listBuf.length === 0) return;
@@ -83,8 +84,32 @@ function renderMarkdown(md: string): ReactNode[] {
     listBuf = [];
   };
 
+  const flushQuote = (): void => {
+    if (quoteBuf.length === 0) return;
+    out.push(
+      <blockquote
+        key={`q-${out.length}`}
+        className="border-l-2 border-slate-600 pl-3 text-slate-300 my-1.5"
+      >
+        {quoteBuf.map((l, i) => (
+          <p key={i} className="my-1">
+            {renderInline(l)}
+          </p>
+        ))}
+      </blockquote>,
+    );
+    quoteBuf = [];
+  };
+
   for (const raw of lines) {
     const line = raw.trimEnd();
+    const quoteMatch = line.match(/^>\s?(.*)$/);
+    if (quoteMatch) {
+      flushList();
+      quoteBuf.push(quoteMatch[1] ?? '');
+      continue;
+    }
+    flushQuote();
     if (/^\s*[-*]\s+/.test(line)) {
       listBuf.push(line.replace(/^\s*[-*]\s+/, ''));
       continue;
@@ -118,6 +143,7 @@ function renderMarkdown(md: string): ReactNode[] {
       );
     }
   }
+  flushQuote();
   flushList();
   return out;
 }

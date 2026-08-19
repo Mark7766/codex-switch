@@ -147,7 +147,7 @@ test('first-run wizard saves API key and starts proxy', async () => {
 - **凭据管理** — DeepSeek API Key 通过 OS keychain（keytar）保存，禁止写入仓库/日志/截图。
 - **配置文件改动** — 修改 `~/.codex/*` 之前必须先备份成 `*.bak.<timestamp>`，提供"一键还原"。`auth.json` 文件权限必须设为 `0o600`。
 - **网络监听** — 代理仅绑定 `127.0.0.1`，端口冲突时自动 +1 重试，且向用户明确提示新端口。
-- **协议兼容** — 必须同时支持 HTTP `/v1/responses` 和 WebSocket（Codex CLI v0.132+ 使用 WebSocket 流式协议）；模型映射要覆盖 `deepseek-chat`（V3）与 `deepseek-reasoner`（R1），后者需正确处理 `reasoning_content` 字段并在多轮对话中回传。
+- **协议兼容** — 必须同时支持 HTTP `/v1/responses` 和 WebSocket（Codex CLI v0.132+ 使用 WebSocket 流式协议）；模型映射要覆盖 `deepseek-chat`（V3）与 `deepseek-reasoner`（R1），后者需正确处理 `reasoning_content` 字段并在多轮对话中回传。**（v2.0.0 起 DeepSeek 官方直连，不再走本地代理——代理仅服务 Agnes/GLM；模型映射与 reasoning_content 逻辑仅在代理路径需要。）**
 - **代码限制** — 行宽 100 字符，单函数不超过 50 行，单文件不超过 400 行；超出请拆分。
 - **跨平台兼容** — 所有路径使用 `path.join`；shell 命令禁止假设 POSIX；图标/安装器资源同时提供 `.icns` 与 `.ico`。
 

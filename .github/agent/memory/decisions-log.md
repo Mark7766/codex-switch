@@ -38,6 +38,40 @@
 
 ## 决策记录
 
+### ADR-028: v2.0.0 — Codex DeepSeek 官方直连（不再走本地代理）+ 社区数字口径调整
+
+- **日期**：2026-08-19
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v2.0.0 之前，Codex 连 DeepSeek 走本地代理（127.0.0.1:11435），由代理做 OpenAI Responses ⇄ Chat Completions 协议翻译、模型映射、reasoning_content 跨轮回传。DeepSeek 官方文档确认 **DeepSeek API 原生支持 Responses 格式**，可以在 `~/.codex/config.toml` 里配 `[model_providers.deepseek]`（`base_url="https://api.deepseek.com/"` + `wire_api="responses"`）外加一份官方 `models.json` 模型目录，让 Codex CLI / Desktop / VS Code 插件直连 DeepSeek。
+
+#### 决策
+1. **Codex 直连 DeepSeek，照官方模板**：`config.toml` 写 `model_provider="deepseek"`、`preferred_auth_method="apikey"`、`forced_login_method="api"`、`model_catalog_json="~/.codex/models.json"`，`[model_providers.deepseek]` 段写 `base_url="https://api.deepseek.com/"`、`wire_api="responses"`、`experimental_bearer_token="<API Key>"`（密钥直接进 config.toml，完全照官方一键脚本）。同步写入官方 models.json（打包为静态资产 76KB）。
+2. **DeepSeek 视为直连供应商**：`provider==='deepseek'` 不再需要代理；本地代理仅保留给 Agnes/GLM（它们只讲 Chat Completions）。ensureProxy / applyPreferencesTransaction / proxyInfo 全部把 deepseek 当作直连处理；直连状态在 Dashboard 显示「直连」。
+3. **存量迁移**：启动时 `runV200DeepSeekDirectMigration` 把老 `127.0.0.1` 代理模板重写为直连（flag `v200_deepseekDirect` 一次性）。
+4. **社区数字口径**：侧边栏「和 X 位朋友一起使用」从 Server 的「活跃用户(30天)」改为「累计注册客户端数」= `COUNT(client_registry)`（Server `community_stats` 新增 `total_clients` 字段，客户端 `communityGetCount` 改读它）。文案不变。
+
+#### 理由
+1. 官方文档确认原生 Responses 支持——不再需要协议翻译层，直连延迟更低、少一层转发
+2. 「完全照官方」降低兼容风险：模板与 DeepSeek 一键脚本逐字一致（用户明确选择）
+3. 复用 v1.16.0 自定义供应商的直连模式蓝本，改动面小
+4. 社区数字用累计注册客户端数最直观，且不受 30 天遥测清理影响
+
+#### 影响
+- 直连后代理层功能对 DeepSeek 失效：请求日志、token 用量统计、对话缓存、后台建议拦截（Dashboard 显示「直连」，CHANGELOG 已注明取舍）
+- `experimental_bearer_token` 使 API Key 明文出现在 config.toml（本地文件，与 auth.json chmod 600 同属「Codex 运行必需」妥协；OS 钥匙串仍为唯一权威存储）
+- models.json 要求 Codex ≥ 0.144.0 才能读取模型目录元数据；旧版 Codex 直连仍可用但可能退化为默认行为
+- 社区口径变更依赖 Server 端同步部署（community 返回 total_clients）
+- **修订（2026-08-19，TASK-109）**：① 代理启停改为按「系统级全直连」判定（任一工具需要代理就启动，含 Claude 工具切 Agnes），不再只跟踪 Codex 供应商边界；② 客户端 `communityGetCount` 用 `total_clients ?? active_users ?? 0` 回退，Server 未部署时先显示旧口径；③ Dashboard 全直连时启停按钮常驻（点击提示"当前工具均无需本地代理"），文案改为"DeepSeek/自定义直连；GLM/Agnes 仍需本地代理"。
+
+#### 替代方案
+- "保留 DeepSeek 代理/直连开关" → 否决：多一个配置面，用户已明确 DeepSeek 完全直连
+- "密钥仍走 auth.json + requires_openai_auth" → 否决：用户选择完全照官方（experimental_bearer_token）；auth.json 仍照写作为冗余兜底
+
+---
+
 ### ADR-027: v1.16.0 — PackyCode 替换为自定义供应商（custom provider）
 
 - **日期**：2026-06-24
