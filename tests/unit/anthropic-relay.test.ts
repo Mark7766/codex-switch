@@ -67,6 +67,25 @@ function mockRes(): ServerResponse & { status: number; body: string } {
   return res as unknown as ServerResponse & { status: number; body: string };
 }
 
+/** 轮询等待 mockUpstreamHandler 被设置（处理异步链中的竞态，替代固定 setTimeout）。 */
+async function waitForUpstream(timeoutMs = 1500): Promise<void> {
+  const start = Date.now();
+  while (!mockUpstreamHandler) {
+    if (Date.now() - start > timeoutMs) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+/** 轮询等待 res.status 从初始值（200）变化，避免慢 CI 上固定等待不足导致的偶发失败。 */
+async function waitForStatus(res: { status: number }, timeoutMs = 1500): Promise<void> {
+  const initial = res.status;
+  const start = Date.now();
+  while (res.status === initial) {
+    if (Date.now() - start > timeoutMs) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 function respondUpstream(statusCode: number, body: string): void {
   if (!mockUpstreamHandler) throw new Error('upstream not called');
   mockUpstreamHandler({
@@ -238,7 +257,7 @@ describe('handleAnthropicMessages', () => {
       const res = mockRes();
 
       handleAnthropicMessages(req, res as unknown as ServerResponse, deps);
-      await new Promise((r) => setTimeout(r, 20));
+      await waitForStatus(res);
 
       expect(res.status).toBe(400);
       expect(JSON.parse(res.body).type).toBe('error');
@@ -252,9 +271,9 @@ describe('handleAnthropicMessages', () => {
       const res = mockRes();
 
       handleAnthropicMessages(req, res as unknown as ServerResponse, deps);
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForUpstream();
       respondUpstream(503, '{"error":"unavailable"}');
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForStatus(res);
 
       expect(res.status).toBe(503);
       expect(deps.log).toHaveBeenCalledWith(
@@ -274,9 +293,9 @@ describe('handleAnthropicMessages', () => {
       const res = mockRes();
 
       handleAnthropicMessages(req, res as unknown as ServerResponse, deps);
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForUpstream();
       failUpstream('ECONNREFUSED');
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForStatus(res);
 
       expect(res.status).toBe(502);
       expect(JSON.parse(res.body).type).toBe('error');
@@ -290,9 +309,9 @@ describe('handleAnthropicMessages', () => {
       const res = mockRes();
 
       handleAnthropicMessages(req, res as unknown as ServerResponse, deps);
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForUpstream();
       respondUpstream(200, 'not json');
-      await new Promise((r) => setTimeout(r, 5));
+      await waitForStatus(res);
 
       expect(res.status).toBe(502);
     });
