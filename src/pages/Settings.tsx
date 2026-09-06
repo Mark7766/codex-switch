@@ -484,6 +484,9 @@ export function Settings(): JSX.Element {
                 <>
                   <option value="deepseek-v4-flash">DeepSeek V4 Flash (deepseek-v4-flash)</option>
                   <option value="deepseek-v4-pro">DeepSeek V4 Pro (deepseek-v4-pro)</option>
+                  <option value="deepseek-v4-flash-vision-exp">
+                    DeepSeek V4 Flash Vision · 实验（可读图）
+                  </option>
                 </>
               )}
             </select>

@@ -172,6 +172,7 @@ describe('writeCodexConfig — deepseek direct mode (v2.0.0)', () => {
     const first = await fs.readFile(modelsJson, 'utf8');
     expect(first).toContain('"slug": "deepseek-v4-flash"');
     expect(first).toContain('"slug": "deepseek-v4-pro"');
+    expect(first).toContain('"slug": "deepseek-v4-flash-vision-exp"');
 
     const r2 = await writeCodexConfig(input);
     expect(r2.modelsSkipped).toBe(true);

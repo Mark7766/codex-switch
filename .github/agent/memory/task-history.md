@@ -3,6 +3,55 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-116] v2.1.0 — 版本号升级 + 更新日志定稿（面向用户）
+
+- **日期**：2026-09-06
+- **类型**：chore / release
+- **摘要**：承接 TASK-115（Codex 支持 deepseek-v4-flash-vision-exp），将软件版本从 2.0.0 升级到 2.1.0 并把更新日志定稿为 v2.1.0。① `package.json` version 2.0.0→2.1.0（electron-builder 用 `${version}` 动态命名安装包，无需改 electron-builder.yml；pnpm-lock 根 importer 无项目版本字段，52 处 "2.0.0" 均为依赖版本，勿全局替换）；② CHANGELOG.md：把临时 `[Unreleased]` 区块改写为正式 `[2.1.0] - 2026-09-06`，从用户视角说明「Codex 也能看图」：新增 DeepSeek V4 Flash Vision 模型、可贴图/截图让 DeepSeek 看图、官方直连无需本地代理、在哪里找到它（设置→Codex 接入→默认模型）、实验模型提示。
+- **变更文件**：`package.json`、`CHANGELOG.md`、`.github/agent/memory/project-memory.md`（当前阶段→v2.1.0）
+- **验证**：version 读取 2.1.0；changelog 渲染测试不受影响
+- **注意事项**：未 push / 未打 tag；发版时再按惯例打 tag 触发 Release workflow。
+
+### [TASK-115] 支持 deepseek-v4-flash-vision-exp（Codex 直连可读图）
+
+- **日期**：2026-09-06
+- **类型**：feat
+- **摘要**：Codex 接入新增 DeepSeek 实验多模态模型 `deepseek-v4-flash-vision-exp`（文本+图片）。依据官方 vision 文档与 Codex 一键脚本（`https://cdn.deepseek.com/api-docs/codex-deepseek-setup.sh`）：Codex 靠 `model_catalog_json=~/.codex/models.json` 里模型的 `input_modalities` 含 `image` 判断能否收图。改动：① `electron/codex/deepseek-models.json` 追加第三模型（深拷贝 flash 条目、仅改 6 字段：slug / `input_modalities:["text","image"]` / `supports_image_detail_original:true` / `display_name:"DeepSeek-V4-Flash-Vision"` / description / `priority:3`；字段值照官方脚本校验，repo flash 与官方 flash 0 差异，diff 纯 +68 行）；② Settings「Codex 接入」默认模型下拉 + Setup 向导（模型区改三行）新增该选项；③ 新增 `tests/unit/deepseek-models-catalog.test.ts`（断言 3 slug 顺序 + vision image 能力 + 文本模型不含 image）+ `writer.test.ts` 补 vision slug。**范围=仅 Codex 接入（用户拍板）**：未动 Claude 工具映射（ModelMappingModal/env-writer）与代理 `translate.ts` 白名单——vision 走 DeepSeek 官方直连（wire_api=responses）不经本地代理。存量用户选 vision 点「保存并应用」即触发 `writeModelsJson` 带备份刷新 `~/.codex/models.json`，无需单独迁移。
+- **变更文件**：`electron/codex/deepseek-models.json`、`src/pages/Settings.tsx`、`src/pages/Setup.tsx`、`tests/unit/writer.test.ts`、`tests/unit/deepseek-models-catalog.test.ts`（新增）、`CHANGELOG.md`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、211/211 tests ✅（较上版 +2 catalog 用例，无回归）
+- **注意事项**：
+  1. 直连下图片是否真的能发由 Codex 客户端侧决定（据 models.json 的 image 能力展示贴图入口并发送 `input_image`）；本应用只保证模型可选 + 目录声明到位。真实链路需用户 API Key 冒烟（Codex 贴图 / curl 直测 vision 收图）未在本任务执行
+  2. 打包资产在 `.prettierignore`（注释「与官方逐字节一致，禁止格式化」），勿跑 prettier/format 于其上
+  3. 版本号未 bump；CHANGELOG 写入 `[Unreleased]`，发版时再归入具体版本
+  4. vision 是 DeepSeek 实验模型，仅 Codex 供应商可选；作为默认模型未推荐（默认仍 flash）
+
+### [TASK-114] 编写并发布 GitHub Wiki（精简版）
+
+- **日期**：2026-08-19
+- **类型**：docs
+- **摘要**：为用户仓库 Mark7766/codex-switch 编写并发布 GitHub Wiki（用户选定精简版：首页 / 快速开始 / 常见问题 / 故障排查）。技术要点：仓库 has_wiki=true 但 wiki 未初始化（`GET /repos/.../wikis` 404、`.wiki.git` 不存在）；GitHub 无 API 可创建 wiki，必须先在网页端「Create the first page」初始化。引导用户初始化后克隆 `git@github.com:Mark7766/codex-switch.wiki.git`（默认分支 master）到 /tmp/codex-switch.wiki，编写 `Home.md`、`快速开始.md`、`常见问题.md`、`故障排查.md`、`_Sidebar.md`（内容取自 README、docs/help/faq.json、docs/help/onboarding.json、CHANGELOG），commit + push origin master 上线（a226cad..9601a09）。
+- **变更文件**：仅 wiki 仓库（Mark7766/codex-switch.wiki.git）5 个页面；本项目仓库无代码改动
+- **注意事项**：
+  1. 精简版按用户选择，未含架构/开发文档
+  2. push 时项目的 Stop hook 提示「push 需显式权限」；本任务的授权依据是用户明确选择「直接发布到线上 wiki」+ 批准含 `git push origin master` 步骤的计划。后续同类 push 操作需先征得用户当前回合明确确认
+  3. wiki 后续扩展（开发指南等）只需再 clone 该 wiki 仓库加页面后 push
+
+- **日期**：2026-08-19
+- **类型**：fix / test
+- **摘要**：v2.0.0 Release 成功发布后，main push 触发的 CI workflow 偶发失败——`tests/unit/anthropic-relay.test.ts` 的「returns 502 on unparseable upstream response」期望 502 实际 200。根因：`handleAnthropicMessages` 异步，`respondUpstream`/`failUpstream` 触发后需多个微任务才设置 `res.status`；固定 `setTimeout(5)` 在慢 Windows runner 上竞态（同一测试在 Release run 通过、CI run 失败，证实为抖动）。修复：新增 `waitForUpstream` / `waitForStatus` 轮询助手（超时 1.5s），更新 4 个同类异步用例。
+- **变更文件**：`tests/unit/anthropic-relay.test.ts`（+2 助手，4 用例改轮询）
+- **验证**：本机 12/12 通过；全量 209/209、typecheck/lint/format 全绿。已 push（`20b4f46`），CI 重新运行中。
+- **注意事项**：该测试与 anthropic-relay 运行时无关（本任务未改其实现）；后续新增异步 mock 测试建议用轮询而非固定 setTimeout。
+
+### [TASK-112] v2.0.0 Release — 修复 mac DMG 构建失败（双架构并发卷冲突）
+
+- **日期**：2026-08-19
+- **类型**：fix / release
+- **摘要**：v2.0.0 已 push + tag，但 Release workflow 的 mac 构建失败（x64 DMG 连续 3 次 `ln -s /Applications` + `background.tiff FileNotFoundError`）。根因：`electron-builder.yml` 的 `mac.target` 显式写 `arch: [x64, arm64]`，导致 workflow 里 `electron-builder --mac --arm64` 仍会**并发构建 x64 DMG**——两个 DMG 同时挂载同名卷「Codex Switch 2.0.0」→ hdiutil detach / background.tiff 失败（APFS 模式已知问题，workflow 注释里本有说明）。修复：① `mac.target` 去掉写死 arch 数组，改由 CLI `--arm64/--x64/--universal` 控制（`package:mac --x64 --arm64` 仍构建双架构）；② `release.yml` 重试前卸载残留 `/Volumes/Codex*` 卷。tag v2.0.0 移到修复提交 `bad252a` 重新触发构建。
+- **变更文件**：`electron-builder.yml`（mac.target）、`.github/workflows/release.yml`（重试加 hdiutil detach）
+- **验证**：YAML 解析 OK；新 run `32263388816` 重新构建中
+- **注意事项**：架构必须由 CLI 控制，勿在 mac.target 写死 arch 数组（会破坏 workflow 的单架构顺序构建）。
+
 ### [TASK-111] 社区端点 Server 部署确认 + 回归测试补回
 
 - **日期**：2026-08-19

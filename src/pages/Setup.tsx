@@ -3,7 +3,9 @@ import { useAppStore } from '../lib/store';
 
 export function Setup(): JSX.Element {
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState<'deepseek-v4-flash' | 'deepseek-v4-pro'>('deepseek-v4-flash');
+  const [model, setModel] = useState<
+    'deepseek-v4-flash' | 'deepseek-v4-pro' | 'deepseek-v4-flash-vision-exp'
+  >('deepseek-v4-flash');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setPage = useAppStore((s) => s.setPage);
@@ -54,7 +56,7 @@ export function Setup(): JSX.Element {
         </Field>
 
         <Field label="② 默认使用哪个 DeepSeek 模型" hint="后续可在「设置」中随时切换。">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <ModelOption
               active={model === 'deepseek-v4-flash'}
               onClick={() => setModel('deepseek-v4-flash')}
@@ -66,6 +68,12 @@ export function Setup(): JSX.Element {
               onClick={() => setModel('deepseek-v4-pro')}
               title="DeepSeek V4 Pro"
               subtitle="更强，适合复杂任务"
+            />
+            <ModelOption
+              active={model === 'deepseek-v4-flash-vision-exp'}
+              onClick={() => setModel('deepseek-v4-flash-vision-exp')}
+              title="DeepSeek V4 Flash Vision"
+              subtitle="实验版 · 可以读取图片 / 截图"
             />
           </div>
         </Field>

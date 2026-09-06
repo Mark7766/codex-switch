@@ -5,7 +5,7 @@ import { writeModelsJson } from './models-catalog';
 
 export interface WriteCodexConfigInput {
   proxyPort: number;
-  model: string; // 'deepseek-v4-flash' | 'deepseek-v4-pro'
+  model: string; // 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'deepseek-v4-flash-vision-exp'（vision 实验模型，Codex 可读图）
   apiKey: string;
   /** 每个文件保留的最大备份份数。默认 5。 */
   maxBackupsPerFile?: number;

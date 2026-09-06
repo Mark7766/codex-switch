@@ -3,6 +3,22 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-09-06
+
+### 重磅新增：Codex 也能「看图」了 🖼️
+
+> DeepSeek 推出了实验多模态模型 **DeepSeek V4 Flash Vision**（`deepseek-v4-flash-vision-exp`），除了文字，它还能接收图片 / 截图。v2.1.0 把 Codex 接到了这个模型上——官方模型目录已同步补上该模型的图片能力，Codex 据此允许给这个模型发图。
+
+- **Codex 接入新增「DeepSeek V4 Flash Vision」模型**。在「Codex 接入」的默认模型里选它（首次启动的模型向导里也能选），点保存即可生效。日常文字任务建议继续用 Flash / Pro，需要「看图」时再切换到 Vision
+- **模型可以读懂图片 / 截图**。选中后，在 Codex 里贴入图片或截图，即可让 DeepSeek 描述画面内容、识别截图里的文字、分析图表等
+- **依旧官方直连、无需本地代理**。选好模型点保存，Codex 直接连 DeepSeek 官方接口；同时会自动把官方最新三模型目录同步到本机的 `~/.codex/models.json`，Codex 才能识别这个新模型
+- **从哪里找**：设置 →「Codex 接入」卡片 →「默认模型」下拉里多了一项「DeepSeek V4 Flash Vision · 实验（可读图）」
+
+### 变更
+
+- **设置页与首次启动向导的模型列表同步更新**，Flash / Pro / Vision 三个模型放在一起、一目了然
+- **提示**：Vision 是 DeepSeek 的实验模型，能力可能随官方迭代调整。图片请放在你的提问里；关于支持格式、大小上限等细节，可参考 DeepSeek 官方「图像理解」文档
+
 ## [2.0.0] - 2026-08-19
 
 ### 重磅变更：Codex 直连 DeepSeek 🚀
