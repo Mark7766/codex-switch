@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v2.1.0（Codex 接入 DeepSeek V4 Flash Vision 实验模型——可读图，models.json 资产同步为官方 3 模型；未 push，211/211 tests ✅） |
+| 当前阶段 | v2.2.0（Codex + Claude Code CLI 支持 DeepSeek V4 Flash Vision；Claude Desktop 因 3P 客户端限制不含 vision；未 push，216/216 tests ✅） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -73,7 +73,7 @@
 ### 核心特征
 - **进程边界严格**：主进程独占文件系统/网络/Codex 配置；渲染层只通过 IPC 间接访问。`contextIsolation: true`、`nodeIntegration: false` 不可变更。
 - **代理仅监听 loopback**：默认 `127.0.0.1:11435`，与参考工程保持一致；端口被占自动 +1 重试并通知用户，绝不绑定 `0.0.0.0`。
-- **DeepSeek 官方直连（v2.0.0）**：Codex 连 DeepSeek 不再走本地代理——config.toml 写 `[model_providers.deepseek]`（base_url=api.deepseek.com + wire_api=responses + experimental_bearer_token）并写入官方 `~/.codex/models.json`（模型目录，打包资产 `electron/codex/deepseek-models.json`，含 flash/pro/**vision-exp** 三模型，约 111KB，Prettier 忽略；vision-exp 的 `input_modalities` 声明 image，Codex 据此判断该模型可接收图片，Codex 接入可选，Claude 工具映射不含它）。`provider==='deepseek'` 与 `'custom'` 均视为直连；代理仅保留给 Agnes/GLM。直连后代理层功能（请求日志 / token 统计 / 对话缓存）对 DeepSeek 失效。
+- **DeepSeek 官方直连（v2.0.0）**：Codex 连 DeepSeek 不再走本地代理——config.toml 写 `[model_providers.deepseek]`（base_url=api.deepseek.com + wire_api=responses + experimental_bearer_token）并写入官方 `~/.codex/models.json`（模型目录，打包资产 `electron/codex/deepseek-models.json`，含 flash/pro/**vision-exp** 三模型，约 111KB，Prettier 忽略；vision-exp 的 `input_modalities` 声明 image，Codex 据此判断该模型可接收图片，Codex 接入可选；v2.2.0 起 Claude Code CLI 的模型映射同样可选它，且 CLI 三档**默认映射** opus→deepseek-v4-pro / sonnet→deepseek-v4-flash / haiku→deepseek-v4-flash-vision-exp（主对话跟随 Sonnet、子代理跟随 Haiku；env 把 model id 原样发给 api.deepseek.com/anthropic，真实生效）。⚠️ Claude Desktop **不含** vision（其 3P gateway 只发 `name`=claude-* 路由、`labelOverride` 仅显示，图片到不了视觉模型——见 ADR-029）。`provider==='deepseek'` 与 `'custom'` 均视为直连；代理仅保留给 Agnes/GLM。直连后代理层功能（请求日志 / token 统计 / 对话缓存）对 DeepSeek 失效。
 - **协议双通道（代理路径）**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；均支持 `previous_response_id` 状态管理、`fixToolMessageOrder` 序列修复、以及正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
 - **凭据安全**：DeepSeek API Key 走 OS keychain（macOS Keychain / Windows Credential Manager），不落盘到普通配置文件。
 - **配置可还原**：所有对 `~/.codex/*` 的写入都先备份成 `*.bak.<timestamp>`，提供"一键还原"。

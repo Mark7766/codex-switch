@@ -28,12 +28,14 @@ export interface ClaudeCliEnvVars {
   claudeCodeSubagentModel: string;
 }
 
+// v2.2.0: DeepSeek 三档默认 opus→pro / sonnet→flash / haiku→vision-exp。
+// 主对话模型跟随 Sonnet 档，子代理跟随 Haiku 档（由映射弹窗三档派生）。
 export const DEFAULT_ENV_VARS: ClaudeCliEnvVars = {
-  anthropicModel: 'deepseek-v4-pro',
+  anthropicModel: 'deepseek-v4-flash',
   anthropicDefaultOpusModel: 'deepseek-v4-pro',
-  anthropicDefaultSonnetModel: 'deepseek-v4-pro',
-  anthropicDefaultHaikuModel: 'deepseek-v4-flash',
-  claudeCodeSubagentModel: 'deepseek-v4-flash',
+  anthropicDefaultSonnetModel: 'deepseek-v4-flash',
+  anthropicDefaultHaikuModel: 'deepseek-v4-flash-vision-exp',
+  claudeCodeSubagentModel: 'deepseek-v4-flash-vision-exp',
 };
 
 /** GLM 供应商的 Claude CLI 默认模型名（Anthropic 兼容端点）。 */

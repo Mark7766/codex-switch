@@ -36,6 +36,7 @@ import {
   listClaudeDesktopBackups,
   PROFILE_ID,
 } from '../../electron/claude/desktop-writer';
+import * as storeModule from '../../electron/config/store';
 
 const CS_MARKER_KEY = '__codexSwitch';
 const CS_MARKER_VALUE = 'managed';
@@ -95,6 +96,8 @@ describe('writeClaudeDesktopConfig', () => {
     expect(Array.isArray(parsed['inferenceModels'])).toBe(true);
     const models = parsed['inferenceModels'] as unknown[];
     expect(models.length).toBe(3);
+    // Desktop default: opus→pro / sonnet→flash / haiku→flash (no vision-exp — v2.2.0
+    // DeepSeek vision 仅 Claude Code CLI 支持，Desktop 3P 触达不到视觉模型)
     expect(models[0]).toEqual({ labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' });
     expect(models[1]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' });
     expect(models[2]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' });
@@ -107,6 +110,40 @@ describe('writeClaudeDesktopConfig', () => {
     const metaParsed = JSON.parse(meta![1]) as { appliedId: string; entries: { id: string }[] };
     expect(metaParsed.appliedId).toBe(PROFILE_ID);
     expect(metaParsed.entries.some((e) => e.id === PROFILE_ID)).toBe(true);
+  });
+
+  it('honors a modelMap override per slot and never writes the DeepSeek vision model', async () => {
+    // A user-chosen mapping overrides that slot's labelOverride; unmapped slots keep
+    // provider defaults. DeepSeek vision-exp is intentionally absent on Desktop
+    // (v2.2.0 — Desktop 3P gateway cannot drive the vision model).
+    vi.mocked(fs.readFile).mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+    vi.spyOn(storeModule, 'getPreferences').mockReturnValueOnce({
+      proxyPort: 11435,
+      customProvider: { codexBaseUrl: '', claudeBaseUrl: '' },
+      claudeDesktop: {
+        enabled: true,
+        modelMap: { 'claude-opus-4-7': 'deepseek-v4-flash' },
+      },
+    } as unknown as storeModule.UserPreferences);
+
+    await writeClaudeDesktopConfig('sk-test-api-key');
+
+    const calls = vi.mocked(fs.writeFile).mock.calls;
+    const profile = calls.find(
+      ([p]) => typeof p === 'string' && p.endsWith(`${PROFILE_ID}.json`) && !p.includes('.bak.'),
+    ) as [string, string, unknown] | undefined;
+    expect(profile).toBeTruthy();
+    const parsed = JSON.parse(profile![1]) as {
+      inferenceModels: Array<{ labelOverride: string; name: string }>;
+    };
+    const models = parsed['inferenceModels'];
+    expect(models.length).toBe(3);
+    // Overridden slot (opus → flash) and default slots (sonnet/haiku → flash)
+    for (const m of models) expect(m.labelOverride).toBe('deepseek-v4-flash');
+    // Desktop must never advertise the vision model.
+    expect(models.some((m) => m.labelOverride === 'deepseek-v4-flash-vision-exp')).toBe(false);
   });
 
   it('preserves existing user fields (e.g. mcpServers) in claude_desktop_config.json', async () => {

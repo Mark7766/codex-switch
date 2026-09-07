@@ -707,21 +707,36 @@ export function Settings(): JSX.Element {
                 return;
               }
               try {
-                // 将模型映射转为 envVars 持久化，确保 claudeApplyAll 读取到用户选择
-                const defs =
-                  claudeCliProvider === 'glm'
-                    ? { main: 'glm-5.2', flash: 'glm-4.7' }
-                    : claudeCliProvider === 'agnes'
-                      ? { main: 'agnes-2.0-flash', flash: 'agnes-1.5-flash' }
-                      : claudeCliProvider === 'custom'
-                        ? { main: 'claude-sonnet-4-6', flash: 'claude-haiku-4-5' }
-                        : { main: 'deepseek-v4-pro', flash: 'deepseek-v4-flash' };
+                // 将模型映射转为 envVars 持久化，确保 claudeApplyAll 读取到用户选择。
+                // 每个 Claude 槽位在该供应商下的默认上游模型；DeepSeek 三档默认与
+                // 映射弹窗 / env-writer DEFAULT_ENV_VARS 对齐（v2.2.0:
+                // opus→pro、sonnet→flash、haiku→vision-exp）。
+                const roleDefault = (slot: string): string => {
+                  if (claudeCliProvider === 'deepseek') {
+                    if (slot === 'claude-opus-4-7') return 'deepseek-v4-pro';
+                    if (slot === 'claude-sonnet-4-6') return 'deepseek-v4-flash';
+                    return 'deepseek-v4-flash-vision-exp'; // claude-haiku-4-5
+                  }
+                  const defs =
+                    claudeCliProvider === 'glm'
+                      ? { main: 'glm-5.2', flash: 'glm-4.7' }
+                      : claudeCliProvider === 'agnes'
+                        ? { main: 'agnes-2.0-flash', flash: 'agnes-1.5-flash' }
+                        : { main: 'claude-sonnet-4-6', flash: 'claude-haiku-4-5' };
+                  return slot === 'claude-haiku-4-5' ? defs.flash : defs.main;
+                };
+                // 主对话模型跟随 Sonnet 槽位、子代理跟随 Haiku 槽位
                 const newEnvVars = {
-                  anthropicModel: cliMapping['claude-sonnet-4-6'] ?? defs.main,
-                  anthropicDefaultOpusModel: cliMapping['claude-opus-4-7'] ?? defs.main,
-                  anthropicDefaultSonnetModel: cliMapping['claude-sonnet-4-6'] ?? defs.main,
-                  anthropicDefaultHaikuModel: cliMapping['claude-haiku-4-5'] ?? defs.flash,
-                  claudeCodeSubagentModel: cliMapping['claude-haiku-4-5'] ?? defs.flash,
+                  anthropicModel:
+                    cliMapping['claude-sonnet-4-6'] ?? roleDefault('claude-sonnet-4-6'),
+                  anthropicDefaultOpusModel:
+                    cliMapping['claude-opus-4-7'] ?? roleDefault('claude-opus-4-7'),
+                  anthropicDefaultSonnetModel:
+                    cliMapping['claude-sonnet-4-6'] ?? roleDefault('claude-sonnet-4-6'),
+                  anthropicDefaultHaikuModel:
+                    cliMapping['claude-haiku-4-5'] ?? roleDefault('claude-haiku-4-5'),
+                  claudeCodeSubagentModel:
+                    cliMapping['claude-haiku-4-5'] ?? roleDefault('claude-haiku-4-5'),
                 };
                 await window.codexSwitch.setPreferences({
                   claudeCliProvider,
@@ -888,12 +903,16 @@ export function Settings(): JSX.Element {
           version={version}
         />
       )}
+      {/* v2.2.0: Claude Desktop 的 3P gateway 只能发送 claude-* 路由名，图片到不了
+          deepseek-v4-flash-vision-exp → Desktop 不提供该模型（vision={false}）。
+          Claude Code CLI 经 env 原样发 model id，真正支持 → 下方 CLI 弹窗保持默认 vision。 */}
       <ModelMappingModal
         open={showDesktopMapping}
         onClose={() => setShowDesktopMapping(false)}
         provider={claudeDesktopProvider}
         mapping={desktopMapping}
         onSave={setDesktopMapping}
+        vision={false}
       />
       <ModelMappingModal
         open={showCliMapping}

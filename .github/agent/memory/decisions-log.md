@@ -38,6 +38,36 @@
 
 ## 决策记录
 
+### ADR-029: v2.2.0 — Claude Desktop 不提供 DeepSeek 视觉模型（vision 仅 Codex + Claude Code CLI）
+
+- **日期**：2026-09-07
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+用户实测把 Claude Desktop 的 Claude Sonnet 映射到 `deepseek-v4-flash-vision-exp` 后贴图报错、图片显示「Unsupported Image」。排查（本机 profile/日志 + DeepSeek 官方「图像理解」文档 + cc-switch 源码 + [anthropics/claude-code#56990](https://github.com/anthropics/claude-code/issues/56990)）确认：**Claude Desktop 3P gateway 请求 `model` 发送的是条目 `name`（必须是 claude-opus/sonnet/haiku 形状，Desktop 强校验非 Anthropic 名直接拒绝），`labelOverride` 只是模型下拉的显示名，上游看不到**。DeepSeek 按 claude-* 名做档位路由到文本档 → 图片 content 400 → 客户端降级为 `[Unsupported Image]`。DeepSeek 官方明确：Anthropic 端点发图时请求 `model` 必须**字面等于** `deepseek-v4-flash-vision-exp`（claude-* 路由不映射到它），只有能原样发 model id 的客户端（Claude Code CLI 的 env / 程序化 anthropic SDK / Codex Responses）能触达。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 为 Desktop 引入本地 Anthropic 路由（claude-* 名→真实 deepseek 模型 + 转发 image block） | Desktop 真能看图；模型映射恢复真实语义 | 推翻 ADR-020「Claude 直连无代理」；DeepSeek 需常驻本地代理；改动大 |
+| **B. v2.2.0 仅 Claude Code CLI 支持 vision，Desktop 移除该模型** | 诚实、改动小、不推翻架构；CLI env 路径真实有效 | Desktop 用户不能用视觉（Anthropic 客户端硬限制，官方无 GUI 通道） |
+
+#### 决策
+选 **B**：v2.2.0 只让 Claude Code CLI 支持 `deepseek-v4-flash-vision-exp`；Claude Desktop 的 DeepSeek 模型映射回 pro/flash 两档（haiku 默认 flash）。`ModelMappingModal` 加 `vision?: boolean`（默认 true=CLI 语义；Desktop 卡片传 false）。
+
+#### 理由
+1. Desktop 3P 客户端机制决定直连无法驱动第三方视觉模型（证据充分）；无本地路由时任何映射都只是显示层
+2. CLI env 把 model id 原样发给 api.deepseek.com/anthropic，正中官方路径，是低成本真实收益
+3. 不为单一功能引入长期代理架构负担（ADR-020 有意移除 Claude 本地转发）
+
+#### 影响
+- Claude Desktop 模型映射不含 vision。延伸事实：Desktop 上 pro/flash 的 labelOverride 映射同样**只改显示名**、不真正切换上游模型——真实模型由 DeepSeek 服务端按 claude-* 名档位路由决定（TASK-081 等历史「labelOverride 修复」语义存疑）
+- 若未来要 Desktop 视觉，需重新评估「本地 Anthropic 路由（agent gateway）」方案，属新架构决策
+
+---
+
 ### ADR-028: v2.0.0 — Codex DeepSeek 官方直连（不再走本地代理）+ 社区数字口径调整
 
 - **日期**：2026-08-19

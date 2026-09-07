@@ -3,6 +3,65 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-117] v2.2.0 — Claude Desktop / Claude Code CLI 支持 deepseek-v4-flash-vision-exp（与 Codex 对齐三个 DeepSeek 模型）
+
+- **日期**：2026-09-07
+- **类型**：feat
+- **摘要**：承接 v2.1.0（TASK-115/116，vision-exp 仅接 Codex），让 Claude 工具也和 Codex 一样可选三个 DeepSeek 模型（pro / flash / `deepseek-v4-flash-vision-exp`）。改动面极小：① `src/components/ModelMappingModal.tsx` `modelOptions()` deepseek 分支追加 `deepseek-v4-flash-vision-exp`（用户拍板仅加裸 id，对齐弹窗现有 pro/flash 展示）——Desktop 与 CLI 两卡片共用此弹窗，映射分别经 `prefs.claudeDesktop.modelMap`（→ Desktop 3P profile `labelOverride`）与 `prefs.claudeCli.envVars`（→ `ANTHROPIC_*` env）落地，写入链路零改动；② 测试：新增 `tests/unit/ModelMappingModal.test.tsx`（断言 deepseek 三选项出现在每个 Claude 槽位 + 把 Sonnet 映射到 vision 后保存 `onSave` 收到），`desktop-writer.test.ts` 追加一例（modelMap 含 vision → 写出的 `<PROFILE_ID>.json` `labelOverride=deepseek-v4-flash-vision-exp`，未映射槽位保持默认）；③ `package.json` 2.1.0→2.2.0（pnpm-lock 根 importer 无版本字段不动）；④ CHANGELOG 顶部插入 `[2.2.0]-2026-09-07`。（三档默认映射见 TASK-118：opus→pro / sonnet→flash / haiku→vision）
+- **变更文件**：`src/components/ModelMappingModal.tsx`、`tests/unit/ModelMappingModal.test.tsx`（新增）、`tests/unit/desktop-writer.test.ts`、`package.json`、`CHANGELOG.md`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、214/214 tests ✅（基线 211 + 3 新增：2 modal + 1 desktop-writer）
+- **注意事项**：
+  1. Claude 的 DeepSeek 流量是官方直连 `api.deepseek.com/anthropic`，不经本地代理 → `translate.ts` 白名单 / proxy 层均不需动（vision 作为上游模型 id 由 Claude 客户端直接发送）
+  2. `inferProviderFromModel`/`resolveEnvVars` 只按前缀识别，`deepseek-` 开头天然归 deepseek，存量 vision envVars 不会被误判重置
+  3. 未 push / 未 release；如需像 v2.1.0 那样提交 + push + tag 触发 Release，需另行指示
+
+### [TASK-119] 调研：Claude Desktop 3P gateway 无法驱动 DeepSeek 视觉 → v2.2.0 vision 仅 Claude Code CLI
+
+- **日期**：2026-09-07
+- **类型**：fix / research
+- **摘要**：用户实测 Claude Desktop 把 Sonnet 映射到 `deepseek-v4-flash-vision-exp` 后贴图报错、图片显示「Unsupported Image」。排查（本机 profile/日志 + DeepSeek 官方「图像理解」文档 + cc-switch 源码 + anthropics/claude-code#56990/#87566）锁定机制：**Claude Desktop 3P gateway 请求 `model` = 条目 `name`（须 claude-* 形状），`labelOverride` 仅 UI 显示**；DeepSeek 按 claude-* 名档位路由到文本档，图片 400 → 客户端降级 [Unsupported Image]。官方要求 Anthropic 端点发图时 model 必须字面 = deepseek-v4-flash-vision-exp（只有 CLI env / SDK / Codex 能做到）。**决策（用户拍板）：v2.2.0 只让 Claude Code CLI 支持 vision；Desktop 移除该模型。** 落地：① `ModelMappingModal` 加 `vision?:boolean`（默认 true=CLI；Desktop 卡片 false→deepseek 仅 pro/flash、haiku 默认 flash），CLI 保留三档+trio 默认；② `Settings.tsx` Desktop 弹窗 `vision={false}`、CLI 默认；③ `desktop-writer.ts` labelHaiku deepseek 回退=labelFlash（去掉 vision 分支）+注释；④ `env-writer.ts DEFAULT_ENV_VARS` 保持 trio（CLI env 直达真实生效）；⑤ 测试：ModelMappingModal 增 Desktop 无 vision 用例、desktop-writer haiku 默认回 flash + override 用例改非 vision 并断言不含 vision-exp；⑥ CHANGELOG v2.2.0 收敛为「Claude Code CLI 也能看图」并注明 Desktop 因客户端限制不提供。见 ADR-029。
+- **变更文件**：`src/components/ModelMappingModal.tsx`、`src/pages/Settings.tsx`、`electron/claude/desktop-writer.ts`、`tests/unit/ModelMappingModal.test.tsx`、`tests/unit/desktop-writer.test.ts`、`CHANGELOG.md`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、216/216 tests ✅
+- **注意事项**：
+  1. 延伸事实：Desktop 上 pro/flash 的 labelOverride 映射同样只改显示名、不真正切上游模型（真实模型由 DeepSeek 服务端按 claude-* 名路由）——TASK-081 等历史「labelOverride 修复」语义存疑，未来若做 Desktop 视觉需「本地 Anthropic 路由」新架构
+  2. Claude Code CLI 冒烟路径：/model 切到 Haiku（默认已是 vision-exp）后贴图验证
+  3. 未 push / 未 release
+
+### [TASK-121] 排查：侧边栏「和 X 位朋友一起使用」消失 — 根因是线上 Server SSL 证书过期（非客户端 bug）
+
+- **日期**：2026-09-07
+- **类型**：fix（运维，非代码）/ diagnostics
+- **摘要**：用户部署升级后反馈侧边栏「和 X 位朋友一起使用」那行消失。客户端渲染条件 `src/App.tsx:247` `communityCount > 0`；`communityCount` 来自 `electron/main.ts:1189` handler → `serverClient.get('/client/community')` → `data?.data?.total_clients ?? data?.data?.active_users ?? 0`，catch 亦 `return 0`。**根因=线上 `www.codex-switch.cloud` TLS 证书过期**：curl 报 `curl: (60) SSL certificate problem: certificate has expired`，openssl `Verify return code: 10`，TrustAsia DV；忽略证书后 Server 实际健康 `{"code":0,"data":{"active_users":107,"total_clients":399}}`。客户端 `ServerClient` 用 `https.Agent({rejectUnauthorized:true})`（`electron/server-client/client.ts:44`）→ 握手失败 → handler 返回 0 → 行消失。**与客户端代码无关**，用户拍板：只需 Server 续期证书即可，客户端不改。
+- **变更文件**：无（纯运维）
+- **验证**：curl 详见上；未改任何代码
+- **注意事项**：
+  1. 影响面：`rejectUnauthorized:true` 使所有走 `codex-switch.cloud` 的 HTTPS 请求（社区数 / 更新检查 feed / 遥测上报 / `communityGetProfile`）在证书过期期间全部失败——社区数字只是最显眼的一个
+  2. Server 数据本身正常（total_clients 累计口径 ≤ 399）；证书续期后自动恢复
+  3. 客户端 ServerClient 无 HTTP 层日志：此次「返回值 0」被静默吞掉，无 error 日志。未来若要多一点可观测性，可考虑在 handler catch 里 `log.warn`（TASK-121 未做，用户明确不需要）
+  4. 判定口径：`total_clients` 是累计注册客户端数（v2.0.0 起），Server 端 `src/api/v1/client.py` `@router.get("/community")` 返回 `{code, data:{active_users, total_clients}}`，与客户端解构匹配
+
+### [TASK-120] CHANGELOG 复核 + v2.2.0 措辞收敛
+
+- **日期**：2026-09-07
+- **类型**：docs
+- **摘要**：通读 CHANGELOG.md 全量 + ChangelogModal.tsx 渲染器，核对 v2.2.0 与代码/版本一致性。渲染器支持 #/##/###、`-` 列表、`>` 块引用、`` ` ``、`**`、`[text](url)`，v2.2.0 写法均能解析。内容与代码一致（CLI-only vision、三档默认、Desktop 说明）。修正 v2.2.0 两处用户视角措辞：①「/model 切到该模型」不精确——Claude Code `/model` 只列 Default/Opus/Sonnet/Haiku 档位，改为「/model 切到已映射的档位（默认 Haiku）+ 拖图」操作指引；② 合并进「怎么用『看图』」子条目。format:check ✅。未 push。
+- **变更文件**：`CHANGELOG.md`（v2.2.0 措辞）
+- **注意事项**：
+  1. 遗留（未改，历史性）：v1.1.1 / v1.1.0 版本头日期仍是占位 `2026-06-XX`；1.2.3→1.5.0 之间有版本缺失（1.3/1.4 未记录）。如需补齐需向用户核实真实日期/版本
+  2. ChangelogModal 显示全量 md（顶部即最新 v2.2.0），无需按版本截断
+
+### [TASK-118] v2.2.0 — Claude Desktop / CLI 的 DeepSeek 三档默认映射（opus→pro、sonnet→flash、haiku→vision）
+
+- **日期**：2026-09-07
+- **类型**：feat
+- **摘要**：承接 TASK-117，把 Claude 工具接 DeepSeek 的**默认映射**定为三档：Claude Opus 4.7→`deepseek-v4-pro`、Sonnet 4.6→`deepseek-v4-flash`、Haiku 4.5→`deepseek-v4-flash-vision-exp`；Claude Code CLI 主对话模型跟随 Sonnet 档（默认 flash）、子代理跟随 Haiku 档（默认 vision）。改动：① `electron/claude/desktop-writer.ts` `labelHaiku` deepseek 分支→vision-exp（opus/sonnet 本就 pro/flash）；② `electron/claude/env-writer.ts` `DEFAULT_ENV_VARS` deepseek 改 `{main:flash, opus:pro, sonnet:flash, haiku:vision, subagent:vision}`（store 默认经其导入自动生效）；③ `ModelMappingModal.tsx` 新增 `DEEPSEEK_ROLE_DEFAULT` + `slotDefault()`——deepseek 槽位未映射时预选三档（不再全选 `presets[0]`=pro），Desktop/CLI 共用弹窗同时受益；④ `Settings.tsx` Claude CLI env 派生改为按槽位 `roleDefault()`（deepseek 三档；glm/agnes/custom 兜底与原 main/flash 语义等价、行为不变）；⑤ 测试同步：desktop-writer haiku 默认断言→vision、ModelMappingModal 新增「预选三档」用例；⑥ CHANGELOG v2.2.0 默认映射文案重写。
+- **变更文件**：`electron/claude/desktop-writer.ts`、`electron/claude/env-writer.ts`、`src/components/ModelMappingModal.tsx`、`src/pages/Settings.tsx`、`tests/unit/desktop-writer.test.ts`、`tests/unit/ModelMappingModal.test.tsx`、`CHANGELOG.md`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、215/215 tests ✅（TASK-117 的 214 + 新增预选三档 1 例）
+- **注意事项**：
+  1. 存量用户已持久化的 `claudeDesktop.modelMap` / `claudeCli.envVars` 不会被覆盖——新默认只对未映射/新装生效；如需强制刷新须手动重存或加迁移
+  2. 该默认映射仅作用于 Claude 工具（DeepSeek Anthropic 直连端点）；Codex 侧 defaultModel 默认仍 flash，与三档默认无关
+  3. ⚠️ 已被 TASK-119 / ADR-029 修正：三档默认映射**仅适用于 Claude Code CLI**（env 原样发 model id）；Claude Desktop 因 3P 只能发 claude-* 路由、labelOverride 仅显示，触达不到 vision-exp → Desktop 侧已回退（不含 vision 选项、haiku 默认 flash）
+
 ### [TASK-116] v2.1.0 — 版本号升级 + 更新日志定稿（面向用户）
 
 - **日期**：2026-09-06
@@ -10,7 +69,7 @@
 - **摘要**：承接 TASK-115（Codex 支持 deepseek-v4-flash-vision-exp），将软件版本从 2.0.0 升级到 2.1.0 并把更新日志定稿为 v2.1.0。① `package.json` version 2.0.0→2.1.0（electron-builder 用 `${version}` 动态命名安装包，无需改 electron-builder.yml；pnpm-lock 根 importer 无项目版本字段，52 处 "2.0.0" 均为依赖版本，勿全局替换）；② CHANGELOG.md：把临时 `[Unreleased]` 区块改写为正式 `[2.1.0] - 2026-09-06`，从用户视角说明「Codex 也能看图」：新增 DeepSeek V4 Flash Vision 模型、可贴图/截图让 DeepSeek 看图、官方直连无需本地代理、在哪里找到它（设置→Codex 接入→默认模型）、实验模型提示。
 - **变更文件**：`package.json`、`CHANGELOG.md`、`.github/agent/memory/project-memory.md`（当前阶段→v2.1.0）
 - **验证**：version 读取 2.1.0；changelog 渲染测试不受影响
-- **注意事项**：未 push / 未打 tag；发版时再按惯例打 tag 触发 Release workflow。
+- **注意事项**：已按用户指令提交 + push + release：commit `ab5a508` → origin/main 更新成功；tag `v2.1.0` 已推送并触发 Release workflow（run 34010037935，queued）。监控 run 状态时 `gh` 读取被权限层拦截，建议用户直接在 GitHub Actions 页面跟踪。
 
 ### [TASK-115] 支持 deepseek-v4-flash-vision-exp（Codex 直连可读图）
 

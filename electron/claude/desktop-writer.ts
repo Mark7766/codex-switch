@@ -112,8 +112,10 @@ function buildGatewayProfile(
       : isCustom
         ? prefs.customProvider.claudeBaseUrl
         : 'https://api.deepseek.com/anthropic';
-  // 供应商默认模型名：Opus 用高端档，Sonnet/Haiku 用快速档
-  // 自定义供应商透传 Claude 原生名作为默认值（用户可在模型映射弹窗中修改）
+  // 供应商默认模型名：Opus 用高端档，Sonnet/Haiku 用快速档；自定义供应商透传 Claude
+  // 原生名作为默认值（用户可在模型映射弹窗中修改）。
+  // 注意：Desktop 3P gateway 实际只把 claude-* 路由名发给上游，labelOverride 仅显示；
+  // DeepSeek 视觉模型 vision-exp 无法经 Desktop 触达（v2.2.0 仅 Claude Code CLI 支持）。
   const label = isGlm
     ? 'glm-5.2'
     : isAgnes

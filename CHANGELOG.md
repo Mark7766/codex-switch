@@ -3,6 +3,24 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2026-09-07
+
+### 重磅新增：Claude Code CLI 也能「看图」了 🖼️
+
+> v2.1.0 让 Codex 用上了 DeepSeek 的视觉模型（`deepseek-v4-flash-vision-exp`），这一版把它带给 **Claude Code CLI**——模型映射里新增该选项，选它之后 Claude Code CLI 就能把图片 / 截图发给 DeepSeek 识别。
+
+- **Claude Code CLI 也能选「DeepSeek V4 Flash Vision」了**。在「Claude Code CLI 接入」卡片点「管理模型映射…」，把某个 Claude 档位映射到 `deepseek-v4-flash-vision-exp`（默认已把 Haiku 映射到它）；保存后在新终端窗口生效
+- **怎么用「看图」**：打开新终端 `claude`，输入 `/model` 切到已映射到该视觉模型的档位（默认是 Haiku），然后把图片 / 截图拖进对话即可让 DeepSeek 识别画面内容、读取截图文字
+- **默认映射已为你配好三档**：Claude Opus → DeepSeek V4 Pro，Claude Sonnet → DeepSeek V4 Flash，Claude Haiku → DeepSeek V4 Flash Vision（「看图」档）；主对话跟随 Sonnet（DeepSeek V4 Flash）、子代理跟随 Haiku（DeepSeek V4 Flash Vision）
+- **依旧官方直连、无需本地代理**。Claude Code CLI 直接连 DeepSeek 官方 Anthropic 兼容接口（`api.deepseek.com/anthropic`），请求里的模型名会原样发送，因此视觉模型能真正收到图片
+- **从哪里找**：设置 →「Claude Code CLI 接入」→「管理模型映射…」
+
+### 变更
+
+- **Claude Code CLI 的 DeepSeek 可选模型补齐为三个**（Flash / Pro / Vision），与 Codex 接入一致；Claude Code CLI 主对话 / 子代理默认模型跟随档位自动更新
+- **说明（Claude Desktop）**：Claude Desktop 的第三方网关受 Anthropic 客户端限制，只能请求 `claude-*` 路由名，图片到不了 DeepSeek 视觉模型，因此 **v2.2.0 Claude Desktop 不提供该模型**，模型映射仍为 Pro / Flash 两个 DeepSeek 模型
+- **提示**：Vision 是 DeepSeek 的实验模型，能力可能随官方迭代调整；能否真正收发图片取决于 DeepSeek 官方对 Anthropic 兼容端点的支持
+
 ## [2.1.0] - 2026-09-06
 
 ### 重磅新增：Codex 也能「看图」了 🖼️
