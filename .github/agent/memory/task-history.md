@@ -14,7 +14,7 @@
   1. `restoreOriginalConfig` 只动 config.toml；遗留的 `~/.codex/models.json`/`auth.json` 成为 inert 文件（下次切供应商会重写 auth），不做清理
   2. 代理 `[features]` 段在剥离受管 key 后仅剩注释/空行——段头只在仍有有效内容时保留，空段头会被删除（测试锁定）
   3. 版本已 bump 至 **v2.3.0**，CHANGELOG 用简短用户视角文案；pnpm-lock 根 importer 无版本字段，未动
-  4. 未 push / 未 release（如需提交 + push + tag v2.3.0 触发 Release，另行指示）
+  4. 已 push + release：commit `3b87646` → origin/main；tag `v2.3.0` 已推送并触发 Release workflow（run 34312218651，3m38s 成功），mac x64/arm64 dmg+zip + win x64/arm64 exe 全部发布
 
 ### [TASK-117] v2.2.0 — Claude Desktop / Claude Code CLI 支持 deepseek-v4-flash-vision-exp（与 Codex 对齐三个 DeepSeek 模型）
 
