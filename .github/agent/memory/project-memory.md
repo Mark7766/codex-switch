@@ -15,7 +15,7 @@
 | 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v2.2.0（Codex + Claude Code CLI 支持 DeepSeek V4 Flash Vision；Claude Desktop 因 3P 客户端限制不含 vision；未 push，216/216 tests ✅） |
+| 当前阶段 | v2.3.0（修复「切换到 OpenAI 官方」对 v2.0.0 DeepSeek 直连格式失效的 bug，见 TASK-122/BUG-007；未 push，220/220 tests ✅） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -185,6 +185,7 @@
 | BUG-004 | Windows 自动升级点击「立即安装」后报错程序未关闭，导致升级失败 | 在 `IPC.updateInstall` 显式异步停止 proxy 并 flush lifetime；且在 `before-quit` 最后调用 `app.exit(0)` 强行终止进程以配合 NSIS。 | 2026-06-01 |
 | BUG-005 | Claude Desktop 配置写入 `~/Library/Application Support/Claude/claude_desktop_config.json` 完全无效 | Claude Desktop 的 3P (third-party gateway) 网关从 `Claude-3p/configLibrary/<PROFILE_ID>.json` 读，需同时在两份 `claude_desktop_config.json` 中写 `deploymentMode:"3p"`（详见 ADR-006）。`PROFILE_ID = '00000000-0000-4000-8000-0000c0dec501'`，占位 `inferenceGatewayApiKey = 'cs-internal-placeholder'` 用于卸载时识别我们的 profile。Windows 路径用 `LOCALAPPDATA` 而非 `APPDATA`。 | 2026-06-04 |
 | BUG-006 | Claude Code CLI 仅靠 `~/.zshrc` 写 env 需要重启终端才生效 | 同时写 `~/.claude/settings.json` 的 `env` 字段（每次调用读取，立即生效）+ `~/.claude/config.json` 的 `primaryApiKey:"any"`（OAuth 旁路标记）。`settings.json` 用 `__codexSwitch:"managed"` 标记我方写入，卸载时只清理 9 个受管 env 键，保留用户其它字段。 | 2026-06-04 |
+| BUG-007 | 点「切换到 OpenAI 官方」后 Codex 报「but you passed gpt-6-astra」且左下角仍显示 deepseek | `restoreOriginalConfig()` 未适配 v2.0.0 deepseek 直连格式——只处理 `[model_providers.custom]`，漏删 `model_provider`/`[model_providers.deepseek]`，只删 `model` 行 → Codex 回退 OpenAI 默认模型但仍路由 DeepSeek。已修复（TASK-122）：抽 `electron/codex/config-restore.ts` `sanitizeManagedConfig()` 整段剥离 managed 块 + 受管顶层键，保留用户自有段。 | 2026-09-09 |
 
 ---
 

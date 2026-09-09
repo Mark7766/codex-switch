@@ -3,6 +3,12 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.0] - 2026-09-09
+
+### 修复
+
+- **修复：「切换到 OpenAI 官方」后 Codex 仍连着 DeepSeek 的问题**。之前点「切换到 OpenAI 官方」只删掉了模型名，却留下了 DeepSeek 的连接配置——于是 Codex 把默认的官方模型名发给了 DeepSeek 而报错（`but you passed gpt-6-astra`），左下角也还显示着 DeepSeek。现在会把连接配置一并清干净，真正切回正版 OpenAI。
+
 ## [2.2.0] - 2026-09-07
 
 ### 重磅新增：Claude Code CLI 也能「看图」了 🖼️

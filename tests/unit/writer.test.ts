@@ -25,6 +25,7 @@ import {
   deleteBackup,
   cleanAllBackups,
   restoreCodexConfig,
+  restoreOriginalConfig,
 } from '../../electron/codex/writer';
 
 beforeEach(async () => {
@@ -191,5 +192,88 @@ describe('writeCodexConfig — deepseek direct mode (v2.0.0)', () => {
     expect(config).toContain('model_provider = "custom"');
     expect(r.modelsBackup).toBeNull();
     await expect(fs.access(path.join(TMP_ROOT, 'models.json'))).rejects.toThrow();
+  });
+});
+
+// ─── restoreOriginalConfig — 切换到 OpenAI 官方 ───────────────────────────
+describe('restoreOriginalConfig — switch to OpenAI official', () => {
+  it('strips deepseek direct routing fully (model_provider + provider block)', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-deepseek-key',
+      provider: 'deepseek',
+    });
+    await restoreOriginalConfig();
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).not.toContain('model = "deepseek-v4-flash"');
+    expect(config).not.toContain('model_provider');
+    expect(config).not.toContain('preferred_auth_method');
+    expect(config).not.toContain('forced_login_method');
+    expect(config).not.toContain('model_reasoning_effort');
+    expect(config).not.toContain('model_catalog_json');
+    expect(config).not.toContain('[model_providers.deepseek]');
+    expect(config).not.toContain('base_url = "https://api.deepseek.com/"');
+    expect(config).not.toContain('wire_api = "responses"');
+    expect(config).not.toContain('experimental_bearer_token');
+    expect(config).not.toContain('sk-deepseek-key');
+  });
+
+  it('preserves user-owned sections byte-for-byte', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-deepseek-key',
+      provider: 'deepseek',
+    });
+    const userBlock = [
+      '[projects."/Users/mark/work/x"]',
+      'trust_level = "trusted"',
+      '',
+      '[desktop]',
+      'followUpQueueMode = "queue"',
+    ].join('\n');
+    await fs.appendFile(r.configPath, `\n${userBlock}\n`, 'utf8');
+
+    await restoreOriginalConfig();
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).toContain('[projects."/Users/mark/work/x"]');
+    expect(config).toContain('trust_level = "trusted"');
+    expect(config).toContain('[desktop]');
+    expect(config).toContain('followUpQueueMode = "queue"');
+    expect(config).not.toContain('[model_providers.deepseek]');
+  });
+
+  it('strips proxy (agnes) routing: custom block + features keys', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-agnes',
+      provider: 'agnes',
+    });
+    await restoreOriginalConfig();
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).not.toContain('127.0.0.1');
+    expect(config).not.toContain('[model_providers.custom]');
+    expect(config).not.toContain('codex-switch');
+    expect(config).not.toContain('model_provider');
+    expect(config).not.toContain('enable_request_compression');
+    expect(config).not.toContain('remote_compaction_v2');
+    expect(config).not.toContain('[features]');
+  });
+
+  it('strips custom-direct routing (custom provider block + base_url)', async () => {
+    const r = await writeCodexConfig({
+      proxyPort: 11435,
+      model: 'gpt-5.4',
+      apiKey: 'sk-custom',
+      provider: 'custom',
+      customCodexBaseUrl: 'https://api.example.com/v1',
+    });
+    await restoreOriginalConfig();
+    const config = await fs.readFile(r.configPath, 'utf8');
+    expect(config).not.toContain('https://api.example.com/v1');
+    expect(config).not.toContain('[model_providers.custom]');
+    expect(config).not.toContain('model_provider');
   });
 });

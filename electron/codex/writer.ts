@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authJsonPath, backupPath, codexDir, configTomlPath } from './paths';
 import { writeModelsJson } from './models-catalog';
+import { sanitizeManagedConfig } from './config-restore';
 
 export interface WriteCodexConfigInput {
   proxyPort: number;
@@ -171,51 +172,19 @@ export async function hasOriginalBackup(): Promise<boolean> {
   }
 }
 
-/** v1.13.0: 还原为 OpenAI 官方配置——仅移除 base_url，保留 custom provider 结构。 */
+/**
+ * 还原为 OpenAI 官方配置——移除 Codex Switch 注入的管理路由。
+ * v2.0.0 起 deepseek/custom 为官方直连（`[model_providers.deepseek]` /
+ * `[model_providers.custom]` 块 + `model_provider`），v2.1.0 前只处理自定义
+ * 块内的 base_url，直连块从未被清理，导致 Codex 仍路由到 DeepSeek。
+ * 现统一交由 `sanitizeManagedConfig` 整段剥离（保留用户自有配置段）。
+ */
 export async function restoreOriginalConfig(): Promise<void> {
   const configPath = configTomlPath();
-
-  // 先备份当前配置
+  // 先备份当前配置再改写
   await backupIfExists(configPath);
-
   const content = await fs.readFile(configPath, 'utf8');
-  const lines = content.split('\n');
-  const result: string[] = [];
-  let inCustomProvider = false;
-
-  for (const line of lines) {
-    // 跳过 model_catalog_json
-    if (/^\s*model_catalog_json\s*=/.test(line)) continue;
-    // v1.13.0: 去掉 model 行，让 OpenAI 用默认值
-    if (/^\s*model\s*=/.test(line)) continue;
-
-    // 在 [model_providers.custom] section 内
-    if (/^\s*\[model_providers\.custom\]/.test(line)) {
-      inCustomProvider = true;
-      result.push(line);
-      continue;
-    }
-    if (inCustomProvider) {
-      // 遇到新的 section → 退出
-      if (/^\s*\[/.test(line) && !line.includes('custom')) {
-        inCustomProvider = false;
-        result.push(line);
-      }
-      // 跳过 base_url 行
-      else if (/^\s*base_url\s*=/.test(line)) {
-        continue;
-      }
-      // 保留其他行（name, wire_api, requires_openai_auth）
-      else {
-        result.push(line);
-      }
-      continue;
-    }
-
-    result.push(line);
-  }
-
-  await fs.writeFile(configPath, result.join('\n'), 'utf8');
+  await fs.writeFile(configPath, sanitizeManagedConfig(content), 'utf8');
 }
 
 /** 列出某文件所有备份（按时间倒序，最新在前）。 */

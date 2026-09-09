@@ -3,6 +3,19 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-122] 修复「切换到 OpenAI 官方」对 v2.0.0 DeepSeek 直连格式失效的 bug
+
+- **日期**：2026-09-09
+- **类型**：fix
+- **摘要**：用户点「切换到 OpenAI 官方」后 Codex 报「The supported API model names are deepseek-v4-pro, deepseek-v4-flash, and deepseek-v4-flash-vision-exp, but you passed gpt-6-astra」且界面左下角仍显示 deepseek。根因：`electron/codex/writer.ts` 的 `restoreOriginalConfig()` 是 **v1.x 代理时代**的行过滤——只处理 `[model_providers.custom]`（删其内 `base_url`）并删顶层 `model`/`model_catalog_json`；v2.0.0 起 deepseek 走**官方直连** `[model_providers.deepseek]` + `model_provider="deepseek"`，该函数删掉 `model` 行（Codex 回退到 OpenAI 默认模型 gpt-6-astra/**6 Astra 高**）却保留 `model_provider` 和整个 deepseek 块 → Codex 仍路由到 DeepSeek → 被拒。修复：把行过滤抽到新纯模块 `electron/codex/config-restore.ts` `sanitizeManagedConfig()`，整段剥离 `[model_providers.deepseek]`/`[model_providers.custom]` 块 + 受管顶层键（model / model_provider / preferred_auth_method / forced_login_method / model_reasoning_effort / model_catalog_json / model_context_window / model_auto_compact_token_limit）+ `[features]` 受管键（清空则连段头删除），保留用户自有段（marketplaces / plugins / mcp_servers / projects / desktop / notify / 其他 model_providers）。`writer.ts` `restoreOriginalConfig()` 瘦身为 backup→read→sanitize→write 包装。**方向确认（用户）**：deepseek 与自定义均为官方直连，本地代理（agnes/glm）正逐步移除，本次聚焦直连格式、代理作为安全兜底。
+- **变更文件**：`electron/codex/config-restore.ts`（新增）、`electron/codex/writer.ts`、`tests/unit/writer.test.ts`（新增 4 用例）、`package.json`（2.2.0→2.3.0）、`CHANGELOG.md`（新增 2.3.0 条目）
+- **验证**：typecheck ✅、lint ✅、format:check ✅、220/220 tests ✅（基线 216 + 4 新增：deepseek 全剥离 / 用户段保留 / proxy(agnes) / custom-direct）
+- **注意事项**：
+  1. `restoreOriginalConfig` 只动 config.toml；遗留的 `~/.codex/models.json`/`auth.json` 成为 inert 文件（下次切供应商会重写 auth），不做清理
+  2. 代理 `[features]` 段在剥离受管 key 后仅剩注释/空行——段头只在仍有有效内容时保留，空段头会被删除（测试锁定）
+  3. 版本已 bump 至 **v2.3.0**，CHANGELOG 用简短用户视角文案；pnpm-lock 根 importer 无版本字段，未动
+  4. 未 push / 未 release（如需提交 + push + tag v2.3.0 触发 Release，另行指示）
+
 ### [TASK-117] v2.2.0 — Claude Desktop / Claude Code CLI 支持 deepseek-v4-flash-vision-exp（与 Codex 对齐三个 DeepSeek 模型）
 
 - **日期**：2026-09-07
