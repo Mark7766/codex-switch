@@ -14,6 +14,8 @@ import {
   shellProfilePaths,
 } from './paths';
 import { PROFILE_ID } from './desktop-writer';
+import { PROVIDER_LIST } from '../config/providers';
+import { getPreferences } from '../config/store';
 
 const execAsync = promisify(exec);
 
@@ -146,7 +148,16 @@ async function isClaudeCliConfigApplied(): Promise<boolean> {
       const { stdout } = await execAsync(
         'reg query "HKCU\\Environment" /v ANTHROPIC_BASE_URL 2>nul',
       );
-      return stdout.includes('deepseek.com');
+      // v3.0.0: 供应商无关——只要是我们写过的任一 Claude 端点即视为已配置。
+      // 此前写死 `deepseek.com`，GLM / 自定义用户在 Windows 上会被误判为「未配置」
+      // （settings.json 标记缺失时就会走到这里）。端点清单由注册表派生。
+      const prefs = getPreferences();
+      const managed = PROVIDER_LIST.map((p) =>
+        p.claude.baseUrl === 'custom'
+          ? (prefs.customProvider?.claudeBaseUrl ?? '')
+          : p.claude.baseUrl,
+      ).filter((u) => u.length > 0);
+      return managed.some((u) => stdout.includes(u));
     } catch {
       return false;
     }

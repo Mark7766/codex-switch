@@ -3,31 +3,31 @@
     "id": "custom-setup",
     "tag": "入门",
     "question": "如何接入自定义 API？",
-    "answer": "如果你有兼容 OpenAI Responses API 或 Anthropic Messages API 的第三方 API 服务，可以在 Codex Switch 中配置自定义供应商。只需两步：\n\n1. 获取 Codex Base URL 和 Claude Base URL → 在你的 API 服务商后台获取（Codex URL 通常以 /v1 结尾，Claude URL 通常为根路径）\n2. Codex Switch 设置 → 在「🔑 供应商设置」中将供应商切换为「自定义 · 直连」，填写两个 Base URL 和 API Key\n3. 在「📟 Codex 接入」卡片中选择供应商为「自定义 · 直连」，选择或输入模型名，点「保存并应用」\n\n同样的操作适用于 Claude Desktop 和 Claude Code CLI——在对应的接入卡片里切换到「自定义 · 直连」即可。\n\n💡 选择什么供应商完全由你自主决定。Base URL 填入你信任的 API 地址，模型名请参考该 API 提供商的文档。想切回其他供应商？下拉选回保存即可。"
+    "answer": "如果你有兼容 OpenAI Responses API 或 Anthropic Messages API 的第三方 API 服务，可以用「自定义」供应商接入。步骤：\n\n1. 在 API 服务商后台拿到 Codex Base URL（通常以 /v1 结尾）与 Claude Base URL（通常为根路径），以及 API Key\n2. 「设置 → 供应商设置」里把供应商选成「自定义」，填入两个 Base URL 与 API Key 并保存\n3. 到「Codex 接入」（以及需要的话「Claude Desktop / Claude Code CLI 接入」）把供应商选成「自定义」，选择或手填模型名，点「保存并应用」\n\n💡 选择什么供应商完全由你自主决定。模型名请参考该 API 提供商的文档。想切回其他供应商，下拉选回保存即可。"
   },
   {
     "id": "glm-setup",
     "tag": "入门",
     "question": "如何接入智谱 GLM 模型？",
-    "answer": "智谱 GLM 是国内大模型供应商，中文能力强、API 兼容性好，推荐国内用户使用。接入只需三步：\n\n1. 注册并获取 API Key → 访问 https://open.bigmodel.cn/，注册后进入「API Keys」创建 Key 并复制\n2. Codex Switch 设置 → 在「📟 Codex 接入」卡片中将供应商切换为「智谱 GLM」，Key 已在「🔑 供应商设置」中填好（格式要求：长度至少 10 位）\n3. 点「保存并应用」→ Codex 无需重启，下一条消息直接走 GLM\n\nClaude Desktop / Claude Code CLI 想用 GLM？在对应的接入卡片里同样操作即可，各工具独立选择，互不干扰。模型映射弹窗里可选 glm-5.2 / glm-5.1 / glm-4.7 三个版本。想切回 DeepSeek？下拉选回保存即可。"
-  },
-  {
-    "id": "agnes-setup",
-    "tag": "入门",
-    "question": "如何接入免费的 Agnes AI 模型？",
-    "answer": "Agnes AI 提供了免费的 API（256K 上下文、工具调用），无需付费。接入只需三步：\n\n1. 注册并创建 Key → 访问 https://platform.agnes-ai.com/，注册后进入「API Keys」→「创建 Key」并复制\n2. Codex Switch 设置 → 在「📟 Codex 接入」卡片中将供应商切换为 Agnes AI，Key 已在「🔑 供应商设置」中填好\n3. 点「保存并应用」→ 代理不重启、Codex 不重启，下一条消息直接走 Agnes\n\nClaude Desktop / Claude Code CLI 想用 Agnes？在对应的接入卡片里同样操作即可，互不干扰。想切回 DeepSeek？下拉选回 DeepSeek 保存即可。"
+    "answer": "在「设置 → 供应商设置」里把供应商选成「智谱 GLM」，填入在 open.bigmodel.cn 或 z.ai 获取的 API Key 并保存；然后到「Codex 接入」把供应商选成智谱 GLM、挑好模型，点「保存并应用」。Codex Switch 会按智谱官方文档把 `~/.codex/config.toml` 与 `~/.codex/models.json` 写好（直连 open.bigmodel.cn，不经过任何本地转发）。可选模型：glm-5.3、glm-5.3-flash、glm-5.2。"
   },
   {
     "id": "what-is",
     "tag": "入门",
     "question": "Codex Switch 是什么？我为什么需要它？",
-    "answer": "Codex Switch 是一款桌面应用，让 Codex 和 Claude Desktop 在国内无需翻墙就能流畅使用。点几下按钮自动完成配置，接入 DeepSeek 模型——免费、快速、本地安全。"
+    "answer": "Codex Switch 是一款桌面配置工具，帮你把 Codex（CLI / Desktop）和 Claude（Desktop / Code CLI）接到 DeepSeek、智谱 GLM 等国内模型服务上。你只要填一次 API Key、点几下按钮，它就把各方需要的配置文件写好——不用记命令、不用手改配置。它不做任何转发：配置写好后，Codex 和 Claude 直接连到供应商，应用关掉也照样能用。"
   },
   {
     "id": "codex-no-response",
     "tag": "故障",
     "question": "Codex 发消息没反应，或者一直报「请求错误」怎么办？",
-    "answer": "这是每天最多人问的问题，也是最容易解决的——99% 的情况两分钟就能搞定。\n\n操作步骤：\n1. 打开 Codex Switch，确认代理是绿色「运行中」\n2. 点「设置」→ 点第一个「保存并应用」——这一步会重新把正确的配置写入 Codex\n3. 完全退出 Codex（Mac 按 ⌘Q，Windows 右键任务栏图标退出），注意不是关闭窗口，是彻底退出\n4. 重新打开 Codex，发一条消息试试\n\n为什么这样能好？Codex 有时候会缓存旧的配置，或者别的软件改了 ~/.codex/config.toml。点「保存并应用」会用正确的配置覆盖，重启 Codex 让它重新读配置。\n\n如果还不行，再排查代理指示灯、API Key 余额、网络连接——但绝大多数情况到第 4 步就好了。"
+    "answer": "先依次确认：① 「设置 → 供应商设置」里该供应商的 API Key 已保存且有效；② 「设置 → Codex 接入」里供应商与模型选对，并点过「保存并应用」；③ 重启 Codex（Codex Desktop 完全退出后重开，或开一个新的终端窗口）。若仍报错，在「帮助 → 诊断信息」里导出诊断包，连同错误原文一起反馈。"
+  },
+  {
+    "id": "provider-switch-old-conversation",
+    "tag": "故障",
+    "question": "切换供应商后，以前用另一家的对话打不开了怎么办？",
+    "answer": "这是 3.0.0 之前版本的已知问题：切换供应商时会把上一家的连接配置从 `~/.codex/config.toml` 里删掉，而 Codex 是按对话记住「当初用哪家」的，于是那些对话再打开就报「Model provider xxx not found」。\n\n**升级到最新版即可**：新版本会保留所有用过的供应商配置，两边的历史对话都能打开，不需要做任何额外操作。\n\n如果你暂时无法升级，有两个临时办法：① 在「设置」里把供应商切回原来那家，打开完对话再切走；② 手工在 `~/.codex/config.toml` 里把 `[model_providers.<原供应商>]` 那段加回去。"
   },
   {
     "id": "where-key",
@@ -57,7 +57,7 @@
     "id": "token-expensive",
     "tag": "费用",
     "question": "为什么我的 DeepSeek 账单这么高？Token 消耗太快了",
-    "answer": "主要是 Codex 的 Agent 模式导致的。每次工具调用（读文件、改代码、执行命令）都会把整个对话历史重新发送给 DeepSeek，输入 token 逐轮累积。建议：① 简单问答用普通对话模式，不要开 Agent；② 聊久了开新对话；③ 日常任务用 deepseek-v4-flash，复杂任务才用 deepseek-v4-pro。详见「帮助 → 省 Token 小贴士」。"
+    "answer": "主要是 Codex 的 Agent 模式导致的。每次工具调用（读文件、改代码、执行命令）都会把整个对话历史重新发送给供应商，输入 token 逐轮累积。建议：① 简单问答用普通对话模式，不要开 Agent；② 聊久了开新对话；③ 日常任务用 deepseek-flash（V4 Pro 即将下线，届时也会自动改用 Flash）。详见「帮助 → 省 Token 小贴士」。"
   },
   {
     "id": "token-cache",
@@ -69,25 +69,13 @@
     "id": "model-mapping",
     "tag": "模型",
     "question": "Codex 的模型和 DeepSeek 的模型怎么对应？",
-    "answer": "Codex Switch 会自动映射：gpt-5-codex → deepseek-v4-flash（日常用），gpt-5.5 → deepseek-v4-pro（复杂任务）。你可以在「设置 → 模型映射」里自定义。建议日常用 flash，省钱；复杂重构才切 pro。"
-  },
-  {
-    "id": "port-busy",
-    "tag": "端口",
-    "question": "提示端口 11435 被占用怎么办？",
-    "answer": "Codex Switch 会弹出端口冲突对话框，显示占用端口的进程。你可以选择「关闭占用进程并重试」或「去设置改端口」。改端口后会自动更新 ~/.codex/config.toml，无需手动操作。"
+    "answer": "不需要自己对应了。Codex Switch 会把你选的模型直接写进 Codex 的配置里，Codex 就用它去请求供应商——中间没有映射表，你选什么就是什么。想换模型，在「设置 → Codex 接入」里改「默认模型」并保存即可。"
   },
   {
     "id": "backup-restore",
     "tag": "备份",
     "question": "Codex Switch 改了我的 ~/.codex 配置，能恢复吗？",
     "answer": "每次写入 config.toml / auth.json 之前都会自动备份。在「设置」里可以一键还原任意一份历史备份，也可以切换到 OpenAI 官方直连（对话记录保存在 OpenAI 服务器上，不会丢失）。"
-  },
-  {
-    "id": "where-logs",
-    "tag": "日志",
-    "question": "遇到问题了，怎么查看日志或向开发者反馈？",
-    "answer": "左侧「📜 日志」页可以直接看实时请求日志；如需反馈，点「帮助 → 报告问题」一键打包诊断信息（已自动脱敏不包含 API Key）。也可以直接把日志文件夹发给开发者。"
   },
   {
     "id": "auto-update",
@@ -105,19 +93,19 @@
     "id": "offline",
     "tag": "网络",
     "question": "Codex Switch 本身能离线用吗？",
-    "answer": "代理服务本身可以离线启动，但 Codex 调用模型仍需访问 DeepSeek 服务器。核心功能需要联网。"
+    "answer": "应用本身离线可用（配置写入、备份还原等功能都不联网）。而且从 v3.0.0 起应用不再做转发，所以配置写好后即使关掉应用，Codex / Claude 也能正常使用（它们直连供应商，需要网络的是它们）。"
   },
   {
     "id": "claude-cli-no-proxy",
     "tag": "Claude",
     "question": "为什么 Claude Code CLI 不需要 Codex Switch 运行？",
-    "answer": "Claude Code CLI 直连 DeepSeek 官方 Anthropic 端点（https://api.deepseek.com/anthropic）。Codex Switch 只需把环境变量写入你的 Shell profile，CLI 之后就直连 DeepSeek，无需本地代理中转。"
+    "answer": "因为 Codex Switch 只写配置、不做转发。它把环境变量写进你的 Claude Code CLI 配置（`~/.claude/settings.json` 等），CLI 自己直连供应商端点。所以配置写好后，应用是否运行都不影响使用。"
   },
   {
     "id": "claude-desktop-direct",
     "tag": "Claude",
     "question": "Claude Desktop 还需要 Codex Switch 代理转发吗？",
-    "answer": "不需要了。从 v1.6.0 开始，Claude Desktop 改为直连 DeepSeek 的 Anthropic 端点（https://api.deepseek.com/anthropic），和 Claude Code CLI 一样。Codex Switch 只负责写入配置，配置完成后 Claude Desktop 直连 DeepSeek，不经过本地代理。"
+    "answer": "不需要。从 v3.0.0 起 Codex Switch 完全不再做代理转发——它只负责把配置写好，之后 Claude Desktop 直接连供应商端点，应用本身不需要保持运行。"
   },
   {
     "id": "claude-desktop-after-install",
@@ -126,34 +114,10 @@
     "answer": "不需要。Codex Switch 每次启动时会自动检测 Claude Desktop 是否已安装。只要你的 DeepSeek API Key 已设置，检测到后会立即自动写配置。重启 Claude Desktop 即生效。"
   },
   {
-    "id": "claude-cli-no-log",
-    "tag": "Claude",
-    "question": "Claude Code CLI 发起了请求，但日志页里没有记录，是 bug 吗？",
-    "answer": "不是 bug。Claude Code CLI 直连 DeepSeek 官方 Anthropic 端点，不经过本地代理，因此日志页不会出现对应记录。如需排查 CLI 调用问题，在终端运行 claude 时加 --verbose 参数查看原始日志。"
-  },
-  {
     "id": "uninstall-all",
     "tag": "Claude",
     "question": "如何完全退出 Codex Switch，不留任何痕迹？",
-    "answer": "进入「设置 → Claude 工具接入」，点击底部「一键卸载所有写入的配置」按钮。这会同时还原 Codex 配置文件（~/.codex/）、删除 Shell profile 中的 Codex Switch 注入块，以及还原 Claude Desktop 配置。之后退出应用即可。"
-  },
-  {
-    "id": "install-plugins",
-    "tag": "插件",
-    "question": "如何安装 Codex 插件？",
-    "answer": "进入左侧「🔌 插件」页面，点击「下载插件包」（约 36MB，国内高速下载 15 秒完成），下载完成后点击「复制指令」，粘贴到 Codex 对话框中发送即可。Codex 会自动解包并安装全部 173 个精选插件，并在安装完成后自动注册技能到活跃列表。"
-  },
-  {
-    "id": "plugin-skills-empty",
-    "tag": "插件",
-    "question": "为什么装完插件后技能列表是空的？",
-    "answer": "从 v1.12.1 开始，Codex 插件安装提示词已包含技能注册步骤——安装完成后会自动创建 symlink 到 ~/.codex/skills/ 并过滤 SaaS 插件。如果你用的是更早版本，升级到最新版后重新安装插件即可。"
-  },
-  {
-    "id": "claude-plugins",
-    "tag": "插件",
-    "question": "Claude 也能装离线插件吗？",
-    "answer": "可以！点击插件页面的「🧠 Claude 插件」标签，下载 165MB 扩展包。下载完成后复制指令粘贴到 Claude Desktop Cowork 中即可安装 20 个精选 skill，也支持自定义选择。Claude Code 用户也有专属提示词。"
+    "answer": "进入「设置 → Claude Desktop 接入」或「Claude Code CLI 接入」，点「一键卸载所有写入的配置」。这会还原 Codex 配置文件（~/.codex/）、删除 Shell profile 中的注入块，并还原 Claude Desktop 配置。之后退出应用即可。"
   },
   {
     "id": "invite-friend",
@@ -165,18 +129,12 @@
     "id": "security",
     "tag": "安全",
     "question": "Codex Switch 安全吗？我的 API Key 会不会泄露？",
-    "answer": "安全。① API Key 存储在操作系统钥匙串（macOS Keychain / Windows Credential Manager），不会明文落盘；② 代理仅监听 127.0.0.1，外部网络无法访问；③ 日志自动脱敏 API Key 和 Authorization 头；④ 不上报任何对话内容或代码。你的数据始终留在本地。"
-  },
-  {
-    "id": "proxy-not-working",
-    "tag": "故障",
-    "question": "代理启动成功了，但 Codex 还是连不上？",
-    "answer": "请按顺序排查：① 代理指示灯是否绿色「运行中」？② ~/.codex/config.toml 的 base_url 是否指向 http://127.0.0.1:11435/v1？③ 设置中 API Key 是否正确？④ 点「设置 → 保存并应用」重新写入配置。⑤ 重启 Codex Desktop。如果还不行，点「帮助 → 报告问题」导出诊断信息。"
+    "answer": "安全。API Key 保存在操作系统的钥匙串里（macOS 钥匙串 / Windows 凭据管理器），不会明文落盘，也不会写进日志或截图。写入 Codex / Claude 的配置文件时只会写入必要的连接信息，且改动前都会先备份。本应用不在本地开启任何网络服务，也不会上传你的对话内容。遥测可随时在「设置」里关闭。"
   },
   {
     "id": "codex-desktop-not-opening",
     "tag": "故障",
     "question": "Codex Desktop 打不开/闪退怎么办？",
-    "answer": "可能是 ~/.codex/config.toml 格式错误。在设置中点击「代码对话 → 使用 OpenAI 官方」切回官方配置，看 Codex 是否能正常启动。如果能——说明自定义配置有问题，重新「保存并应用」Codex Switch 配置即可。"
+    "answer": "可能是 ~/.codex/config.toml 格式有问题。在「设置 → Codex 接入」里点「切换到 OpenAI 官方」清掉本应用写入的配置，再看 Codex 能否正常启动。如果能——说明是我们写的配置有问题，重新「保存并应用」一次即可。"
   }
 ]

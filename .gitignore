@@ -3,6 +3,9 @@ dist/
 release/
 .cursor/
 coverage/
+
+# Playwright 端到端测试产物（v3.1.0：此前被误提交，已移出版本控制）
+test-results/
 .DS_Store
 *.log
 .env

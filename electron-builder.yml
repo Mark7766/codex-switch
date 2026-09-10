@@ -19,11 +19,11 @@ extraResources:
     to: build/logo-claude.svg
   - from: electron/codex/deepseek-models.json
     to: electron/codex/deepseek-models.json
+  - from: electron/codex/glm-models.json
+    to: electron/codex/glm-models.json
   - from: docs/help
     to: docs/help
     filter: ['**/*']
-  - from: docs/qa.png
-    to: docs/qa.png
 asar: true
 asarUnpack:
   - 'dist/electron/preload.js'

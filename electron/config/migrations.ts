@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import log from 'electron-log';
 
-import { getPreferences, setPreferences } from './store';
-import { getAgnesKey, getGlmKey, getApiKey, getCustomKey } from './secrets';
+import { getPreferences, setPreferences, setMigrationFlag } from './store';
+import { getKey } from './secrets';
+import { getProvider } from './providers';
 import { detectAll } from '../claude/detect';
 import {
   writeClaudeCliConfig,
@@ -55,7 +56,7 @@ export async function runV130ClaudeMigration(apiKey: string): Promise<boolean> {
     log.warn('[migrations] v1.3.0 检测阶段失败：', (e as Error).message);
   }
 
-  setPreferences({ migrations: { v130_claude: true } });
+  setMigrationFlag('v130_claude');
   log.info('[migrations] v1.3.0 Claude 迁移完成');
   return true;
 }
@@ -86,7 +87,7 @@ export async function runV160ClaudeDesktopMigration(apiKey: string): Promise<boo
       profile = JSON.parse(raw) as Record<string, unknown>;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        setPreferences({ migrations: { v160_claudeDesktopDirect: true } });
+        setMigrationFlag('v160_claudeDesktopDirect');
         log.info('[migrations] v1.6.0 完成（profile 不存在，无需迁移）');
         return true;
       }
@@ -103,7 +104,7 @@ export async function runV160ClaudeDesktopMigration(apiKey: string): Promise<boo
       !profile['__codexSwitch'];
 
     if (!needsMigration) {
-      setPreferences({ migrations: { v160_claudeDesktopDirect: true } });
+      setMigrationFlag('v160_claudeDesktopDirect');
       log.info('[migrations] v1.6.0 完成（profile 已指向外部端点，无需迁移）');
       return true;
     }
@@ -114,28 +115,33 @@ export async function runV160ClaudeDesktopMigration(apiKey: string): Promise<boo
     log.warn('[migrations] v1.6.0 Claude Desktop 迁移失败：', (e as Error).message);
   }
 
-  setPreferences({ migrations: { v160_claudeDesktopDirect: true } });
+  setMigrationFlag('v160_claudeDesktopDirect');
   log.info('[migrations] v1.6.0 Claude Desktop 直连迁移完成');
   return true;
 }
 
 /**
- * v2.0.0 one-time migration: rewrite existing DeepSeek Codex config from the
- * local-proxy template (base_url = 127.0.0.1) to the official direct template
- * (base_url = api.deepseek.com + models.json). Flag-guarded, never re-runs.
+ * v3.0.0 one-time migration: rewrite a Codex `config.toml` that still points at the
+ * **local proxy** (`127.0.0.1` / `localhost`) to the current provider's direct template.
+ * Flag-guarded, never re-runs.
+ *
+ * 为什么这条迁移在 v3.0.0 是最关键的一条：本地代理已整个删除，而 GLM 在 v3.0.0 之前
+ * **走的就是本地代理**（`http://127.0.0.1:<port>/v1`）。所以存量 GLM 用户的 config.toml
+ * 指向一个已不存在的端口——不迁移的话他们的 Codex 直接不可用。DeepSeek 用户在 v2.0.0 已
+ * 迁过，通常已是直连（此迁移对他们是 no-op）；v1.9.x 及更早的用户则借此一并修好。
+ *
+ * 迁移前照例备份（`writeCodexConfig` 内部做），并且只做「改写为当前供应商的直连配置」，
+ * 不动用户 vs 选择。
  */
-export async function runV200DeepSeekDirectMigration(): Promise<boolean> {
+export async function runV300DirectMigration(): Promise<boolean> {
   const prefs = getPreferences();
-  if (prefs.migrations?.v200_deepseekDirect) return false;
-  if (prefs.provider !== 'deepseek') {
-    setPreferences({ migrations: { v200_deepseekDirect: true } });
-    return true;
-  }
+  if (prefs.migrations?.v300_direct) return false;
 
-  log.info('[migrations] 运行 v2.0.0 DeepSeek 直连迁移…');
+  const provider = getProvider(prefs.provider);
+  log.info('[migrations] 运行 v3.0.0 直连迁移（供应商=%s）…', provider.id);
 
   try {
-    const apiKey = await getApiKey().catch(() => '');
+    const apiKey = await getKey(provider).catch(() => '');
     if (apiKey) {
       let current = '';
       try {
@@ -146,20 +152,21 @@ export async function runV200DeepSeekDirectMigration(): Promise<boolean> {
       const stillProxy = current.includes('127.0.0.1') || current.includes('localhost');
       if (stillProxy) {
         await writeCodexConfig({
-          proxyPort: prefs.proxyPort,
           model: prefs.defaultModel,
           apiKey,
-          provider: 'deepseek',
+          provider: provider.id,
+          customCodexBaseUrl: prefs.customProvider?.codexBaseUrl,
+          maxBackupsPerFile: prefs.maxBackupsPerFile,
         });
-        log.info('[migrations] Codex config 已迁移为 DeepSeek 官方直连');
+        log.info('[migrations] Codex config 已迁移为 %s 直连', provider.label);
       }
     }
   } catch (e) {
-    log.warn('[migrations] v2.0.0 DeepSeek 直连迁移失败：', (e as Error).message);
+    log.warn('[migrations] v3.0.0 直连迁移失败：', (e as Error).message);
   }
 
-  setPreferences({ migrations: { v200_deepseekDirect: true } });
-  log.info('[migrations] v2.0.0 DeepSeek 直连迁移完成');
+  setMigrationFlag('v300_direct');
+  log.info('[migrations] v3.0.0 直连迁移完成');
   return true;
 }
 
@@ -207,14 +214,9 @@ export async function startupApplyClaude(): Promise<void> {
       }
     }
 
-    const ck =
-      cp === 'agnes'
-        ? await getAgnesKey()
-        : cp === 'glm'
-          ? await getGlmKey()
-          : cp === 'custom'
-            ? await getCustomKey()
-            : await getApiKey();
+    // v3.0.0: 取 Key 走注册表。⚠️ 必须 .catch：此前这里没有兜底，keytar 抛错会冒泡到
+    // main.ts 的调用点，把两个工具的启动配置**一起**静默跳过。
+    const ck = await getKey(cp).catch(() => '');
     if (ck) {
       try {
         // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值，保护用户手动选择的模型
@@ -232,14 +234,7 @@ export async function startupApplyClaude(): Promise<void> {
 
   if (prefs.claudeDesktop.enabled && result.claudeDesktop.installed) {
     const dp = prefs.claudeDesktopProvider ?? 'deepseek';
-    const dk =
-      dp === 'agnes'
-        ? await getAgnesKey()
-        : dp === 'glm'
-          ? await getGlmKey()
-          : dp === 'custom'
-            ? await getCustomKey()
-            : await getApiKey();
+    const dk = await getKey(dp).catch(() => '');
     if (dk) {
       try {
         await writeClaudeDesktopConfig(dk, dp);

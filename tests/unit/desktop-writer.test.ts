@@ -11,6 +11,9 @@ vi.mock('node:fs/promises', () => ({
     chmod: vi.fn(),
     stat: vi.fn(),
     mkdir: vi.fn().mockResolvedValue(undefined),
+    // v3.0.0: config/file-write 的共享写入用 copyFile 备份、access 探测
+    copyFile: vi.fn().mockResolvedValue(undefined),
+    access: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -96,11 +99,10 @@ describe('writeClaudeDesktopConfig', () => {
     expect(Array.isArray(parsed['inferenceModels'])).toBe(true);
     const models = parsed['inferenceModels'] as unknown[];
     expect(models.length).toBe(3);
-    // Desktop default: opus→pro / sonnet→flash / haiku→flash (no vision-exp — v2.2.0
-    // DeepSeek vision 仅 Claude Code CLI 支持，Desktop 3P 触达不到视觉模型)
+    // Desktop default (v3.0.0): opus→pro / sonnet→flash / haiku→flash
     expect(models[0]).toEqual({ labelOverride: 'deepseek-v4-pro', name: 'claude-opus-4-7' });
-    expect(models[1]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-sonnet-4-6' });
-    expect(models[2]).toEqual({ labelOverride: 'deepseek-v4-flash', name: 'claude-haiku-4-5' });
+    expect(models[1]).toEqual({ labelOverride: 'deepseek-flash', name: 'claude-sonnet-4-6' });
+    expect(models[2]).toEqual({ labelOverride: 'deepseek-flash', name: 'claude-haiku-4-5' });
 
     // Check _meta.json registers our profile and sets appliedId
     const meta = calls.find(
@@ -112,10 +114,9 @@ describe('writeClaudeDesktopConfig', () => {
     expect(metaParsed.entries.some((e) => e.id === PROFILE_ID)).toBe(true);
   });
 
-  it('honors a modelMap override per slot and never writes the DeepSeek vision model', async () => {
+  it('honors a modelMap override per slot and never writes a retired vision slug', async () => {
     // A user-chosen mapping overrides that slot's labelOverride; unmapped slots keep
-    // provider defaults. DeepSeek vision-exp is intentionally absent on Desktop
-    // (v2.2.0 — Desktop 3P gateway cannot drive the vision model).
+    // provider defaults.
     vi.mocked(fs.readFile).mockRejectedValue(
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
     );
@@ -124,7 +125,7 @@ describe('writeClaudeDesktopConfig', () => {
       customProvider: { codexBaseUrl: '', claudeBaseUrl: '' },
       claudeDesktop: {
         enabled: true,
-        modelMap: { 'claude-opus-4-7': 'deepseek-v4-flash' },
+        modelMap: { 'claude-opus-4-7': 'deepseek-flash' },
       },
     } as unknown as storeModule.UserPreferences);
 
@@ -141,9 +142,9 @@ describe('writeClaudeDesktopConfig', () => {
     const models = parsed['inferenceModels'];
     expect(models.length).toBe(3);
     // Overridden slot (opus → flash) and default slots (sonnet/haiku → flash)
-    for (const m of models) expect(m.labelOverride).toBe('deepseek-v4-flash');
-    // Desktop must never advertise the vision model.
-    expect(models.some((m) => m.labelOverride === 'deepseek-v4-flash-vision-exp')).toBe(false);
+    for (const m of models) expect(m.labelOverride).toBe('deepseek-flash');
+    // Retired vision slug must never be written (v3.0.0 — vision 已并入 flash)
+    expect(models.some((m) => m.labelOverride.includes('vision'))).toBe(false);
   });
 
   it('preserves existing user fields (e.g. mcpServers) in claude_desktop_config.json', async () => {
@@ -183,8 +184,9 @@ describe('writeClaudeDesktopConfig', () => {
 
     await writeClaudeDesktopConfig('sk-test-api-key');
 
-    const calls = vi.mocked(fs.writeFile).mock.calls;
-    const bakCall = calls.find(([p]) => typeof p === 'string' && p.includes('.bak.'));
+    // v3.0.0: 备份走 fs.copyFile（共享写入 helper），不再是 writeFile
+    const copyCalls = vi.mocked(fs.copyFile).mock.calls;
+    const bakCall = copyCalls.find(([src2]) => typeof src2 === 'string');
     expect(bakCall).toBeTruthy();
   });
 });

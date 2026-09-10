@@ -91,12 +91,6 @@ export function claudeDesktopAppPaths(): string[] {
   return [];
 }
 
-/** @deprecated Use claudeDesktopAppPaths() instead. */
-export function claudeDesktopAppPath(): string | null {
-  const candidates = claudeDesktopAppPaths();
-  return candidates[0] ?? null;
-}
-
 // ─── Claude Code CLI ─────────────────────────────────────────────────────────
 
 /** ~/.claude directory (Claude Code CLI stores state here). */
@@ -189,12 +183,6 @@ export function codexDesktopAppPaths(): string[] {
     ];
   }
   return [];
-}
-
-/** @deprecated Use codexDesktopAppPaths() instead. */
-export function codexDesktopAppPath(): string | null {
-  const candidates = codexDesktopAppPaths();
-  return candidates[0] ?? null;
 }
 
 // ─── Shared ──────────────────────────────────────────────────────────────────

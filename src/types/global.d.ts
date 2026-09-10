@@ -9,7 +9,6 @@ interface UpdateEvent {
     | 'downloaded'
     | 'manual-download';
   version?: string;
-  notes?: string;
   message?: string;
   percent?: number;
   bytesPerSecond?: number;
@@ -22,16 +21,6 @@ interface DiagnosticsBundle {
   os: string;
   arch: string;
   prefs: Record<string, unknown>;
-  recentLogs: Array<{
-    ts: number;
-    level: string;
-    source: string;
-    message: string;
-    reqId?: string;
-    phase?: string;
-    statusCode?: number;
-    durationMs?: number;
-  }>;
   generatedAt: number;
 }
 
@@ -48,59 +37,77 @@ interface OnboardingStep {
   copy?: string;
 }
 
-interface PortHolder {
-  pid: number;
-  command: string;
+/**
+ * v3.0.0 供应商描述符 —— **渲染层镜像**。
+ *
+ * 权威定义在 `electron/config/providers.ts`。渲染进程不能 import `electron/`（tsconfig 的
+ * rootDir / include 各自独立），故这里手抄一份类型，数据经 `getProviders()` 通道获取。
+ * 改主进程那边的形状时，务必同步这里。
+ */
+interface ProviderCodexConfig {
+  providerId: string;
+  name: string;
+  baseUrl: string;
+  reasoningEffort: string;
+  preferredAuthMethod?: string;
+  forcedLoginMethod?: string;
+  bearerTokenInToml: boolean;
+  requiresOpenAiAuth: boolean;
+  contextWindowOverrides: boolean;
+  featureFlags: boolean;
+  models: string[];
+  defaultModel: string;
+  catalogAsset?: string;
+  retiredModels?: Record<string, string>;
+  retiredPrefixes?: string[];
 }
 
-interface ProxyErrorInfo {
-  kind: 'port-conflict' | 'runtime' | 'auto-recover-failed';
-  port: number;
-  message: string;
-  recoverable: boolean;
+interface ProviderClaudeConfig {
+  baseUrl: string;
+  models: string[];
+  slots: Array<{ id: string; tier: 'opus' | 'sonnet' | 'haiku'; label: string }>;
+  roleDefaults: Record<'opus' | 'sonnet' | 'haiku', string>;
+  includeHaiku: boolean;
+  acceptedModelPrefixes: string[];
 }
 
-interface LifetimeStats {
-  requestCount: number;
-  uptimeSec: number;
-  firstStartAt: string;
-  inputTokens: number;
-  outputTokens: number;
+interface ProviderKeyConfig {
+  account: string;
+  fallbackField: string;
+  prefix?: string;
+  minLength: number;
+  placeholder: string;
+  hint: string;
+}
+
+interface ProviderDescriptor {
+  id: 'deepseek' | 'glm' | 'custom';
+  label: string;
+  codex: ProviderCodexConfig;
+  claude: ProviderClaudeConfig;
+  key: ProviderKeyConfig;
 }
 
 interface CodexSwitchApi {
+  getProviders: () => Promise<ProviderDescriptor[]>;
+  /** 与 `electron/config/store.ts` 的 UserPreferences 对齐（代理专属字段已于 v3.0.0 移除）。 */
   getPreferences: () => Promise<{
-    proxyPort: number;
     defaultModel: string;
-    modelMapping: Record<string, string>;
-    autoStartProxy: boolean;
     hasCompletedSetup: boolean;
-    modelMappingVersion: number;
     maxBackupsPerFile: number;
     lastSeenVersion: string;
     autoCheckUpdate: boolean;
     autoDownload: boolean;
-    updateMirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
+    updateMirror: 'server' | 'github' | 'ghproxy' | 'custom';
     customMirrorUrl: string;
     serverUrl: string;
     telemetryEnabled: boolean;
     clientId: string;
-    conversationCacheLimit: number;
-    hasSeenOnboarding: boolean;
-    hasSeenPlugins: boolean;
-    lifetimeRequestCount: number;
-    lifetimeUptimeSec: number;
+    /** 首次启动日期（「早期成员」徽章用），与代理统计无关。 */
     lifetimeFirstStartAt: string;
-    lastErrorMessage: string;
-    lastErrorAt: number;
-    provider: 'deepseek' | 'agnes' | 'glm' | 'custom';
-    claudeDesktopProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
-    claudeCliProvider: 'deepseek' | 'agnes' | 'glm' | 'custom';
-    activeModelMapping: Record<
-      string,
-      { model: string; provider: 'deepseek' | 'agnes' | 'glm' | 'custom' }
-    >;
-    blockBackgroundSuggestions: boolean;
+    provider: 'deepseek' | 'glm' | 'custom';
+    claudeDesktopProvider: 'deepseek' | 'glm' | 'custom';
+    claudeCliProvider: 'deepseek' | 'glm' | 'custom';
     customProvider?: { codexBaseUrl: string; claudeBaseUrl: string };
     claudeCli?: { enabled: boolean; envVars: Record<string, string> };
     claudeDesktop?: { enabled: boolean; modelMap: Record<string, string> };
@@ -109,61 +116,11 @@ interface CodexSwitchApi {
   setPreferences: (patch: Record<string, unknown>) => Promise<unknown>;
   applyPreferences: (
     patch: Record<string, unknown> & { codexModel?: string },
-  ) => Promise<{ prefs: unknown; codexWritten: boolean; restarted: boolean; portChanged: boolean }>;
-  getApiKey: () => Promise<string>;
-  setApiKey: (key: string) => Promise<boolean>;
-  clearApiKey: () => Promise<boolean>;
-  getAgnesKey: () => Promise<string>;
-  setAgnesKey: (key: string) => Promise<boolean>;
-  clearAgnesKey: () => Promise<boolean>;
-  getGlmKey: () => Promise<string>;
-  setGlmKey: (key: string) => Promise<boolean>;
-  clearGlmKey: () => Promise<boolean>;
-  getCustomKey: () => Promise<string>;
-  setCustomKey: (key: string) => Promise<boolean>;
-  clearCustomKey: () => Promise<boolean>;
-  proxyStart: () => Promise<{ port: number; status: string }>;
-  proxyStop: () => Promise<{ status: string }>;
-  proxyInfo: () => Promise<{
-    status: string;
-    port: number;
-    uptimeMs: number;
-    requestCount: number;
-    logs: Array<{
-      ts: number;
-      level: string;
-      source: string;
-      message: string;
-      reqId?: string;
-      phase?: string;
-      durationMs?: number;
-      model?: string;
-      requestedModel?: string;
-      statusCode?: number;
-      errorReason?: string;
-      errorAction?: string;
-      inputTokens?: number;
-      outputTokens?: number;
-    }>;
-    recentStats: {
-      total: number;
-      successRate: number;
-      avgDurationMs: number;
-      lastError: string | null;
-    };
-    lifetime: LifetimeStats;
-    lastError: { message: string; ts: number } | null;
-  }>;
-  proxyLookupPort: (port: number) => Promise<PortHolder | null>;
-  proxyKillPort: (port: number) => Promise<{
-    ok: boolean;
-    reason?: string;
-    holder?: PortHolder;
-    method?: string;
-  }>;
-  onProxyStatus: (cb: (status: string) => void) => () => void;
-  onProxyLog: (cb: (entry: unknown) => void) => () => void;
-  onProxyError: (cb: (info: ProxyErrorInfo) => void) => () => void;
+  ) => Promise<{ prefs: unknown; codexWritten: boolean }>;
+  /** v3.0.0 对供应商泛型化：providerId 取自 getProviders() */
+  getKey: (providerId: string) => Promise<string>;
+  setKey: (providerId: string, key: string) => Promise<boolean>;
+  clearKey: (providerId: string) => Promise<boolean>;
   onSecondInstance: (cb: () => void) => () => void;
   codexWrite: (payload: { model: string }) => Promise<{
     configBackup: string | null;
@@ -183,25 +140,18 @@ interface CodexSwitchApi {
   // 帮助
   getFaq: () => Promise<FaqItem[]>;
   getOnboarding: () => Promise<OnboardingStep[]>;
-  getQaImage: () => Promise<string>;
   openLogsDir: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   getDiagnostics: () => Promise<DiagnosticsBundle>;
   // 更新
   updateCheck: () => Promise<UpdateEvent>;
-  updateDownload: () => Promise<void>;
   updateInstall: () => Promise<void>;
   updateSetMirror: (
-    mirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom',
+    mirror: 'server' | 'github' | 'ghproxy' | 'custom',
     custom?: string,
   ) => Promise<void>;
   onUpdateEvent: (cb: (e: UpdateEvent) => void) => () => void;
   // 持久化日志
-  loadPersistedLogs: (limit?: number) => Promise<unknown[]>;
-  clearPersistedLogs: () => Promise<boolean>;
-  openLogsFolder: () => Promise<void>;
-  getLogsStats: () => Promise<{ files: number; totalBytes: number }>;
-  // v1.3.0 Claude 接入
   claudeDetect: () => Promise<DetectResult>;
   claudeApplyAll: () => Promise<DetectResult>;
   claudeUninstallCli: () => Promise<DetectResult>;
@@ -211,31 +161,11 @@ interface CodexSwitchApi {
   claudeDesktopRestore: (backupPath: string) => Promise<void>;
   // v1.7.0 Server 集成
   telemetrySetEnabled: (enabled: boolean) => Promise<void>;
-  telemetryGetOnline: () => Promise<boolean>;
   serverPing: () => Promise<boolean>;
   // v1.9.0 对话缓存
-  conversationCacheStats: () => Promise<{ count: number; oldestTimestamp: number | null }>;
-  conversationCacheClear: () => Promise<void>;
-  conversationCacheSetLimit: (limit: number) => Promise<void>;
   codexHasOriginalBackup: () => Promise<boolean>;
   codexRestoreOriginal: () => Promise<boolean>;
   // v1.10.0 离线插件安装
-  pluginsGetPackInfo: (type?: 'codex' | 'claude') => Promise<PluginPackInfo>;
-  pluginsDownload: (savePath?: string, type?: 'codex' | 'claude') => Promise<string>;
-  pluginsCancelDownload: () => Promise<void>;
-  pluginsGetInstallCommand: (
-    filePath: string,
-    type?: 'codex' | 'claude',
-    selectedPlugins?: string[],
-    target?: 'cowork' | 'code',
-  ) => Promise<string>;
-  pluginsOpenDownloadDir: () => Promise<void>;
-  pluginsCheckExistingFile: (
-    savePath?: string,
-    type?: 'codex' | 'claude',
-  ) => Promise<string | null>;
-  pluginsGetLogo: (type: 'codex' | 'claude') => Promise<string>;
-  onPluginsDownloadProgress: (cb: (p: DownloadProgress) => void) => () => void;
   // v1.11.0 邀请好友
   shareGetText: () => Promise<string>;
   communityGetCount: () => Promise<number>;
@@ -245,10 +175,6 @@ interface CodexSwitchApi {
     joined_date?: string;
     invite_count?: number;
   } | null>;
-  onPluginsDownloadComplete: (cb: (filePath: string) => void) => () => void;
-  onPluginsDownloadError: (cb: (error: string) => void) => () => void;
-  // v1.13.0 智能搜索
-  searchAsk: (query: string) => Promise<{ answer: string }>;
 }
 
 /** 工具安装与配置状态。 */
@@ -270,25 +196,4 @@ interface DetectResult {
 
 interface Window {
   codexSwitch: CodexSwitchApi;
-}
-
-// ── v1.10.0 离线插件安装 ──────────────────────────────────────────────────
-
-interface PluginPackInfo {
-  version: string;
-  filename: string;
-  size: number;
-  size_mb: number;
-  plugin_count: number;
-  description: string;
-  updated_at: string;
-  download_url: string;
-}
-
-interface DownloadProgress {
-  bytesDownloaded: number;
-  totalBytes: number;
-  percent: number;
-  speedBytesPerSec: number;
-  remainingSeconds: number;
 }

@@ -2,7 +2,7 @@
 
 **让 AI 编程触手可及。**
 
-Codex Switch 帮你突破网络限制，在国内流畅使用 Codex 和 Claude，接入 DeepSeek 和 Agnes AI——免费、快速、本地安全。
+Codex Switch 帮你把 Codex 和 Claude 接到国内模型服务上（DeepSeek、智谱 GLM 等）——点几下按钮写好配置，之后各工具**直连供应商**，不经过任何中间转发。
 
 [![Release](https://img.shields.io/github/v/release/Mark7766/codex-switch?color=blue)](https://github.com/Mark7766/codex-switch/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -28,9 +28,9 @@ Codex Switch 帮你突破网络限制，在国内流畅使用 Codex 和 Claude�
 
 **1. 安装 Codex Switch** — 去 [下载页面](https://codex-switch.cloud/download) 获取 macOS 或 Windows 安装包，双击安装
 
-**2. 填写 API Key** — 首次启动弹出 Setup 向导，填入 DeepSeek API Key（[免费申请](https://platform.deepseek.com/api_keys)）或 Agnes AI Key（[免费申请](https://platform.agnes-ai.com/)）
+**2. 填写 API Key** — 首次启动弹出 Setup 向导，填入 DeepSeek API Key（[免费申请](https://platform.deepseek.com/api_keys)）。想用智谱 GLM？在「设置 → 供应商设置」里切换并填入对应 Key
 
-**3. 点「完成并启动代理」** — 自动配置 ~/.codex/，打开 Codex Desktop 或 Codex CLI 直接对话
+**3. 点「完成并应用配置」** — 自动写好 `~/.codex/`，打开 Codex Desktop 或 Codex CLI 直接对话
 
 > 安装遇到问题？去官网 [使用指南](https://codex-switch.cloud/guide) 看图文步骤。
 
@@ -45,20 +45,19 @@ Codex Switch 帮你突破网络限制，在国内流畅使用 Codex 和 Claude�
 | Codex CLI       | [📖 配置指南](https://codex-switch.cloud/guide?tool=codex-cli)  |
 | Claude Code CLI | [📖 配置指南](https://codex-switch.cloud/guide?tool=claude-cli) |
 
-每款工具都能自由选择 **DeepSeek** 或 **Agnes AI** 作为 AI 供应商，各自独立配置、互不干扰。
+每款工具都能自由选择 **DeepSeek** 或 **智谱 GLM**（以及任意 OpenAI Responses / Anthropic 兼容的**自定义**服务）作为供应商，各自独立配置、互不干扰。
 
 ---
 
 ## 功能亮点
 
 - **零命令行**：图形界面完成所有配置，不懂终端也能用
-- **免费模型**：支持 Agnes AI，零成本使用，256K 上下文
-- **一键切换供应商**：DeepSeek 和 Agnes 之间秒切，不重启、不等生效
-- **协议自动翻译**：Codex 的 OpenAI Responses API、Claude 的 Anthropic Messages API，自动翻译为上游能理解的格式
+- **纯配置工具，不做转发**：不占端口、不需要保持运行；配置写好后各工具直连供应商，少一层转发
+- **一键切换供应商**：DeepSeek / 智谱 GLM / 自定义之间随时切换，配置自动重写
+- **模型目录自动写**：按官方文档写好 Codex 的 `~/.codex/models.json`，模型元数据正确
 - **Key 安全存储**：API Key 存在操作系统钥匙串，不落盘明文
-- **本地代理**：仅监听 127.0.0.1:11435，外网无法访问
-- **对话持续**：长对话不丢上下文，切供应商不影响进行中的对话
-- **日志脱敏**：请求日志自动隐藏 Key 和敏感信息，方便排查问题
+- **改动先备份**：所有配置文件写入前自动备份，支持一键还原、一键切回 OpenAI 官方
+- **工具接入状态**：一眼看到四个工具是否已安装、配置是否已写入
 
 ---
 
@@ -77,7 +76,7 @@ pnpm package:mac  # 构建 macOS 安装包
 
 ## 问题反馈
 
-应用内右上角搜索按钮输入问题，AI 秒回答案。也可以提 [GitHub Issue](https://github.com/Mark7766/codex-switch/issues)。
+应用内右上角「?」按钮打开帮助抽屉，里面有上手指南、常见问题和诊断信息（可一键生成诊断报告）。也可以直接提 [GitHub Issue](https://github.com/Mark7766/codex-switch/issues)。
 
 ---
 

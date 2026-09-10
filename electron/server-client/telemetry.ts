@@ -14,7 +14,7 @@ import log from 'electron-log';
 
 import { type ServerClient } from './client';
 import type { ServerConfig } from './config';
-import { redactSensitive } from '../proxy/errors';
+import { redactSensitive } from '../config/redact';
 
 export interface TelemetryEvent {
   event_type: string;
@@ -22,8 +22,14 @@ export interface TelemetryEvent {
   properties: Record<string, unknown>;
 }
 
+/**
+ * 上报体（v3.0.0 收窄）。
+ *
+ * ⚠️ **不要再加回 `client_id`** —— 它是持久设备标识符，属《个人信息保护法》下的个人信息。
+ * 现在上报的只有「配置被写入」这类操作事实 + 非识别性的平台/版本信息。
+ * 若将来确实需要去重统计，应该用**每次会话随机、不落盘**的匿名 id，而不是 clientId。
+ */
 export interface TelemetryPayload {
-  client_id: string;
   app_version: string;
   platform: string;
   arch: string;
@@ -43,11 +49,6 @@ const BACKOFF_FAILURES = 3;
 const BACKOFF_DELAYS = [300_000, 600_000, 1_200_000, 3_600_000];
 /** stop() 时 flush 超时（ms） */
 const STOP_FLUSH_TIMEOUT = 3_000;
-
-/** model_call 聚合上报间隔（ms）：5 分钟 */
-const MODEL_CALL_FLUSH_INTERVAL = 5 * 60 * 1000;
-/** model_call 聚合上报阈值：累积 50 次立即上报 */
-const MODEL_CALL_FLUSH_THRESHOLD = 50;
 
 /**
  * 递归脱敏 properties 中所有字符串值。
@@ -80,17 +81,12 @@ export class TelemetryClient {
   private backoffLevel = 0;
   private flushing = false;
 
-  // model_call 聚合
-  private modelCallCount = 0;
-  private modelCallPeriodStart = 0;
-
   constructor(client: ServerClient, config: ServerConfig, appVersion: string) {
     this.client = client;
     this.config = config;
     this.appVersion = appVersion;
     this.enabled = config.telemetryEnabled;
     this.nextFlushMs = FLUSH_INTERVAL;
-    this.modelCallPeriodStart = Date.now();
   }
 
   /** 更新配置（用户在 Settings 中修改时调用）。保留 buffer 中已有事件。 */
@@ -109,22 +105,6 @@ export class TelemetryClient {
   track(eventType: string, properties?: Record<string, unknown>): void {
     if (!this.enabled) return;
     if (!this.online) return;
-
-    // model_call 聚合：不入 buffer，走计数器
-    if (eventType === 'model_call') {
-      this.modelCallCount++;
-      if (this.modelCallPeriodStart === 0) {
-        this.modelCallPeriodStart = Date.now();
-      }
-      const elapsed = Date.now() - this.modelCallPeriodStart;
-      if (
-        elapsed >= MODEL_CALL_FLUSH_INTERVAL ||
-        this.modelCallCount >= MODEL_CALL_FLUSH_THRESHOLD
-      ) {
-        this.flushModelCallAggregation();
-      }
-      return;
-    }
 
     this.buffer.push({
       event_type: eventType,
@@ -158,9 +138,6 @@ export class TelemetryClient {
   async stop(): Promise<void> {
     this.clearTimer();
 
-    // 退出前 flush 聚合的 model_call 计数
-    this.flushModelCallAggregation();
-
     if (!this.online || this.buffer.length === 0) return;
 
     try {
@@ -180,10 +157,7 @@ export class TelemetryClient {
     if (!v) {
       this.clearTimer();
       this.buffer.length = 0;
-      this.modelCallCount = 0;
-      this.modelCallPeriodStart = 0;
     } else {
-      this.modelCallPeriodStart = Date.now();
       this.scheduleNext();
     }
   }
@@ -191,33 +165,6 @@ export class TelemetryClient {
   /** 当前是否在线。 */
   isOnline(): boolean {
     return this.online;
-  }
-
-  // ── model_call 聚合 ─────────────────────────────────────────────────────
-
-  /** 将当前累积的 model_call 计数作为一条聚合事件写入 buffer。 */
-  private flushModelCallAggregation(): void {
-    if (this.modelCallCount === 0) return;
-
-    const periodEnd = Date.now();
-    this.buffer.push({
-      event_type: 'model_call',
-      timestamp: new Date().toISOString(),
-      properties: {
-        count: this.modelCallCount,
-        period_start: Math.floor(this.modelCallPeriodStart / 1000),
-        period_end: Math.floor(periodEnd / 1000),
-      },
-    });
-
-    log.debug(
-      '[telemetry] model_call aggregated: %d calls in %ds',
-      this.modelCallCount,
-      Math.floor((periodEnd - this.modelCallPeriodStart) / 1000),
-    );
-
-    this.modelCallCount = 0;
-    this.modelCallPeriodStart = 0;
   }
 
   // ── 内部 ───────────────────────────────────────────────────────────────
@@ -242,7 +189,6 @@ export class TelemetryClient {
       const batch = this.buffer.splice(0, FLUSH_THRESHOLD);
 
       const payload: TelemetryPayload = {
-        client_id: this.config.clientId,
         app_version: this.appVersion,
         platform: process.platform,
         arch: process.arch,
@@ -302,8 +248,6 @@ export class TelemetryClient {
     if (!this.enabled) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      // 定时器触发时也检查是否需要 flush model_call 聚合
-      this.flushModelCallAggregation();
       this.flush().catch((err) => {
         log.debug('[telemetry] 定时 flush 失败：%s', (err as Error).message);
       });

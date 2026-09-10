@@ -1,89 +1,62 @@
 /**
- * Dashboard page smoke test — verifies core UI renders.
+ * Dashboard（工具接入状态页）测试。
+ *
+ * v3.0.0 重写：该页原先展示代理状态、端口、请求数、累计时长与 token，这些已随本地代理
+ * 删除。现在它只回答一个问题——四个工具是否已安装、配置是否已写入。
+ *
  * @vitest-environment jsdom
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { useAppStore } from '../../src/lib/store';
 import { Dashboard } from '../../src/pages/Dashboard';
 
+const DETECT: DetectResult = {
+  codexDesktop: { installed: true, configApplied: true },
+  codexCli: { installed: true, configApplied: true },
+  claudeCli: { installed: true, configApplied: true },
+  claudeDesktop: { installed: false, configApplied: false },
+};
+
 beforeEach(() => {
-  useAppStore.setState({
-    proxyStatus: 'running',
-    proxyPort: 11435,
-    lifetime: {
-      requestCount: 42,
-      uptimeSec: 3600,
-      firstStartAt: '2026-06-13',
-      inputTokens: 5000,
-      outputTokens: 2000,
-    },
-    logs: [],
-    toasts: [],
-    configApplied: true,
-    justApplied: false,
-    claudeDetect: {
-      codexDesktop: { installed: true, configApplied: true },
-      codexCli: { installed: true, configApplied: true },
-      claudeCli: { installed: true, configApplied: true },
-      claudeDesktop: { installed: true, configApplied: true },
-    },
-  });
+  useAppStore.setState({ toasts: [] });
   (window as unknown as { codexSwitch: Record<string, unknown> }).codexSwitch = {
-    proxyInfo: vi.fn().mockResolvedValue({
-      status: 'running',
-      port: 11435,
-      uptimeMs: 3600000,
-      requestCount: 42,
-      logs: [],
-      recentStats: { total: 42, successRate: 1, avgDurationMs: 2500, lastError: null },
-      lifetime: {
-        requestCount: 42,
-        uptimeSec: 3600,
-        firstStartAt: '2026-06-13',
-        inputTokens: 5000,
-        outputTokens: 2000,
-      },
-      lastError: null,
-    }),
-    onProxyStatus: vi.fn().mockReturnValue(() => {}),
-    onProxyLog: vi.fn().mockReturnValue(() => {}),
-    onUpdateEvent: vi.fn().mockReturnValue(() => {}),
-    claudeDetect: vi.fn().mockResolvedValue({}),
-    claudeApplyAll: vi.fn().mockResolvedValue({}),
-    codexHasOriginalBackup: vi.fn().mockResolvedValue(false),
-    getPreferences: vi.fn().mockResolvedValue({ hasSeenPlugins: true }),
-    setPreferences: vi.fn().mockResolvedValue({}),
-    getVersion: vi.fn().mockResolvedValue('1.8.0'),
-    loadPersistedLogs: vi.fn().mockResolvedValue([]),
-    getLogsStats: vi.fn().mockResolvedValue({ files: 1, totalBytes: 1024 }),
+    claudeDetect: vi.fn().mockResolvedValue(DETECT),
+    claudeApplyAll: vi.fn().mockResolvedValue(DETECT),
   };
 });
 
 describe('Dashboard page', () => {
-  it('renders proxy running status', () => {
+  it('renders the four tool cards', async () => {
     render(<Dashboard />);
-    expect(screen.getByText(/运行中/)).toBeDefined();
+    expect(await screen.findByText('Codex Desktop')).toBeDefined();
+    expect(screen.getByText('Codex CLI')).toBeDefined();
+    expect(screen.getByText('Claude Code CLI')).toBeDefined();
+    expect(screen.getByText('Claude Desktop')).toBeDefined();
   });
 
-  it('renders lifetime request count', () => {
+  it('shows configured vs not-installed state per tool', async () => {
     render(<Dashboard />);
-    expect(screen.getByText(/42/)).toBeDefined();
+    expect(await screen.findByText('Codex Desktop')).toBeDefined();
+    // 前三个已配置，最后一个是未安装
+    expect(screen.getAllByText('已配置')).toHaveLength(3);
+    expect(screen.getByText('未安装')).toBeDefined();
   });
 
-  it('direct mode: start button stays visible and explains on click', () => {
-    useAppStore.setState({ proxyStatus: 'direct' });
+  it('no longer renders any proxy status, port or request stats', async () => {
     render(<Dashboard />);
-    // 文案改为准确表述：GLM / Agnes 仍需本地代理
-    expect(screen.getByText(/DeepSeek \/ 自定义供应商直连/)).toBeDefined();
-    // 启停按钮常驻
-    const btn = screen.getByRole('button', { name: /启动代理/ });
-    expect(btn).toBeDefined();
-    fireEvent.click(btn);
-    const toasts = useAppStore.getState().toasts;
-    expect(toasts.some((t) => (t as { message?: string }).message?.includes('无需本地代理'))).toBe(
-      true,
-    );
+    await screen.findByText('Codex Desktop');
+    // v3.0.0 代理已删除，这些内容不该出现
+    expect(screen.queryByText(/代理运行中/)).toBeNull();
+    expect(screen.queryByText(/127\.0\.0\.1/)).toBeNull();
+    expect(screen.queryByText(/累计请求/)).toBeNull();
+    expect(screen.queryByText(/token/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /代理/ })).toBeNull();
+  });
+
+  it('offers a refresh action', async () => {
+    render(<Dashboard />);
+    expect(await screen.findByRole('button', { name: '刷新检测' })).toBeDefined();
   });
 });

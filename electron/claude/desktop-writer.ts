@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getPreferences } from '../config/store';
+import { getPreferences, type UserPreferences } from '../config/store';
+import { getProvider, resolveClaudeBaseUrl, type ProviderId } from '../config/providers';
 
+import { writeJsonWithBackup } from '../config/file-write';
 import {
   claudeDesktopConfigPath,
   claudeDesktop3pConfigPath,
@@ -11,7 +13,6 @@ import {
   claudeDesktopMetaPath,
   claudeDesktopDir,
   claudeDesktop3pDir,
-  backupPath as mkBackupPath,
 } from './paths';
 
 /**
@@ -43,32 +44,30 @@ async function readJsonObject(p: string): Promise<Record<string, unknown>> {
   }
 }
 
-async function writeJsonObject(p: string, obj: unknown): Promise<void> {
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(obj, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
-}
-
-async function backupExisting(p: string): Promise<void> {
-  try {
-    const raw = await fs.readFile(p, 'utf-8');
-    if (raw.length === 0) return;
-    await fs.writeFile(mkBackupPath(p), raw, 'utf-8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
+/**
+ * 写 JSON 配置（0o600）。v3.0.0: 走 config/file-write 的共用实现——**内容相同则跳过**，
+ * 并按 `maxBackupsPerFile` 滚动修剪备份。此前这里每次都无条件备份+写入，而
+ * `startupApplyClaude()` 每次启动都会调用它，导致用户家目录堆积数百份 `.bak.<ts>`。
+ */
+async function writeJsonObject(p: string, obj: unknown, keep: number): Promise<void> {
+  await writeJsonWithBackup(p, obj, keep, { mode: 0o600 });
 }
 
 // ─── Deployment-mode flag (1p ↔ 3p) ──────────────────────────────────────────
 
-async function setDeploymentMode(p: string, mode: '1p' | '3p'): Promise<void> {
+async function setDeploymentMode(p: string, mode: '1p' | '3p', keep: number): Promise<void> {
   const cfg = await readJsonObject(p);
   cfg['deploymentMode'] = mode;
-  await writeJsonObject(p, cfg);
+  await writeJsonObject(p, cfg, keep);
 }
 
 // ─── _meta.json (entry list + appliedId) ─────────────────────────────────────
 
-async function writeMeta(applied: string | null): Promise<void> {
+async function writeMeta(
+  applied: string | null,
+  name: string = PROFILE_NAME,
+  keep = 5,
+): Promise<void> {
   const metaPath = claudeDesktopMetaPath();
   const meta = await readJsonObject(metaPath);
   const existingEntries = Array.isArray(meta['entries'])
@@ -77,7 +76,9 @@ async function writeMeta(applied: string | null): Promise<void> {
   const filtered = existingEntries.filter((entry) => entry['id'] !== PROFILE_ID);
 
   if (applied !== null) {
-    filtered.push({ id: PROFILE_ID, name: PROFILE_NAME });
+    // v3.0.0: 条目名跟随当前供应商（此前写死 'DeepSeek'，GLM 用户在 Claude Desktop
+    // 的配置列表里看到的也是「DeepSeek」）。仅显示用，PROFILE_ID 才是识别依据。
+    filtered.push({ id: PROFILE_ID, name });
     meta['appliedId'] = applied;
   } else {
     if (meta['appliedId'] === PROFILE_ID) {
@@ -91,59 +92,31 @@ async function writeMeta(applied: string | null): Promise<void> {
   }
 
   meta['entries'] = filtered;
-  await writeJsonObject(metaPath, meta);
+  await writeJsonObject(metaPath, meta, keep);
 }
 
 // ─── Profile JSON (the actual gateway settings Claude Desktop reads) ─────────
 
 function buildGatewayProfile(
+  prefs: UserPreferences,
   apiKey: string,
-  provider: 'deepseek' | 'agnes' | 'glm' | 'custom' = 'deepseek',
+  provider: ProviderId = 'deepseek',
 ): Record<string, unknown> {
-  const isAgnes = provider === 'agnes';
-  const isGlm = provider === 'glm';
-  const isCustom = provider === 'custom';
-  const prefs = getPreferences();
-  const proxyPort = prefs.proxyPort;
-  const baseUrl = isAgnes
-    ? `http://127.0.0.1:${proxyPort}`
-    : isGlm
-      ? 'https://open.bigmodel.cn/api/anthropic'
-      : isCustom
-        ? prefs.customProvider.claudeBaseUrl
-        : 'https://api.deepseek.com/anthropic';
-  // 供应商默认模型名：Opus 用高端档，Sonnet/Haiku 用快速档；自定义供应商透传 Claude
-  // 原生名作为默认值（用户可在模型映射弹窗中修改）。
-  // 注意：Desktop 3P gateway 实际只把 claude-* 路由名发给上游，labelOverride 仅显示；
-  // DeepSeek 视觉模型 vision-exp 无法经 Desktop 触达（v2.2.0 仅 Claude Code CLI 支持）。
-  const label = isGlm
-    ? 'glm-5.2'
-    : isAgnes
-      ? 'agnes-2.0-flash'
-      : isCustom
-        ? 'claude-opus-4-7'
-        : 'deepseek-v4-pro';
-  const labelFlash = isGlm
-    ? 'glm-5.2'
-    : isAgnes
-      ? 'agnes-2.0-flash'
-      : isCustom
-        ? 'claude-sonnet-4-6'
-        : 'deepseek-v4-flash';
-  const labelHaiku = isCustom ? 'claude-haiku-4-5' : labelFlash;
+  const descriptor = getProvider(provider);
+  const baseUrl = resolveClaudeBaseUrl(descriptor, prefs);
+  // 档位默认模型名直接取注册表；自定义供应商透传 Claude 原生名。
+  // 注意：Desktop 3P gateway 实际只把 claude-* 路由名发给上游，labelOverride 仅显示，
+  // 真实模型由上游服务端按 claude-* 档位路由决定（见 ADR-029/030）。
+  const roles = descriptor.claude.roleDefaults;
   // 读取用户在模型映射弹窗中自定义的映射，覆盖默认值
   const mm = prefs.claudeDesktop?.modelMap ?? {};
-  const models: Array<{ labelOverride: string; name: string }> = [
-    { labelOverride: mm['claude-opus-4-7'] ?? label, name: 'claude-opus-4-7' },
-    { labelOverride: mm['claude-sonnet-4-6'] ?? labelFlash, name: 'claude-sonnet-4-6' },
-  ];
-  // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet），与 PackyCode 行为一致
-  if (!isCustom) {
-    models.push({
-      labelOverride: mm['claude-haiku-4-5'] ?? labelHaiku,
-      name: 'claude-haiku-4-5',
-    });
-  }
+  const models: Array<{ labelOverride: string; name: string }> = descriptor.claude.slots
+    // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet）
+    .filter((slot) => descriptor.claude.includeHaiku || slot.tier !== 'haiku')
+    .map((slot) => ({
+      labelOverride: mm[slot.id] ?? roles[slot.tier],
+      name: slot.id,
+    }));
   return {
     disableDeploymentModeChooser: true,
     inferenceGatewayApiKey: apiKey,
@@ -176,39 +149,22 @@ function buildGatewayProfile(
  */
 export async function writeClaudeDesktopConfig(
   apiKey: string,
-  provider?: 'deepseek' | 'agnes' | 'glm' | 'custom',
+  provider?: ProviderId,
 ): Promise<void> {
   const cfg1p = claudeDesktopConfigPath();
   const cfg3p = claudeDesktop3pConfigPath();
 
-  await backupExisting(cfg1p);
-  await backupExisting(cfg3p);
-
-  await setDeploymentMode(cfg1p, '3p');
-  await setDeploymentMode(cfg3p, '3p');
+  // 每次操作只读一次偏好快照：既保证视图一致，也避免同一操作内反复读盘
+  const prefs = getPreferences();
+  const keep = prefs.maxBackupsPerFile ?? 5;
+  await setDeploymentMode(cfg1p, '3p', keep);
+  await setDeploymentMode(cfg3p, '3p', keep);
 
   await fs.mkdir(claudeDesktopConfigLibraryDir(), { recursive: true });
   const profilePath = claudeDesktopProfilePath(PROFILE_ID);
-  await backupExisting(profilePath);
-  await writeJsonObject(profilePath, buildGatewayProfile(apiKey, provider));
+  await writeJsonObject(profilePath, buildGatewayProfile(prefs, apiKey, provider), keep);
 
-  await writeMeta(PROFILE_ID);
-}
-
-/**
- * Update the API key in our existing profile.  No-op if the profile doesn't
- * exist or the __codexSwitch marker is missing.
- */
-export async function updateClaudeDesktopApiKey(apiKey: string): Promise<void> {
-  const profilePath = claudeDesktopProfilePath(PROFILE_ID);
-  try {
-    const profile = await readJsonObject(profilePath);
-    if (profile[CS_MARKER_KEY] !== CS_MARKER_VALUE) return;
-    profile['inferenceGatewayApiKey'] = apiKey;
-    await writeJsonObject(profilePath, profile);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
+  await writeMeta(PROFILE_ID, getProvider(provider).label, keep);
 }
 
 /**
@@ -228,8 +184,9 @@ export async function removeClaudeDesktopConfig(): Promise<void> {
   if (!isOurs) return;
 
   // Switch both configs back to 1p
-  await setDeploymentMode(claudeDesktopConfigPath(), '1p');
-  await setDeploymentMode(claudeDesktop3pConfigPath(), '1p');
+  const keep = getPreferences().maxBackupsPerFile ?? 5;
+  await setDeploymentMode(claudeDesktopConfigPath(), '1p', keep);
+  await setDeploymentMode(claudeDesktop3pConfigPath(), '1p', keep);
 
   // Remove our profile JSON
   try {
@@ -239,7 +196,7 @@ export async function removeClaudeDesktopConfig(): Promise<void> {
   }
 
   // Remove our entry from _meta.json
-  await writeMeta(null);
+  await writeMeta(null, PROFILE_NAME, keep);
 }
 
 // ─── Backups ─────────────────────────────────────────────────────────────────

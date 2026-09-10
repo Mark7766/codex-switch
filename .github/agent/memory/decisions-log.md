@@ -38,6 +38,370 @@
 
 ## 决策记录
 
+### ADR-036: 「切换到 OpenAI 官方」不得删除 `[model_providers.*]` 块；`sanitizeManagedConfig` 默认一块不剥
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+ADR-034 修好了「切换**供应商**后旧对话打不开」。用户随即发现**同一 bug 的另一条入口**：点「切换到 OpenAI 官方」后，报错原封不动回来了 —— `Model provider ZAI not found` / `Model provider deepseek not found`。
+
+根因：全仓只有两条剥离路径，上次只修了一条。
+
+| 路径 | 调用 | `stripProviderBlocks` | 结果 |
+|---|---|---|---|
+| 切换到另一家供应商 | `writer.ts` `writeCodexConfig` | `[当前那家]` | ✅ 已修 |
+| **切换到 OpenAI 官方** | `writer.ts` `restoreOriginalConfig` | 不传 → 默认 `'all'` | ❌ 所有受管块全删 |
+
+用户的判断直接命中了要点：**OpenAI 官方也是「一家供应商」**，没理由对它特殊对待。
+
+#### 关键认识（推翻了一个旧假设）
+
+**删块这一步本来就是多余的。**
+
+- **BUG-007（v2.3.0）的要害是顶层 `model_provider` 残留，不是块。** 当时报错 `but you passed gpt-6-astra` 的成因是：`model` 被清掉了、`model_provider = "deepseek"` 还在 → Codex 把官方默认模型名发给了 DeepSeek。**删掉顶层 `model_provider` 就已经切回官方了。**
+- **未被选中的 provider 块是惰性的。** Codex 只解析 `model_provider` 指向的那一家，`[model_providers.X]` 只是配置里的一张没被引用的表。**这正是 ADR-034 的机制本身** —— deepseek ↔ ZAI 互切能工作，靠的就是「保留另一家的块」。同一机制对 OpenAI 官方同样成立。
+
+#### 决策
+① **删掉 `stripProviderBlocks: 'all'` 这个模式**，`SanitizeOptions.stripProviderBlocks` 改为 `string[]`，**默认 `[]`（一块都不剥）**。
+② `restoreOriginalConfig()`（「切换到 OpenAI 官方」）不再传该参数，**只清顶层受管键与 `[features]` 受管键**。
+③ 顺带删掉由此变成死代码的 `MANAGED_PROVIDER_BLOCK` 与其 import。
+
+#### 理由
+- **不安全的能力不该保留。** 修完这条路径后仓库里再无任何调用方需要 `'all'`（真正的「恢复出厂」是 `restoreCodexConfig(backupPath)`，整文件覆盖 `install-original` 备份，与剥离无关）。留着一个「会把块删光」的模式，就是留一个会复现本 bug 的陷阱。默认值必须是最安全的那个。
+- **单一心智模型。** 改完后「OpenAI 官方」在结构上与其他供应商平起平坐：切到它 = 让顶层 `model_provider` 消失，就这么简单。
+
+#### 为何不会让 BUG-007 回归
+顶层 `model_provider` 与 `model` 仍被 `MANAGED_TOP_KEY` 清除 → Codex 回落到内置 `openai`，保留的块永远不被引用。已用测试锁定（`writer.test.ts` / `config-merge.test.ts` / `providers.test.ts` 共 8 条断言），并做**变异验证**：把默认值临时改回「剥光三家」→ **恰好这 8 条如期失败**，还原后 163/163 通过。
+
+#### 影响
+- 用户可见文案同步（`Settings.tsx`）：「清除本应用写入的配置，恢复 Codex 原生行为」→「Codex 改回用 OpenAI 官方；已接入的供应商配置会保留（历史对话需要它）」。
+- **立下规则：任何路径都不得删除 `[model_providers.*]` 块。**
+
+### ADR-035: 未发布的迭代不单独占版本号 —— 四版折叠为单一 3.0.0
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+2.3.0 之后连续写了 2.4.0（模型收敛）、3.0.0（代理 → 配置工具）、3.1.0（清理）、3.1.1（合并写修复）四条更新日志，但**这四版都没有发布**——远端用户手上的仍是 2.3.0。CHANGELOG 是给**升级用户**看的，他们打开应用只会看到最上面那一条；四条并排反而制造「中间隔了好几个版本」的错觉。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A：保留四条，`package.json` 设到 3.1.1 | 改动最小，迭代粒度细 | 用户看到 4 条从未单独发布过的记录；版本号虚增 |
+| B：折叠为单一 3.0.0（**采纳**） | 与用户实际经历一致（2.3.0 → 3.0.0 一次到位）；3.0.0 是「代理工具 → 配置工具」的破坏性主版本，语义正确 | 丢失版本内部的迭代次序；需同步清理代码注释里的旧版本号 |
+
+#### 决策
+四版折叠为单一 `[3.0.0]`，CHANGELOG 只留**一条**，**从用户视角**写；删除「修复 / 隐私 / 保持不变」等对升级用户无意义的章节。
+
+#### 理由
+**更新日志的读者是升级用户，不是维护者。** 维护者要的迭代细节在 `task-history.md` 与 `decisions-log.md` 里，不该占用 CHANGELOG 的篇幅。判断一条内容该不该进更新日志，只问一句：*用户需要知道吗？知道了需要做什么吗？*
+
+#### 影响
+- `package.json` = `3.0.0`；代码内 32 处 `v3.1.1` / `v3.1.0` / `v2.4.0` 注释归一为 `v3.0.0`（纯注释，无行为变化）。
+- **ADR-034 与 TASK-127 标题里的「v3.1.1」是当时的工作代号，对用户即 3.0.0** —— 标题保留不改写，历史记录以当时的代号为准。
+- 立下规则：**连续未发布的迭代在发版时折叠进承载它的那个版本**；反过来，**一旦某版真的发布过，就不得再合并进后续版本**——2.3.0 及更早因此保持原样不动。
+
+### ADR-034: v3.1.1 — `config.toml` 改为「合并写」；受管 provider 块只更新当前那家、其余保留
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+用户报告：切换供应商后，**原供应商的历史对话全部打不开**（`Model provider deepseek not found`；切回去则报 `ZAI not found`）。
+
+诊断（基于用户本机实证）：**Codex 是按对话记住 `model_provider` 的** —— 会话文件 `~/.codex/sessions/**/rollout-*.jsonl` 记录 `payload.model_provider`（该用户 49 个会话里 44 个是 `deepseek`）。而旧实现切换供应商时**整份覆盖** `config.toml`，只留当前那家的块 → 上一家的对话全部失效。
+
+同时发现同源的第二个问题：写入是**替换**而非**合并**，会抹掉配置里所有非受管内容（`notify` / `[desktop]` / `[mcp_servers.*]` / `[projects.*]` / 用户自建 `[model_providers.*]`）。该用户机器上这些段之所以还在，是 **Codex Desktop 自己事后又写回去**，属运气而非设计。
+
+#### 决策
+1. **`config.toml` 的写入改为合并语义**：读出现有文件 → 只剥离「我们的顶层键 + 当前供应商的块 + `[features]` 受管键」→ 组装写回。**其余内容一律原样保留**（含其它 `[model_providers.*]`）。
+2. **始终保留所有受管供应商的块**，只有顶层 `model` / `model_provider` 随切换变化。
+3. **不合成其它供应商的块** —— 原样保留即可，因而**不需要它们的 Key**，也不会写出残缺块。
+4. `sanitizeManagedConfig()` 增加 `stripProviderBlocks: 'all' | string[]`（传供应商 id），默认 `'all'` 保持「切换到 OpenAI 官方」的行为不变。
+
+#### 理由
+1. Codex 的会话-provider 绑定是**外部事实**，我们无法改变；唯一能做的就是**别删**provider 块。
+2. 「保留」优于「重建」：重建需要拿到每家 Key，缺 Key 就是残缺配置；保留则零信息需求。
+3. 整份覆盖是**静默数据丢失**，且被 Codex 的自我重写掩盖了 —— 这类 bug 不修，迟早以更贵的形式暴露。
+4. 与 ADR-031/033 同一条主线：**替用户做主地整份替换/一刀切清理，必然在某处反噬**。
+
+#### 影响
+- 切换供应商后，**双方的**历史对话都能继续打开；受影响的旧对话无需任何处理。
+- `config.toml` 不再被我们抹掉用户/Codex 自有内容；用户手工加的键（`sandbox_mode`、自建 provider…）得以保留。
+- 写入仍需**幂等**（否则每次保存都会新增备份）—— 已加测试锁定；合并组装保证二次写入字节一致。
+- 还原路径（「切换到 OpenAI 官方」）行为**未变**：仍剥离全部受管块。
+- **已知残留风险（本轮有意不处理）**：`models.json` 仍只装当前供应商目录，而旧对话记录的 model 可能是另一家/已退役的 slug。判断 Codex 对未知模型是退化处理而非硬报错（用户那批 `deepseek-v4-flash` 会话在该模型退役后仍可打开即旁证），且该文件同时是 Codex 模型列表的数据源，混入别家 slug 会更乱。若后续出现「模型找不到」类错误再单独决策。
+
+#### 替代方案
+- 「写全部受管供应商的块（合成）」→ 否决：需要各家 Key，缺 Key 即残缺配置。
+- 「切换时提示用户旧对话会失效」→ 否决：把我们的实现缺陷转嫁给用户，且并未解决问题。
+- 「把 models.json 也改成保留全部供应商目录」→ 本轮否决：见上「已知残留风险」；属**推测性改动**，不做。
+
+---
+
+### ADR-033: v3.1.0 — 把测试文件纳入类型检查（`tsconfig.test.json` 接入 `typecheck`）
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+一次全仓无用文件审计（TASK-126，用导入图可达性分析，结论是**没有无用的源码文件**）中顺带发现：`tsconfig.test.json` **存在但无任何脚本或配置引用它**。而 `pnpm typecheck` 只跑两个项目 —— `tsconfig.electron.json`（`include: electron/**`）与 `tsconfig.renderer.json`（`include: src/**`）。
+
+**即：`tests/` 从来没有被类型检查过。** 实测运行一次就暴露 4 处前几轮重构的遗留（store 测试仍在遍历已删除的 `plugins`/`help` 页面、writer 测试仍在传已移除的 `'agnes'` 供应商、migrations mock 缺类型标注、ipc-consistency 的 Set 类型不匹配）。
+
+#### 决策
+在 `package.json` 的 `typecheck` 后追加 `&& tsc -p tsconfig.test.json --noEmit`，把测试文件纳入类型检查。
+
+#### 理由
+1. **这类假绿比编译错误危险**：那 4 处全部活过了前几轮「typecheck ✅ + 151 个测试全绿」的验证 —— 因为测试文件既不被类型检查，其断言对象又已在运行时消失，断言本身却仍然通过（例如遍历一个已不存在的页面名却断言 `page` 等于它，永远成立）。
+2. **配置文件断链是隐性债务**：一个存在却无人调用的 tsconfig，看起来像「已配置」，实际是零覆盖。与 ADR-031/032 的教训同源：**断链迟早以「测试在测不存在的东西」的形式暴露**。
+3. 成本近乎为零：`tsconfig.test.json` 早已写好（`include: tests/**`、`types: [node, vitest/globals]`），只是没人调用。
+
+#### 影响
+- `pnpm typecheck` 现在覆盖 `electron/` + `src/` + `tests/` 三者；CI 的 lint/typecheck 步骤随之拦住测试层的过时引用。
+- 修复了 4 处遗留（其中前两处是**真实陈旧**，按当前行为改正而非仅为过编译）。
+- 顺带删掉 5 个零引用导出：`IpcChannel`、`WriteOpts`、`getServerConfig`、`resetPreferences`、`updateClaudeDesktopApiKey`。
+- 顺带把误提交的 Playwright 产物 `test-results/`（2 文件）移出版本控制并加入 `.gitignore`。
+- **新增流程约束**：改完重构必须跑 `pnpm typecheck`（含 tests）；**删功能时必须同步搜测试**（那次 store 测试的页面遍历用例就是在删 `'plugins'` 的同一个任务里漏改的）。两条均已写入 project-memory。
+
+#### 替代方案
+- 「删掉 `tsconfig.test.json`」→ 否决：它看起来像死文件，实则是**该有的覆盖缺失了**。删掉等于把缺口永久固化。
+- 「只修 4 处、不接入 typecheck」→ 否决：下次重构还会同样漏，问题只是被推迟。
+
+---
+
+### ADR-032: v3.1.0 — 遥测收窄为「仅配置操作 + 零个人数据」、移除插件子系统、写入路径统一「去重+修剪」
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v3.0.0 转型为纯配置工具后做了一次全面审计（TASK-125）。审计发现两类问题：**功能与定位不符**
+（遥测仍在采集崩溃原文与设备标识符、插件子系统依赖远程服务）与**两个真实缺陷**（Claude 侧写入
+不去重不修剪备份、迁移 flag 互相覆盖）。本 ADR 记录由此产生的四项决策。
+
+#### 决策
+
+**① 遥测收窄：只上报配置操作，去掉全部个人数据**
+
+保留三个事件，且字段仅剩枚举与字段名：
+
+| 事件 | 保留字段 |
+|---|---|
+| `config_write` | `fields_changed`（**字段名**，非值） |
+| `tool_install` | `tool`（枚举） |
+| `tool_install_fail` | `tool` + `error_kind`（本地归类枚举） |
+
+**删除**：`app_start`、`error`（uncaughtException / unhandledRejection）、`update_check`、
+`update_download`（插件三连随插件子系统一并消失）。
+
+**三处隐私面必须关掉**：
+1. **`error` 事件整体停发** —— 它的 `error_message` / `error_stack`（截断 500 字符）可能含
+   用户家目录路径与配置内容片段，是整条遥测里最明确的泄露面。崩溃排障看本地 electron-log 即可。
+2. **`tool_install_fail.error_code` 改为本地归类枚举**（`classifyWriteError()`）——
+   历史上该字段曾把**完整 Anthropic API Key** 送进服务端遥测库（TASK-098），数据至今需人工清理。
+   绝不再上报原始报错文本。
+3. **`client_id` 不再进上报体** —— 持久设备标识符属 PIPL 下的个人信息。
+   注意 `clientId` **保留在 prefs 里**（社区/邀请功能调 `/client/<id>/profile` 需要它），只是不再随遥测上报。
+
+**② 移除插件子系统**（约 1,750 行）：它是「从我们的服务器下载 36MB/165MB 离线包 + 生成安装指令」，
+与「把配置写对」正交，且**必须联网到 codex-switch.cloud 才能用**，不是纯本地功能。
+
+**③ Claude 侧写入对齐 Codex 侧的「去重 + 修剪」不变量**：抽出 `electron/config/file-write.ts`
+作为两侧共用实现。**任何绕过它直接 `fs.writeFile` 写用户配置文件的代码，都是在重新引入
+「备份无限堆积」这个缺陷。**
+
+**④ 迁移 flag 改为键级合并**（`setMigrationFlag`）：`setPreferences` 是浅合并，直接写
+`{migrations: {x: true}}` 会整体替换该对象、抹掉其它 flag。
+
+#### 理由
+1. 遥测的合规风险是实打实的（项目自己的 `LEGAL-RISK-CHINA.md` 把「遥测默认开启违反知情同意」
+   列为🟠高风险）：**去掉个人数据比调整默认开关更彻底**——用户没关也不会泄露。
+2. 插件是这套体系里唯一「必须连我们的服务器才能用」的子系统，与「本地配置工具」的定位冲突最大。
+3. 备份堆积是可验证的真实缺陷（用户机器上 415 份 `.zshrc.bak`），不是理论问题；
+   两条不变量必须收敛到一处，否则必然再次漂移（这正是缺陷成因）。
+4. 迁移重跑会让三条历史迁移每次启动各跑一遍，既浪费又放大缺陷 ③。
+
+#### 影响
+- **遥测口径变化**：服务端收到的数据里不再有 `client_id`，无法做设备级去重/留存分析；
+  只能看事件总量与分布。若有产品侧需求，应改用**每次会话随机、不落盘**的匿名 id。
+- 遥测默认值仍为**开启**（用户未要求改默认），但因上报内容已不含个人信息，opt-out 不再构成合规风险。
+  `LEGAL-RISK-CHINA.md` 的对应结论随之失效，已在该文件补记。
+- 设置页文案改为准确描述上报范围；CHANGELOG 单列「隐私」小节。
+- 删插件后 `Page` 只剩三个页面、IPC 通道减少 7 条、preload API 减少 9 个、依赖减少 2 个
+  （`@testing-library/jest-dom`、`tsx` 均为零引用）。
+- 用户既有的备份文件**未自动清理**（破坏性操作不擅自执行），CHANGELOG 给出可选的手动命令。
+- macOS/Windows 的 `~/.zshrc.bak.*` 从此不再增长；`maxBackupsPerFile`（默认 5）现在对
+  Codex 与 Claude 两侧都生效。
+
+#### 替代方案
+- 「遥测整体删除」→ 未采纳：用户明确要保留配置操作类上报（用于判断功能是否被用上）；收窄比删除更贴合意图。
+- 「遥测改为默认关闭」→ 未采纳：收窄到零个人数据后，默认开启不再有合规问题，且能保住数据连续性。
+- 「保留插件但改为可选下载」→ 未采纳：它的问题不是默认开关，而是依赖远程服务这一前提。
+
+---
+
+### ADR-031: v3.0.0 — 转型为纯配置工具：删除本地代理、移除 Agnes、GLM 转直连、引入供应商注册表
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+v2.0.0 起 DeepSeek 已走官方直连，本地代理（`electron/proxy/`，13 文件 3,640 行）实际只服务 Agnes/GLM。用户提供的智谱官方文档证实 **GLM 也支持 Codex 直连**（`https://open.bigmodel.cn/api/v1` + `wire_api="responses"`），于是代理的最后一个存在理由消失。用户决定：**本版本做完就不再维护代理，把这个应用彻底变成配置工具**。
+
+用户同时指出架构上的根本问题：**配置 Codex 与配置 Claude 本是同一套机器**（往某端点写地址 + Key + 模型表），却因历史原因在 writer / desktop-writer / env-writer / secrets / migrations / Settings.tsx / ModelMappingModal 七八处各写一遍——同一份事实最多抄五遍，并已因此产生过两次漂移 bug（`ClaudeSettingsSection` vs `DEFAULT_ENV_VARS`；CLI 档位默认值三处不同步）。
+
+#### 关键取证（未靠猜测）
+比对智谱官方 Codex 模板与既有 `DEEPSEEK_DIRECT_TEMPLATE`，确认二者**同构**：
+
+| | DeepSeek | 智谱 GLM |
+|---|---|---|
+| `model_provider` / 段名 | `deepseek` | `ZAI` |
+| `base_url` | `https://api.deepseek.com/` | `https://open.bigmodel.cn/api/v1` |
+| `model_reasoning_effort` | `high` | `max` |
+| `preferred_auth_method`/`forced_login_method` | 有（官方模板要求） | 无 |
+| `experimental_bearer_token` | 有 | 有 |
+| `model_catalog_json` | 有 | 有 |
+
+差异全部是**数据**，不含逻辑。这直接决定了注册表的形状。
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 保留代理，只加 GLM 直连 | 改动小 | 代理已无任何服务对象（Agnes 也要删），留着纯负担：3,640 行 + 端口 + 日志 + 统计 + 缓存全为空转 |
+| B. 删代理但每家供应商各留一套模板/UI | 机械改动 | 重复照旧，加第 4 家供应商（Qwen）仍要改 7 处 |
+| **C. 删代理 + 供应商注册表（唯一事实来源，经 IPC 下发渲染层）** | 新增供应商＝加一条数据；消除 5 份重复；配置工具的正确形态 | 一次性大改（本次 ~3,640 行删除 + 主进程/渲染层多处重写） |
+
+#### 决策
+选 **C**：
+1. **删除整个本地代理**及其全部衍生功能（日志页、请求/token 统计、对话缓存、后台建议拦截、端口设置、端口冲突处理）。
+2. **移除 Agnes 供应商**（不支持 Codex 的 Responses 协议）。存量用户**不做任何处理**：无迁移、无提示、不清理钥匙串条目；仅加读时 `normalizeProvider` 防崩溃。
+3. **GLM 转为 Codex 直连**，模型清单按用户给的 **glm-5.3 / glm-5.3-flash / glm-5.2**。
+4. **新建 `electron/config/providers.ts` 作为唯一事实来源**；因两个 tsconfig 的 `rootDir`/`include` 各自独立、无法共享模块，渲染层经**新 IPC 通道 `providers:list`** 取用 → **描述符必须保持纯数据**（有守门测试）。
+5. **Key 通道对供应商泛型化**（`key:get/set/clear` + providerId），12 个 handler / 9 条常量收敛为 3 + 1。
+6. **主面板只留四个工具接入状态**；**侧边栏「设置」排第一且为默认落地页**。
+
+#### 理由
+1. 官方模板同构是硬证据——重构不是审美偏好，而是消除已造成两次 bug 的结构性重复
+2. 代理删除后「配置工具」的定位才自洽：不占端口、不必常驻，配置写好后各工具直连
+3. 纯数据描述符 + 单条 IPC 通道，与本项目「渲染进程只通过 IPC 访问系统资源」的硬约束一致，且绕开了 tsconfig rootDir 的构建风险
+
+#### 影响
+- **被本 ADR 推翻的历史决策**（其结论仅对已删除的代理路径成立）：ADR-002（移植参考工程代理为核心）、ADR-014（代理生命周期状态机）、ADR-016（stop 主动断开连接）、ADR-019/023（compact 与对话缓存策略）、ADR-028 中「代理保留给 Agnes/GLM」的部分。ADR-001（Electron 技术栈）、ADR-006/020（Claude 配置注入方式）、ADR-029/030（模型阵容）**仍然有效**。
+- **`~/.codex/models.json` 成为跨供应商共享文件** → 目录写入必须合并（见 TASK-124 注意事项 1）。
+- **受管 TOML 段名由注册表派生** → 杜绝 BUG-007 复现。
+- **`runV300DirectMigration`** 是本版本最有价值的迁移：GLM 用户此前正走代理，代理删掉后其 config.toml 会指向不存在的端口。
+- 代理时代的 telemetry 事件（`proxy_start`/`proxy_stop`/`proxy_error`）不再产生；服务端若有基于 `proxy_error` 的告警会出现「日志静默」。存活的信号是 `config_write` / `tool_install`。
+- **`lifetimeFirstStartAt` 必须保留**：名字带 lifetime 但它喂的是「早期成员」徽章，与代理无关。
+- 行为变化：GLM 的 reasoning effort 由 `xhigh`（代理模板）改为 `max`（官方文档）。
+
+#### 替代方案
+- 「保留代理作为兜底」→ 否决：Agnes 一删就再无服务对象，留着的全是空转与维护面。
+- 「手动维护受管段名/Key 清单」→ 否决：BUG-007 已证明手写清单必然漏，注册表派生是唯一可靠做法。
+- 「为渲染层复制一份注册表」→ 否决：那正是本次要消灭的重复；改用 IPC 单向下发 + 手抄**类型**（类型漂移可由 tsc 近似兜底，数据漂移不能）。
+
+---
+
+### ADR-030: v2.4.0 — DeepSeek 模型阵容收敛为两个；视觉能力并入 `deepseek-flash`
+
+- **日期**：2026-09-10
+- **状态**：✅ 已采纳
+- **决策者**：用户 + AI Agent
+
+#### 背景
+DeepSeek 官方公告：① 模型名改用 `deepseek-flash`，旧名 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 仍可调用但模型已下线，请求由 DeepSeek-V4.1-Flash 提供服务并按 Flash 计费；② V4 Pro 计划下线——北京时间 2026-09-14 12:00 后至 V4.1 Pro 上线前，`deepseek-v4-pro` 的请求全部路由到 V4.1 Flash。因此三个接入点（Codex / Claude Desktop / Claude Code CLI）的模型选择须从三个收敛为两个。**关键未知项是「视觉能力是否随 vision-exp 一并消失」**——公告未说明。
+
+**取证方式（未靠猜测）**：本项目的 `electron/codex/deepseek-models.json` 约定「与 DeepSeek 官方 Codex 一键脚本逐字节一致」。拉取官方脚本 **v1.3.0**（`https://cdn.deepseek.com/api-docs/codex-deepseek-setup.sh`，108,855 B）并解析其内嵌 models.json，得到确定答案：
+
+| slug | input_modalities | 图片 | priority |
+|------|------------------|------|----------|
+| `deepseek-flash` | `["text","image"]` | ✅ | 1 |
+| `deepseek-v4-pro` | `["text"]` | ❌ | 2 |
+
+官方目录**恰好两个**模型（脚本自带校验：「需恰好包含 deepseek-flash 与 deepseek-v4-pro 两个模型」），且官方脚本自己负责清理旧 slug（`LEGACY_SLUG_PREFIX="deepseek-v4-flash"`）。**结论：视觉能力并入 `deepseek-flash`，能力并未丢失。**
+
+#### 方案对比
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| A. 移除 vision，Codex 与 CLI 彻底失去读图 | 表面上「两个模型」最整齐 | 与官方目录事实不符——官方明确把 image 声明在 flash 上，等于主动砍掉一个已具备的能力 |
+| **B. 视觉并入 `deepseek-flash`，删掉独立的 vision 模型与 `vision` prop** | 与官方目录逐字节对齐；能力零损失；CLI/Desktop 选项同一套，删掉一整条分支 | 需重命名 ~20 文件；`vision` prop 及其配套测试一并删除 |
+| C. 保留 vision-exp 作为第三个遗留选项 | 改动最小 | 直接违背用户「收敛为两个」的要求，且该模型已下线 |
+
+#### 决策
+选 **B**：
+1. `electron/codex/deepseek-models.json` 用官方 heredoc 逐字节替换（3 → 2 模型，76,107 B）；顺带修正仓库 pro 条目 `supports_search_tool: true` → `false`（与官方不符的陈旧值）。
+2. 全面重命名（用户选定范围）：接入层 + 智能搜索 + 本地代理内部默认值/白名单 + dev 脚本 + FAQ。
+3. **删除 `ModelMappingModal` 的 `vision?: boolean` prop**，`DEEPSEEK_ROLE_DEFAULT_CLI` / `_DESKTOP` 合并为单一 `DEEPSEEK_ROLE_DEFAULT`（opus→pro、sonnet/haiku→flash）。
+4. **存量用户零改动**（用户拍板）：不加迁移，且**有意不 bump `CURRENT_MAPPING_VERSION`（保持 5）**。
+5. 用户可见处保留过渡提示：Settings 的 Pro 选项说明、Setup 向导副标题、FAQ、CHANGELOG。**（该条已被下方「修订」部分淘汰）**
+
+#### 理由
+1. 官方目录是唯一权威来源，且本项目已有「逐字节对齐官方」的成文约定——照做即零判断风险
+2. 视觉并入 Flash 后，**ADR-029 的结论失去对象**：Desktop 与 CLI 的档位选项与默认值完全相同，`vision` prop 的存在理由（为 Desktop 隐藏 vision 模型）消失，留着就是死代码
+3. 不做迁移是用户的明确取舍：旧名仍可调用且按 Flash 计费，没有非改不可的理由；代价是需处理「持久化旧名不在新下拉中」的显示问题（见影响）
+
+#### 影响
+- **`CURRENT_MAPPING_VERSION` 成为易误改的陷阱**：改 `DEFAULT_MAPPING` 取值时若顺手 bump，会把新默认映射合并进存量用户配置，违背本次取舍。已在该常量上写明不变式。
+- **两个 UI 收尾改动**（否则「不改存量」会变成「静默显示错乱」）：
+  1. `Settings.tsx` 的 DeepSeek 下拉新增**旧值保留项**（持久化值以 `deepseek-` 开头且不在新列表时额外渲染 `<option>`），避免 `<select>` 匹配不到 option 渲染空白。
+  2. `ModelMappingModal` 的 `isCustom` 由 `currentValue === '__custom__'` 改为 `!isPreset(currentValue, presets)` —— 修掉一个**既有 bug**：从持久化恢复的非预设值下拉显示「自定义…」却不渲染输入框，用户既看不到也改不了（自 v2.2.0 Desktop 隐藏 vision 起潜伏）。
+- ADR-029 中「Desktop 不提供 vision」的操作性结论作废，但其技术事实（Desktop 3P gateway 只发 `claude-*` 路由名、`labelOverride` 仅显示、真实档位由 DeepSeek 服务端路由决定）**仍然成立**，已保留在 `desktop-writer.ts` 注释中。
+- 代理层（自 v2.0.0 起仅服务 Agnes/GLM）内的旧名一并重命名；旧名请求走前缀→fallback 落到 `deepseek-flash`，与上游实际落点一致，无功能损失。
+- 供应商差异收敛：`ClaudeSettingsSection` 的重置处理器此前与 `DEFAULT_ENV_VARS` 漂移（sonnet 仍写 pro），本次对齐。
+
+#### 替代方案
+- 「保留 `vision` prop 以免未来加回」→ 否决：YAGNI，且当前留着会误导后人以为 Desktop 真被区别对待。
+- 「bump `CURRENT_MAPPING_VERSION` 让存量用户自动换新名」→ 否决：用户明确选择不碰存量数据；且旧名仍可用，强制改写用户已保存的选择属于越权。
+
+#### 修订（2026-09-10，同日回访）—— Codex 模型选择器只显裸模型名
+
+**用户新指令**：「codex 接入选择 deepseek 模型时，直接显示模型名称，deepseek-flash 和 deepseek-v4-pro，不写说明，也不要 deepseek-v4-flash-vision-exp」。
+
+**淘汰本 ADR 原决策第 5 条**（「Settings 的 Pro 选项说明 + Setup 向导副标题」）与本 ADR 影响部分原先的「旧值保留项」方案：
+
+| 项 | 原方案（同日早先） | 修订后 |
+|---|---|---|
+| 选项文字 | `DeepSeek Flash (deepseek-flash) · 可读图` | 裸 id：`deepseek-flash` / `deepseek-v4-pro` |
+| Pro 下线提示 | 选中 pro 时在下方显示小字 `<p>` | **完全移除**（向导副标题也移除） |
+| 存量旧名 | 渲染「『旧名』（旧名，仍可用）」保留项 | 加载时**折叠为 `deepseek-flash`**（`foldRetiredDeepseekModel()`，仅改显示，保存才写回） |
+| 向导 `ModelOption` | 友好标题 + 副标题 | 裸 id，`subtitle` 改为可选并条件渲染 |
+
+**修订理由**：① 用户明确要求「直接显示模型名称」——模型 id 本身就是最准确的信息，中英混排标签反而增噪；② 保留项会让下拉出现**第三个名字**（含用户明确点名的 `deepseek-v4-flash-vision-exp`），与「只要两个」冲突；折叠为 flash 后下拉恒为两项、永不空白，且不违背「不主动改存量」——存储只在用户点保存时更新。
+
+**修订的代价（已向用户说明并获认可）**：V4 Pro 下线提示自此从**整个 Codex UI 消失**，仅存于 `docs/help/faq.json` 与 CHANGELOG `[2.4.0]`。此前「选项旁加说明」的决策被更具体的新指令覆盖。
+
+**同一日内第二次修订 —— Claude 侧映射弹窗也折叠（用户第三次回访，附前后对比截图）**
+
+用户看到弹窗实际渲染后反馈「原来的默认也太难看」：存量用户持久化的 `deepseek-v4-flash` 不在预设列表 → 被判为自定义值 → 渲染成 `✏️ 自定义…` + 输入框，且该输入框用 `float-right` 挤压了左侧档位标签，把「Claude Haiku 4.5」压成三行。要求改成干净的三行下拉。
+
+**由此淘汰本 ADR 上一段「两处策略不同是有意的」的说法**——该结论在 DeepSeek 供应商下已不成立，勿再据此拒绝合并：
+
+| 场景 | 规则 |
+|---|---|
+| Codex 默认模型下拉（`Settings.tsx`） | DeepSeek 旧名折叠为 `deepseek-flash` |
+| Claude 映射弹窗（`ModelMappingModal`，provider==='deepseek'） | **同样折叠**——不再是「回落自定义态」 |
+| `Settings.tsx` 恢复 `cliMapping` / `desktopMapping` | 供应商为 deepseek 时折叠；否则原样（避免「不打开弹窗直接点保存」把旧名又写回去） |
+| glm / agnes / **custom** 供应商 | **不折叠**。custom 供应商可能合法地手填 `deepseek-*`（第三方网关也可代理该模型），折叠会吃掉用户输入 |
+
+**新增单一事实来源 `src/lib/deepseek-models.ts`**（导出 `foldRetiredDeepseek` / `foldRetiredDeepseekMap`）：折叠规则此前在 `Settings.tsx` 与弹窗里各写一份，而本项目已出现过两次同类漂移（`ClaudeSettingsSection` vs `DEFAULT_ENV_VARS`、CLI 档位默认值三处不同步），故收敛为一份。
+
+**顺带修掉布局 bug**：自定义输入框的 `float-right` 改为 `<div className="flex justify-end mt-1">` 包裹——float 会挤压同行档位标签导致折行（用户截图即为此现象）。
+
+**回归测试**：`ModelMappingModal.test.tsx` 2 例锁定（DeepSeek 旧名折叠为 flash 且**无**自定义输入框 / custom 供应商的 `deepseek-v4-flash` **保持**自定义态不折叠）；`Settings.test.tsx` 3 例锁定 Codex 下拉（两个裸 id 且无说明文案 / 旧名折叠为 flash / `deepseek-v4-pro` 原样保留）。全套 **225/225 ✅**。
+
+---
+
 ### ADR-029: v2.2.0 — Claude Desktop 不提供 DeepSeek 视觉模型（vision 仅 Codex + Claude Code CLI）
 
 - **日期**：2026-09-07

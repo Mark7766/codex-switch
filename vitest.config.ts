@@ -10,7 +10,7 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
     coverage: {
       reporter: ['text', 'html'],
-      include: ['electron/proxy/**/*.ts', 'src/**/*.ts', 'src/**/*.tsx'],
+      include: ['electron/**/*.ts', 'src/**/*.ts', 'src/**/*.tsx'],
     },
   },
   resolve: {

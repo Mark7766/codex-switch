@@ -35,7 +35,7 @@ describe('IPC channel consistency', () => {
       preloadValues.add(match[1]!);
     }
 
-    const channelsValues = new Set(Object.values(IPC));
+    const channelsValues = new Set<string>(Object.values(IPC));
 
     // Every preload value must exist in channels
     for (const pv of preloadValues) {

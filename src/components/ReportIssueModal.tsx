@@ -24,15 +24,7 @@ export function ReportIssueModal({ open, onClose }: ReportIssueModalProps): JSX.
       lines.push('```json');
       lines.push(JSON.stringify(d.prefs, null, 2));
       lines.push('```');
-      lines.push('');
-      lines.push('**最近 100 条日志（已脱敏）**:');
-      lines.push('```');
-      for (const l of d.recentLogs) {
-        const ts = new Date(l.ts).toISOString();
-        const id = l.reqId ? `[${l.reqId}] ` : '';
-        lines.push(`${ts} ${l.level.toUpperCase()} ${l.source} ${id}${l.message}`);
-      }
-      lines.push('```');
+      // v3.0.0: 应用不再代理请求，也就没有请求日志可附；诊断包只剩版本 / 系统 / 偏好。
       setBundle(lines.join('\n'));
     });
   }, [open]);

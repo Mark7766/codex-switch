@@ -1,12 +1,12 @@
 /**
- * GitHub Release 镜像列表 + HEAD 探测，挑选可用镜像作为 electron-updater feed。
- * 目标：国内用户也能稳定下载 dmg/exe，sha512 校验保留。
+ * GitHub Release 镜像列表 —— 拼接 electron-updater 的 feed URL，sha512 校验保留。
+ *
+ * v3.0.0: 删掉了 `auto` 模式及配套的 HEAD 探测（probe / pickAuto，约 47 行）。
+ * 理由：① `migrateIfNeeded` 早已把所有存量用户的 `auto` 强制改成 `server`，
+ * 只有用户手动新选才可能出现；② 它的探测候选里 github.com 仓库页几乎恒可达，
+ * 实际结果恒等于 `github`，等于一个绕远路的别名。保留 server / github / ghproxy / custom。
  */
-import https from 'node:https';
-import http from 'node:http';
-import { URL } from 'node:url';
-
-export type MirrorMode = 'server' | 'auto' | 'github' | 'ghproxy' | 'custom';
+export type MirrorMode = 'server' | 'github' | 'ghproxy' | 'custom';
 
 const OWNER = 'Mark7766';
 const REPO = 'codex-switch';
@@ -39,61 +39,7 @@ export function buildFeedUrl(
         return `${trimmed}/${ghBase}`;
       }
       return ghBase;
-    case 'auto':
     default:
       return ghBase;
   }
-}
-
-const PROBE_TIMEOUT = 5000;
-
-/** HEAD 一个 URL，返回是否在 5 秒内得到 2xx/3xx 响应。 */
-export function probe(url: string, timeoutMs = PROBE_TIMEOUT): Promise<boolean> {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (ok: boolean): void => {
-      if (done) return;
-      done = true;
-      resolve(ok);
-    };
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      finish(false);
-      return;
-    }
-    const lib = target.protocol === 'http:' ? http : https;
-    const req = lib.request(
-      {
-        method: 'HEAD',
-        host: target.host,
-        path: target.pathname + target.search,
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const code = res.statusCode ?? 0;
-        finish(code >= 200 && code < 400);
-      },
-    );
-    req.on('error', () => finish(false));
-    req.on('timeout', () => {
-      req.destroy();
-      finish(false);
-    });
-    req.end();
-  });
-}
-
-/** auto 模式：依次探测 [server, github, ghproxy]，挑第一个可用的。 */
-export async function pickAuto(serverUrl?: string): Promise<MirrorMode> {
-  if (serverUrl) {
-    const serverOk = await probe(`${serverUrl.replace(/\/$/, '')}/updates/latest-mac.yml`);
-    if (serverOk) return 'server';
-  }
-  const ghFast = await probe(`https://github.com/${OWNER}/${REPO}`);
-  if (ghFast) return 'github';
-  const ghproxyOk = await probe(`https://ghproxy.net/https://github.com/${OWNER}/${REPO}`);
-  if (ghproxyOk) return 'ghproxy';
-  return 'github';
 }

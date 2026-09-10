@@ -1,75 +1,19 @@
 /**
- * Model mapping modal — Claude model → actual model (per provider).
+ * Claude 模型映射弹窗（v3.0.0 改为注册表驱动）。
+ *
+ * 原先这里自带 `modelOptions()` / `DEEPSEEK_ROLE_DEFAULT` / `CLAUDE_MODELS` 三份供应商数据，
+ * 与设置页重复维护；现在全部来自 `electron/config/providers.ts` 下发的描述符。
  */
 import { useEffect, useState } from 'react';
+import { foldModel } from '@/lib/model-fold';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  provider: 'deepseek' | 'agnes' | 'glm' | 'custom';
+  /** 当前供应商描述符（来自 providers:list）；为空时不渲染内容。 */
+  descriptor: ProviderDescriptor | null;
   mapping: Record<string, string>;
   onSave: (m: Record<string, string>) => void;
-  /**
-   * 是否提供 DeepSeek 视觉模型 deepseek-v4-flash-vision-exp。
-   * v2.2.0 起仅 Claude Code CLI 真正可用（env 会把该 model id 原样发给
-   * api.deepseek.com/anthropic）；Claude Desktop 的 3P gateway 只能发送
-   * claude-* 路由名、labelOverride 仅显示，图片到不了视觉模型 → Desktop 传 false。
-   */
-  vision?: boolean;
-}
-
-const CLAUDE_MODELS = [
-  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-];
-
-function modelOptions(p: 'deepseek' | 'agnes' | 'glm' | 'custom', allowVision = true): string[] {
-  if (p === 'glm') return ['glm-5.2', 'glm-5.1', 'glm-4.7'];
-  if (p === 'custom')
-    return [
-      'claude-opus-4-8',
-      'claude-opus-4-7',
-      'claude-opus-4-6',
-      'claude-opus-4-5-20251101',
-      'claude-sonnet-4-6',
-      'claude-sonnet-4-5-20250929',
-      'claude-haiku-4-5-20251001',
-    ];
-  return p === 'agnes'
-    ? ['agnes-2.0-flash', 'agnes-1.5-flash']
-    : // v2.2.0: vision-exp 实验多模态模型，仅 Claude Code CLI（allowVision）可选
-      allowVision
-      ? ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']
-      : ['deepseek-v4-pro', 'deepseek-v4-flash'];
-}
-
-// v2.2.0: Claude Code CLI 接 DeepSeek 的默认档位映射（env 会把这三个 id 原样发
-// 给 api.deepseek.com/anthropic）：opus→pro、sonnet→flash、haiku→vision-exp。
-const DEEPSEEK_ROLE_DEFAULT_CLI: Record<string, string> = {
-  'claude-opus-4-7': 'deepseek-v4-pro',
-  'claude-sonnet-4-6': 'deepseek-v4-flash',
-  'claude-haiku-4-5': 'deepseek-v4-flash-vision-exp',
-};
-// Claude Desktop 不提供视觉模型：仅 pro/flash，haiku 默认 flash。
-const DEEPSEEK_ROLE_DEFAULT_DESKTOP: Record<string, string> = {
-  'claude-opus-4-7': 'deepseek-v4-pro',
-  'claude-sonnet-4-6': 'deepseek-v4-flash',
-  'claude-haiku-4-5': 'deepseek-v4-flash',
-};
-
-/** 槽位未映射时的默认值：DeepSeek 按是否允许 vision 取档位默认，其余供应商沿用预设列表首项。 */
-function slotDefault(
-  provider: 'deepseek' | 'agnes' | 'glm' | 'custom',
-  slot: string,
-  allowVision = true,
-): string {
-  const first = modelOptions(provider, allowVision)[0];
-  if (provider === 'deepseek') {
-    const role = allowVision ? DEEPSEEK_ROLE_DEFAULT_CLI : DEEPSEEK_ROLE_DEFAULT_DESKTOP;
-    return role[slot] ?? first!;
-  }
-  return first!;
 }
 
 /** 判断一个值是不是预设列表里的，不在的就是自定义值 */
@@ -80,38 +24,43 @@ function isPreset(val: string, presets: string[]): boolean {
 export function ModelMappingModal({
   open,
   onClose,
-  provider,
+  descriptor,
   mapping,
   onSave,
-  vision = true,
 }: Props): JSX.Element | null {
-  const allowVision = vision !== false;
   const [local, setLocal] = useState<Record<string, string>>({ ...mapping });
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
 
-  // 弹窗打开时，用最新的 mapping prop 重新同步 local 状态。
+  const presets = descriptor?.claude.models ?? [];
+  const slots = descriptor?.claude.slots ?? [];
+  const roles = descriptor?.claude.roleDefaults;
+  // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet）
+  const visibleSlots = descriptor?.claude.includeHaiku
+    ? slots
+    : slots.filter((s) => s.tier !== 'haiku');
+
+  const slotDefault = (slotId: string, tier: 'opus' | 'sonnet' | 'haiku'): string =>
+    roles?.[tier] ?? presets[0] ?? '';
+
+  // 弹窗打开时同步最新 mapping，并折叠已下线的旧模型名（否则会被当成自定义值渲染出输入框）
   useEffect(() => {
-    if (open) {
-      setLocal({ ...mapping });
-      // 恢复自定义值：如果 mapping 里的值不在预设列表中，就是之前保存过的自定义值
-      const presets = modelOptions(provider, allowVision);
+    if (open && descriptor) {
+      const source: Record<string, string> = {};
+      for (const [slot, model] of Object.entries(mapping)) {
+        source[slot] = foldModel(model, descriptor);
+      }
+      setLocal({ ...source });
       const restored: Record<string, string> = {};
-      for (const cm of CLAUDE_MODELS) {
-        const val = mapping[cm.id] ?? slotDefault(provider, cm.id, allowVision);
-        if (!isPreset(val!, presets)) restored[cm.id] = val!;
+      for (const slot of slots) {
+        const val = source[slot.id] ?? slotDefault(slot.id, slot.tier);
+        if (val && !isPreset(val, presets)) restored[slot.id] = val;
       }
       setCustomValues(restored);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  if (!open) return null;
-
-  const presets = modelOptions(provider, allowVision);
-  // v1.16.0: 自定义供应商不配置 Haiku（仅 Opus + Sonnet）
-  const visibleModels =
-    provider === 'custom'
-      ? CLAUDE_MODELS.filter((m) => m.id !== 'claude-haiku-4-5')
-      : CLAUDE_MODELS;
+  if (!open || !descriptor) return null;
 
   return (
     <div
@@ -124,24 +73,24 @@ export function ModelMappingModal({
       >
         <h3 className="text-sm font-semibold mb-3">Claude 模型映射</h3>
         <div className="space-y-3 text-sm">
-          {visibleModels.map((cm) => {
-            const currentValue = local[cm.id] ?? slotDefault(provider, cm.id, allowVision);
-            const isCustom = currentValue === '__custom__';
+          {visibleSlots.map((slot) => {
+            const currentValue = local[slot.id] ?? slotDefault(slot.id, slot.tier);
+            const isCustom = !isPreset(currentValue, presets);
             return (
-              <div key={cm.id}>
+              <div key={slot.id}>
                 <label className="flex items-center justify-between">
-                  <span className="text-slate-300">{cm.label}</span>
+                  <span className="text-slate-300">{slot.label}</span>
                   <select
-                    value={isPreset(currentValue!, presets) ? currentValue : '__custom__'}
+                    value={isPreset(currentValue, presets) ? currentValue : '__custom__'}
                     onChange={(e) => {
                       if (e.target.value === '__custom__') {
-                        setLocal({ ...local, [cm.id]: '__custom__' });
+                        setLocal({ ...local, [slot.id]: '__custom__' });
                         setCustomValues({
                           ...customValues,
-                          [cm.id]: customValues[cm.id] ?? currentValue ?? '',
+                          [slot.id]: customValues[slot.id] ?? currentValue ?? '',
                         });
                       } else {
-                        setLocal({ ...local, [cm.id]: e.target.value });
+                        setLocal({ ...local, [slot.id]: e.target.value });
                       }
                     }}
                     className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs w-[200px]"
@@ -156,13 +105,18 @@ export function ModelMappingModal({
                   </select>
                 </label>
                 {isCustom && (
-                  <input
-                    type="text"
-                    value={customValues[cm.id] ?? ''}
-                    onChange={(e) => setCustomValues({ ...customValues, [cm.id]: e.target.value })}
-                    placeholder="输入模型名"
-                    className="mt-1 px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs w-[200px] float-right"
-                  />
+                  // 右对齐在 select 正下方。原先用 float-right，会挤压左侧档位标签导致折行。
+                  <div className="flex justify-end mt-1">
+                    <input
+                      type="text"
+                      value={customValues[slot.id] ?? ''}
+                      onChange={(e) =>
+                        setCustomValues({ ...customValues, [slot.id]: e.target.value })
+                      }
+                      placeholder="输入模型名"
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-xs w-[200px]"
+                    />
+                  </div>
                 )}
               </div>
             );
@@ -179,12 +133,12 @@ export function ModelMappingModal({
             onClick={() => {
               // 保存时把 __custom__ 替换为实际自定义值
               const resolved: Record<string, string> = {};
-              for (const cm of visibleModels) {
-                const fallback = slotDefault(provider, cm.id, allowVision);
-                const val = local[cm.id] ?? fallback;
-                resolved[cm.id] =
+              for (const slot of visibleSlots) {
+                const fallback = slotDefault(slot.id, slot.tier);
+                const val = local[slot.id] ?? fallback;
+                resolved[slot.id] =
                   val === '__custom__'
-                    ? customValues[cm.id] || fallback || ''
+                    ? customValues[slot.id] || fallback || ''
                     : val || fallback || '';
               }
               onSave(resolved);

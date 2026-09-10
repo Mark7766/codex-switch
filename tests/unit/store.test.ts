@@ -1,8 +1,10 @@
 /**
- * Renderer state management tests (C2).
+ * 渲染层状态（Zustand）测试。
  *
- * Tests the Zustand store — the central state for the renderer layer.
- * Uses jsdom environment for DOM-dependent code.
+ * v3.0.0 重写：原文件在测一个**已经过时的 API** —— 它断言 `proxyStatus` / `proxyPort` /
+ * `lifetime` / `logs`，而这些字段要么已随本地代理删除，要么本来就不存在于 store 里
+ * （它断言的 `proxyPort` 与真实字段名 `port` 不一致，只因 beforeEach 先 setState 才「通过」，
+ * 是典型的假绿）。现在只覆盖真正留下的部分：页面路由与 toast。
  *
  * @vitest-environment jsdom
  */
@@ -11,70 +13,20 @@ import { useAppStore } from '../../src/lib/store';
 
 describe('useAppStore', () => {
   beforeEach(() => {
-    // Reset store to initial state before each test
-    useAppStore.setState({
-      proxyStatus: 'stopped',
-      proxyPort: 11435,
-      logs: [],
-      lifetime: {
-        requestCount: 0,
-        uptimeSec: 0,
-        firstStartAt: '',
-        inputTokens: 0,
-        outputTokens: 0,
-      },
-      lastError: null,
-      toasts: [],
-      portConflict: null,
-      configApplied: false,
-      justApplied: false,
-      claudeDetect: null,
-      showChangelog: false,
-      telemetryEnabled: true,
-      serverUrl: '',
-      serverOnline: false,
-    });
+    useAppStore.setState({ page: 'setup', toasts: [] });
   });
 
-  describe('proxyStatus', () => {
-    it('defaults to stopped', () => {
-      expect(useAppStore.getState().proxyStatus).toBe('stopped');
+  describe('page routing', () => {
+    it('defaults to setup (first launch runs the wizard)', () => {
+      expect(useAppStore.getState().page).toBe('setup');
     });
 
-    it('can be set to running', () => {
-      useAppStore.setState({ proxyStatus: 'running' });
-      expect(useAppStore.getState().proxyStatus).toBe('running');
-    });
-  });
-
-  describe('proxyPort', () => {
-    it('defaults to 11435', () => {
-      expect(useAppStore.getState().proxyPort).toBe(11435);
-    });
-  });
-
-  describe('lifetime stats', () => {
-    it('starts with zero values', () => {
-      const lt = useAppStore.getState().lifetime;
-      expect(lt.requestCount).toBe(0);
-      expect(lt.uptimeSec).toBe(0);
-      expect(lt.inputTokens).toBe(0);
-      expect(lt.outputTokens).toBe(0);
-    });
-
-    it('accumulates request count', () => {
-      useAppStore.setState({
-        lifetime: {
-          requestCount: 5,
-          uptimeSec: 120,
-          firstStartAt: '2026-06-13',
-          inputTokens: 1000,
-          outputTokens: 500,
-        },
-      });
-      const lt = useAppStore.getState().lifetime;
-      expect(lt.requestCount).toBe(5);
-      expect(lt.inputTokens).toBe(1000);
+    it('can navigate to settings / dashboard', () => {
+      // v3.0.0 删了 'logs'、'help' 与 'plugins' —— 这里只能列出当前存在的页面
+      for (const page of ['settings', 'dashboard'] as const) {
+        useAppStore.getState().setPage(page);
+        expect(useAppStore.getState().page).toBe(page);
+      }
     });
   });
 
@@ -85,47 +37,34 @@ describe('useAppStore', () => {
       expect(useAppStore.getState().toasts[0]?.message).toBe('test');
     });
 
-    it('dismissToast removes a toast', () => {
+    it('dismissToast removes the right toast', () => {
       useAppStore.getState().pushToast({ kind: 'info', message: 'first' });
-      const second = useAppStore.getState().toasts[0];
+      const first = useAppStore.getState().toasts[0];
       useAppStore.getState().pushToast({ kind: 'error', message: 'second' });
-      if (second) useAppStore.getState().dismissToast(second.id);
-      expect(useAppStore.getState().toasts).toHaveLength(1);
+      if (first) useAppStore.getState().dismissToast(first.id);
+      const remaining = useAppStore.getState().toasts;
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.message).toBe('second');
     });
   });
 
-  describe('telemetryEnabled', () => {
-    it('defaults to true', () => {
-      expect(useAppStore.getState().telemetryEnabled).toBe(true);
-    });
-
-    it('can be toggled', () => {
-      useAppStore.setState({ telemetryEnabled: false });
-      expect(useAppStore.getState().telemetryEnabled).toBe(false);
-    });
-  });
-
-  describe('log management', () => {
-    it('pushLog adds entries', () => {
-      useAppStore.getState().pushLog({
-        ts: Date.now(),
-        level: 'info',
-        source: 'http',
-        message: 'test log',
-      });
-      expect(useAppStore.getState().logs.length).toBeGreaterThan(0);
-    });
-
-    it('limits logs to 200 entries', () => {
-      for (let i = 0; i < 300; i++) {
-        useAppStore.getState().pushLog({
-          ts: Date.now(),
-          level: 'info',
-          source: 'http',
-          message: `log ${i}`,
-        });
+  describe('v3.0.0 代理字段缺席护栏', () => {
+    // 防半途回退：这些字段随本地代理删除，不该再出现在 store 上
+    it('不再暴露 proxy / lifetime / logs 相关状态', () => {
+      const state = useAppStore.getState() as unknown as Record<string, unknown>;
+      for (const gone of [
+        'proxyStatus',
+        'setProxyStatus',
+        'port',
+        'setPort',
+        'logs',
+        'pushLog',
+        'lifetime',
+        'lastError',
+        'portConflict',
+      ]) {
+        expect(state[gone], gone).toBeUndefined();
       }
-      expect(useAppStore.getState().logs.length).toBeLessThanOrEqual(200);
     });
   });
 });

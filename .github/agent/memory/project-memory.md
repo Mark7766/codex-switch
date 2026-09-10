@@ -12,10 +12,10 @@
 |------|---|
 | 项目名称 | Codex Switch |
 | 仓库名 | codex-switch |
-| 项目类型 | 跨平台桌面图形化代理（Electron 桌面应用） |
-| 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex CLI 和 Codex Desktop 接到 DeepSeek 上 |
+| 项目类型 | **跨平台桌面配置工具**（Electron 桌面应用）——v3.0.0 起不做任何流量转发 |
+| 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex（CLI/Desktop）与 Claude（Desktop/CLI）接到 DeepSeek / 智谱 GLM / 自定义等国内模型服务上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | v2.3.0（修复「切换到 OpenAI 官方」对 v2.0.0 DeepSeek 直连格式失效的 bug，见 TASK-122/BUG-007；未 push，220/220 tests ✅） |
+| 当前阶段 | **v3.0.0**（2.4.0 / 3.0.0 / 3.1.0 / 3.1.1 四版**从未发布**，已折叠为单一 3.0.0，见 TASK-128/ADR-035；内容含代理移除 → 配置工具转型、GLM 直连、`config.toml` 合并写，见 TASK-127/ADR-034；未 push，160/160 tests ✅） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -23,11 +23,10 @@
 | 状态/配置 | electron-store（JSON） + keytar（OS 钥匙串） |
 | 数据库 | N/A（无数据库；配置体量极小，JSON 足够） |
 | 包管理 | pnpm |
-| 测试 | Vitest（单元）+ Playwright for Electron（E2E） |
+| 测试 | Vitest（单元，jsdom/node）+ Playwright for Electron（E2E）。类型检查经 `tsconfig.test.json` 覆盖 `tests/**` —— **`pnpm typecheck` 会一并检查测试文件** |
 | 打包 | electron-builder（macOS .dmg / Windows NSIS .exe） |
 | 对标产品 | Claude Desktop、VS Code、Discord（均为 Electron） |
-| 参考工程 | `codex-deepseek-installer`（本地路径 `/Users/mark/work/gitspace/opensource/codex-deepseek-installer`，仓库 <https://github.com/Mark7766/codex-deepseek-installer>）。代理核心逻辑 `proxy/deepseek-proxy.mjs` 会被移植重写为 TypeScript，默认端口 `11435` 与其保持一致，便于已有用户迁移。 |
-| 默认代理端口 | `127.0.0.1:11435` |
+| 参考工程 | `codex-deepseek-installer`（<https://github.com/Mark7766/codex-deepseek-installer>）。**v3.0.0 起仅作历史渊源**——从其移植的代理已于本版本删除，不再有代码依赖。 |
 | 支持架构 | macOS x64（Intel）、macOS arm64（Apple Silicon）、Windows x64、Windows arm64 |
 
 ---
@@ -35,46 +34,68 @@
 ## 🏗️ 架构概述
 
 ```
- ┌───────────────────────┐       ┌──────────────────────────────────────────┐
- │ Codex CLI / Desktop   │──HTTP─▶│ Codex Switch（Electron 主进程）           │
- │ （OpenAI Responses     │       │  ┌────────────────────────────────────┐  │
- │  API + WebSocket）     │       │  │ 本地代理（127.0.0.1:11435）         │  │
- └───────────────────────┘       │  │  • HTTP /v1/responses + WebSocket  │  │
-                                 │  │  • 协议转换 Responses ⇄ Chat       │  │
-                                 │  │  • 模型映射                          │  │
-                                 │  │  • reasoning_content 跨轮回传       │  │
-                                 │  │  • SSE / 流式响应转发                │  │
-                                 │  ├────────────────────────────────────┤  │
-                                 │  │ Codex 配置注入                       │  │
-                                 │  │  • ~/.codex/config.toml（写+备份）   │  │
-                                 │  │  • ~/.codex/auth.json（写+备份）     │  │
-                                 │  │  • 一键还原                          │  │
-                                 │  ├────────────────────────────────────┤  │
-                                 │  │ 配置 / 密钥                          │  │
-                                 │  │  • electron-store JSON（偏好）       │  │
-                                 │  │  • keytar OS 钥匙串（API Key）       │  │
-                                 │  └────────────────────────────────────┘  │
-                                 │   ▲                                       │
-                                 │   │ IPC (contextBridge 白名单)            │
-                                 │   ▼                                       │
-                                 │  Renderer（React + Tailwind）             │
-                                 │   • Setup 向导                           │
-                                 │   • Dashboard 主面板                      │
-                                 │   • Settings                             │
-                                 │   • Logs                                  │
-                                 └────────────────────┬─────────────────────┘
-                                                      │ HTTPS
-                                                      ▼
-                                          ┌────────────────────────┐
-                                          │   DeepSeek API         │
-                                          └────────────────────────┘
+ ┌────────────────────────────────────────────┐
+ │ Codex Switch（Electron 主进程）             │
+ │  ┌──────────────────────────────────────┐  │
+ │  │ 供应商注册表                          │  │
+ │  │  electron/config/providers.ts         │  │
+ │  │  唯一事实来源：端点 / 模型表 /        │  │
+ │  │  Key 账户 / 档位默认值 / 模板差异开关 │  │
+ │  └──────────────────────────────────────┘  │
+ │  ┌──────────────────────────────────────┐  │
+ │  │ 配置写入器（全部先备份，可一键还原）   │  │
+ │  │  codex/writer.ts  → ~/.codex/config.toml
+ │  │                   → ~/.codex/models.json（合并写）
+ │  │  claude/desktop-writer.ts → Claude-3p/…
+ │  │  claude/env-writer.ts → ~/.claude/… + shell profile
+ │  └──────────────────────────────────────┘  │
+ │  ┌──────────────────────────────────────┐  │
+ │  │ electron-store（偏好）                │  │
+ │  │ keytar（OS 钥匙串存 API Key）         │  │
+ │  │ electron/logging（应用日志，诊断包用） │  │
+ │  └──────────────────────────────────────┘  │
+ │   ▲                                        │
+ │   │ IPC（contextBridge 白名单，含 providers:list）
+ │   ▼                                        │
+ │  Renderer（React + Tailwind）              │
+ │   • Setup 向导 / Settings（默认页，菜单第一）
+ │   • 工具接入状态 / Plugins / Help          │
+ └────────────────────┬───────────────────────┘
+                      │ 只写配置文件，不转发流量
+                      ▼
+   ~/.codex/config.toml · ~/.codex/models.json
+   ~/.claude/settings.json · Claude-3p/configLibrary/*.json
+                      │
+                      ▼  各工具自行直连
+      DeepSeek / 智谱 GLM / 自定义（OpenAI Responses + Anthropic 兼容）
 ```
 
 ### 核心特征
 - **进程边界严格**：主进程独占文件系统/网络/Codex 配置；渲染层只通过 IPC 间接访问。`contextIsolation: true`、`nodeIntegration: false` 不可变更。
-- **代理仅监听 loopback**：默认 `127.0.0.1:11435`，与参考工程保持一致；端口被占自动 +1 重试并通知用户，绝不绑定 `0.0.0.0`。
-- **DeepSeek 官方直连（v2.0.0）**：Codex 连 DeepSeek 不再走本地代理——config.toml 写 `[model_providers.deepseek]`（base_url=api.deepseek.com + wire_api=responses + experimental_bearer_token）并写入官方 `~/.codex/models.json`（模型目录，打包资产 `electron/codex/deepseek-models.json`，含 flash/pro/**vision-exp** 三模型，约 111KB，Prettier 忽略；vision-exp 的 `input_modalities` 声明 image，Codex 据此判断该模型可接收图片，Codex 接入可选；v2.2.0 起 Claude Code CLI 的模型映射同样可选它，且 CLI 三档**默认映射** opus→deepseek-v4-pro / sonnet→deepseek-v4-flash / haiku→deepseek-v4-flash-vision-exp（主对话跟随 Sonnet、子代理跟随 Haiku；env 把 model id 原样发给 api.deepseek.com/anthropic，真实生效）。⚠️ Claude Desktop **不含** vision（其 3P gateway 只发 `name`=claude-* 路由、`labelOverride` 仅显示，图片到不了视觉模型——见 ADR-029）。`provider==='deepseek'` 与 `'custom'` 均视为直连；代理仅保留给 Agnes/GLM。直连后代理层功能（请求日志 / token 统计 / 对话缓存）对 DeepSeek 失效。
-- **协议双通道（代理路径）**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+ 使用）；后端调 DeepSeek `chat/completions`；均支持 `previous_response_id` 状态管理、`fixToolMessageOrder` 序列修复、以及正确处理 `deepseek-reasoner`（R1）的 `reasoning_content` 字段并在多轮中回传。
+- **供应商注册表是唯一事实来源（v3.0.0）**：`electron/config/providers.ts` 用描述符描述每家供应商的
+  Codex 端点与模板差异开关、Claude 端点、模型清单、档位默认值、Key 账户与提示语。**新增供应商（如阿里 Qwen）
+  ＝ 加一条数据**（若需独立模型目录，再加一个 json 资产与 `electron-builder.json` 的 `extraResources` 一行）。
+  ⚠️ 描述符必须**纯数据**——渲染层经 IPC 通道 `providers:list` 取用（两个 tsconfig 的 rootDir/include 各自独立，
+  无法共享模块），任何函数/RegExp 都会让那条通道静默失效（有守门测试）。
+- **全部供应商均为直连（v3.0.0）**：本地代理已删除，没有任何转发。Codex 侧要求供应商支持 OpenAI Responses
+  协议（`wire_api = "responses"`），Claude 侧要求 Anthropic Messages 兼容端点。
+  - **DeepSeek**：`https://api.deepseek.com/`（尾斜杠逐字节保留），`model_reasoning_effort=high`，
+    写 `preferred_auth_method`/`forced_login_method`，目录资产 `deepseek-models.json`
+    （**2 模型：`deepseek-flash`（多模态，含 image modality）+ `deepseek-v4-pro`**，与官方一键脚本逐字节一致）。
+    Claude 端点 `https://api.deepseek.com/anthropic`，档位默认 opus→pro / sonnet,haiku→flash。
+  - **智谱 GLM**（v3.0.0 由代理转直连，照官方文档）：`providerId="ZAI"`、
+    `https://open.bigmodel.cn/api/v1`、`model_reasoning_effort=max`，目录资产 `glm-models.json`
+    （**3 模型：`glm-5.3` / `glm-5.3-flash` / `glm-5.2`**）。Claude 端点
+    `https://open.bigmodel.cn/api/anthropic`，档位默认 opus→glm-5.3 / sonnet,haiku→glm-5.3-flash。
+  - **自定义**：两个端点均由用户填写；模板用 `requires_openai_auth` + auth.json 而非把 Key 写进 config.toml，
+    并额外写 1M 上下文与 `[features]` 开关；Claude 侧只配 Opus+Sonnet（不配 Haiku）。
+- **`~/.codex/models.json` 是跨供应商共享文件**：DeepSeek 与 GLM 的 `model_catalog_json` 都指向它，
+  因此写入必须**合并**（剔除受管 slug → 追加当前供应商 → 用户无自加条目时逐字节照抄资产）。直接覆盖会让
+  切换供应商后另一家的条目消失。**受管 `[model_providers.X]` 段名同样由注册表派生**——手写清单必漏
+  （BUG-007 教训）。
+- **`normalizeProvider` 只读不写**：已移除的 Agnes 若仍留在存量配置里，读时归一到默认供应商以防 TypeError；
+  **不迁移、不提示、不清钥匙串**（`agnes-api-key` 条目刻意保留）。`lifetimeFirstStartAt` 虽带 lifetime
+  前缀，但喂的是「早期成员」徽章，**不可删**。
 - **凭据安全**：DeepSeek API Key 走 OS keychain（macOS Keychain / Windows Credential Manager），不落盘到普通配置文件。
 - **配置可还原**：所有对 `~/.codex/*` 的写入都先备份成 `*.bak.<timestamp>`，提供"一键还原"。
 - **跨平台一套代码**：Electron 同时产出 **macOS x64 / arm64** 两个 `.dmg`（可选 universal）与 **Windows x64 / arm64** 两个 NSIS `.exe` 安装包；图标 / 路径 / 安装器脚本全部兼容。
@@ -86,38 +107,34 @@
 ## 🔄 核心业务流程
 
 ```
-小白用户
-   │
-   │ 1. 去 GitHub Releases 下载 .dmg / .exe，双击安装
+用户
+   │ 1. 下载 .dmg / .exe，双击安装
    ▼
-首次启动 Codex Switch
-   │
-   │ 2. Setup 向导
-   ▼
-[Setup]
-  ├─ 填写 DeepSeek API Key
-  ├─ 选择默认模型映射（gpt-5-codex → deepseek-chat / deepseek-reasoner）
-  ├─ 确认代理端口（默认 11435，可改）
-  └─ 点"完成并启动代理"
+首次启动 → Setup 向导（未完成向导且无 Key 时）
+   ├─ 填写 DeepSeek API Key（写入 OS 钥匙串）
+   ├─ 选择默认模型（deepseek-flash / deepseek-v4-pro）
+   └─ 点「完成并应用配置」
    │
    ▼
 [主进程自动执行]
-  ├─ API Key 写入 OS keychain
-  ├─ 启动本地 HTTP + WebSocket 代理
-  ├─ 备份 ~/.codex/config.toml → .bak.<ts>
-  ├─ 写入新的 config.toml & auth.json（auth.json 权限 0o600），指向 http://127.0.0.1:11435
-  └─ 推送状态到渲染层
+   ├─ 备份 ~/.codex/config.toml → .bak.<ts>
+   ├─ 按注册表写入 config.toml + auth.json（0o600）
+   ├─ 合并写入 ~/.codex/models.json
+   └─ 若检测到 Claude 工具已安装，一并写入其配置
    │
    ▼
-[Dashboard]
-  ├─ ✅ 代理运行中 (127.0.0.1:11435)
-  ├─ ✅ Codex CLI 配置已注入
-  ├─ ✅ Codex Desktop 配置已注入
-  └─ 按钮：[停止代理] [打开日志] [设置] [还原 Codex 配置]
+[设置]（默认落地页，侧边栏第一项）
+   ├─ 供应商设置：切换供应商、填各自 Key、自定义端点
+   ├─ Codex 接入：供应商 + 默认模型 → 「保存并应用」
+   ├─ Claude Desktop / Claude Code CLI 接入：供应商 + 管理模型映射
+   └─ 自动更新 / 关于 / 遥测开关
    │
    ▼
-用户在 Codex CLI / Desktop 正常对话
-  → 请求经本地代理（HTTP 或 WebSocket）→ 协议转换 → DeepSeek → 流式响应回 Codex（含 reasoning_content）
+[工具接入状态]：(4 张卡片) 已安装/未安装 · 已配置/未配置，可刷新（会顺手补写缺失配置）
+   │
+   ▼
+用户在 Codex / Claude 里正常使用
+   → 各工具**直连**供应商（应用关掉也照常可用，不经过本应用）
 ```
 
 ---
@@ -126,52 +143,47 @@
 
 | 模块 | 路径 | 说明 | 状态 |
 |------|------|------|------|
-| 应用入口 | `electron/main.ts` | 创建窗口、挂载托盘、生命周期 | ✅ 已完成 v0.1 |
-| Preload 桥 | `electron/preload.ts` | contextBridge 暴露白名单 API | ✅ 已完成 v0.1 |
-| 系统托盘 | `electron/tray.ts` | 托盘菜单：启停代理、显示窗口、退出 | ⬜ 待开发 |
-| 代理服务 | `electron/proxy/server.ts` | Node http server + ws WebSocketServer，监听 127.0.0.1:11435 | ✅ 已完成 v0.1 |
-| 协议转换 | `electron/proxy/translate.ts` | OpenAI Responses ⇄ DeepSeek Chat Completions 请求/响应映射 | ✅ 已完成 v0.1 |
-| 推理状态 | `electron/proxy/reasoning.ts` | `deepseek-reasoner` `reasoning_content` 跨轮回传 | ✅ 已完成 v0.1 |
-| 流式转发 | `electron/proxy/stream.ts` | SSE pipe，断流处理；含 `callDeepSeekSync` 非流式 API | ✅ 已完成 v0.1 |
-| 对话缓存（内存） | `electron/proxy/server.ts` | 纯内存 LRU（500条），缓存未命中时从 Codex JSONL 回退读取 | ✅ v1.13.0 |
-| Codex 会话读取 | `electron/codex/session-reader.ts` | 扫描 `~/.codex/sessions/YYYY/MM/DD/` 目录，读取 JSONL 对话历史（纯只读） | ✅ v1.13.0 |
-| 上下文窗口配置 | `electron/codex/writer.ts` | "保存并应用"时写入 `model_context_window=1M` + `model_auto_compact_token_limit=900K` + `[features] enable_request_compression=false` | ✅ v1.13.0 |
-| 多供应商支持 | `electron/proxy/server.ts` / `src/pages/Settings.tsx` | 下拉框选择 AI 供应商（DeepSeek / Agnes / GLM / 自定义），自动切换上游 hostname 和 API Key。自定义供应商为直连模式（不经代理） | ✅ v1.13.0 → 🔄 v1.16.0 PackyCode→自定义 |
-| Agnes Key 管理 | `electron/config/secrets.ts` | Agnes API Key 的 keytar 安全存储（与 DeepSeek Key 同模式） | ✅ v1.13.0 |
-| GLM Key 管理 | `electron/config/secrets.ts` | GLM API Key 的 keytar 安全存储 | ✅ v1.14.0 |
-| PackyCode Key 管理 | `electron/config/secrets.ts` | PackyCode API Key 的 keytar 安全存储 | ✅ v1.15.0 → 🔄 v1.16.0 改为 Custom Key |
-| Settings 页重构 | `src/pages/Settings.tsx` | 三卡片独立供应商选择（Codex / Claude Desktop / Claude Code CLI），供应商+模型联动 | ✅ v1.13.0 |
-| 模型映射弹窗 | `src/components/ModelMappingModal.tsx` | Claude 3 模型 → 实际模型的下拉映射，根据供应商联动可选模型 | ✅ v1.13.0 |
-| 插件下载 | `electron/plugins/index.ts` | 离线插件包下载（Server API → COS 302 → 流式写入磁盘），进度推送，安装指令生成 | ✅ v1.10.0 |
-| Codex 路径 | `electron/codex/paths.ts` | 跨平台 `~/.codex` 解析 | ✅ 已完成 v0.1 |
-| Codex 写入 | `electron/codex/writer.ts` | 写 config.toml / auth.json + 备份 + 还原 | ✅ 已完成 v0.1 |
-| Codex 还原 | `electron/codex/writer.ts` | 一键还原最近的备份（合并到 writer.ts） | ✅ 已完成 v0.1 |
-| 用户配置 | `electron/config/store.ts` | electron-store 封装 | ✅ 已完成 v0.1 |
-| 密钥管理 | `electron/config/secrets.ts` | keytar（主）+ electron-store 加密（备） | ✅ 已完成 v0.1 |
-| IPC 通道 | `electron/ipc/channels.ts` | 通道枚举与类型 | ✅ 已完成 v0.1 |
-| Setup 向导 | `src/pages/Setup.tsx` | 首次启动 3 步向导 | ✅ 已完成 v0.1 |
-| Dashboard | `src/pages/Dashboard.tsx` | 代理状态主面板 | ✅ 已完成 v0.1 |
-| Settings | `src/pages/Settings.tsx` | API Key / 模型映射 / 端口 | ✅ 已完成 v0.1 |
-| Logs | `src/pages/Logs.tsx` | 实时请求日志（脱敏） | ✅ 已完成 v0.1 |
-| 打包配置 | `electron-builder.yml` | macOS .dmg + Windows NSIS .exe；每平台 x64 + arm64 两个分包（暂未配图标） | ✅ 已完成 v0.1 |
-| 发布流水线 | `.github/workflows/release.yml` | tag → 多平台构建 + 上传 | ✅ v1.0.0 |
+| 应用入口 | `electron/main.ts` | 创建窗口、注册 IPC、启动迁移与自动应用（v3.0.0 起 1057 行） | ✅ v3.0.0 |
+| **供应商注册表** | `electron/config/providers.ts` | **唯一事实来源**：端点/模型表/档位默认值/Key 账户/模板开关 + `normalizeProvider` + 受管段名正则 | ✅ v3.0.0 |
+| Codex 配置写入 | `electron/codex/writer.ts` | 注册表驱动的**单个** `buildCodexToml`；备份/回滚/滚动保留 | ✅ v3.0.0 |
+| 模型目录 | `electron/codex/models-catalog.ts` | 读打包资产 + **合并写** `~/.codex/models.json` | ✅ v3.0.0 |
+| 配置还原 | `electron/codex/config-restore.ts` | 「切换到 OpenAI 官方」：整段剥离受管块（段名由注册表派生） | ✅ v3.0.0 |
+| Claude Desktop 写入 | `electron/claude/desktop-writer.ts` | 3P gateway profile + `_meta.json`（条目名跟随供应商） | ✅ v3.0.0 |
+| Claude CLI 写入 | `electron/claude/env-writer.ts` | `~/.claude/settings.json` env + `config.json` 旁路 + shell profile | ✅ v3.0.0 |
+| 凭据存储 | `electron/config/secrets.ts` | keytar 优先、加密 store 回退；对供应商泛型（`getKey/setKey/clearKey`） | ✅ v3.0.0 |
+| **配置写入基座** | `electron/config/file-write.ts` | **Codex / Claude 共用的「内容去重 + 备份修剪」写入**（v3.1.0 抽出）。⚠️ 写用户配置文件必须走这里 | ✅ v3.1.0 |
+| 日志脱敏 | `electron/config/redact.ts` | `redactSensitive`（遥测上报前的最后一道防线） | ✅ v3.0.0 |
+| 应用日志 | `electron/logging/persistent-log.ts` | ndjson 滚动日志，诊断包读取尾部（v3.0.0 从 proxy 迁出） | ✅ v3.0.0 |
+| 迁移 | `electron/config/migrations.ts` | 含 **`runV300DirectMigration`**（把仍指向本地代理的 config.toml 改写为直连，覆盖 GLM） | ✅ v3.0.0 |
+| Setup 向导 | `src/pages/Setup.tsx` | 首次启动 2 步（Key + 模型） | ✅ v3.0.0 |
+| 设置页 | `src/pages/Settings.tsx` | 注册表驱动渲染，默认落地页 | ✅ v3.0.0 |
+| 工具接入状态 | `src/pages/Dashboard.tsx` | 只显示四个工具的安装/配置状态 | ✅ v3.0.0 |
+| 模型映射弹窗 | `src/components/ModelMappingModal.tsx` | 注册表驱动；旧模型名折叠（`src/lib/model-fold.ts`） | ✅ v3.0.0 |
+| 打包配置 | `electron-builder.yml` | macOS .dmg + Windows NSIS；`extraResources` 含两个模型目录资产 | ✅ v3.0.0 |
+| **已删除** | `electron/proxy/**`（v3.0.0）、`electron/plugins/**` + `Plugins.tsx`（v3.1.0）、`Logs.tsx`、`PortConflictModal.tsx`、`session-reader.ts`、`QaGroupModal.tsx` | 本地代理及其衍生功能（约 5,400 行）；插件子系统（约 1,750 行） | ❌ 已移除 |
 
 ---
 
 ## ⚠️ 关键约束
 
 1. **进程边界不可破**：渲染进程 `contextIsolation: true` + `nodeIntegration: false` + `sandbox: true`，所有 native 能力走 preload 白名单。
-2. **代理仅监听 `127.0.0.1:11435`**：禁止 `0.0.0.0` 或公网地址；端口冲突自动 +1 重试。该端口与参考工程保持一致，不要轻改。
-3. **API Key 进 OS keychain**：禁止明文写入 electron-store 或日志。
-4. **`~/.codex/*` 改动必须先备份**：备份文件名 `<orig>.bak.<unix-timestamp>`；`auth.json` 写入后必须 `chmod 0o600`；UI 提供一键还原入口。
-5. **协议双通道兼容**：同时支持 HTTP `/v1/responses` 与 WebSocket（Codex CLI v0.132+）；模型映射覆盖 `deepseek-chat` / `deepseek-reasoner`；`reasoning_content` 跨轮回传不可丢。
-6. **日志脱敏**：默认过滤 `Authorization`、`api_key`、`sk-*`。
-7. **代码限制**：行宽 100 字符；单函数 ≤ 50 行；单文件 ≤ 400 行。
-8. **依赖克制**：不引入 Redux/MobX/Next.js/Electron-Forge/Ant Design/MUI。UI 用 Tailwind + 自写组件。
-9. **跨平台兼容**：所有路径用 `path.join`；不假设 POSIX shell；图标同时提供 `.icns` 与 `.ico`。
-10. **多架构必出**：macOS x64/arm64 + Windows x64/arm64 都必须产出安装包；Release 资产名带架构后缀。
-11. **UI 文案说人话**：面向最终用户的文案禁止技术术语（避免出现 "SSE"、"proxy"、"IPC" 等词）；错误提示要附"下一步该做什么"。
-12. **测试覆盖**：核心模块（proxy / translate / codex）≥ 90%；整体 ≥ 80%。
+2. **供应商注册表是唯一事实来源，且必须保持纯数据**：端点、模型表、Key 账户、受管 TOML 段名全部由 `electron/config/providers.ts` 派生。**不要手写这些清单**（BUG-007 教训），也不要在描述符里放函数/RegExp（会静默破坏 `providers:list` IPC）。
+3. **写用户配置文件必须走 `electron/config/file-write.ts`**：它保证「内容相同则既不备份也不写」+「备份按 `maxBackupsPerFile` 滚动修剪」两条不变量。**绕过它直接 `fs.writeFile` 就是重演 v3.1.0 的那个缺陷**（用户机器上堆积了 415 份 `~/.zshrc.bak`，因为 Claude 侧写入既不去重也不修剪，而它每次启动都会重写）。
+   - 同理：**迁移标记必须用 `setMigrationFlag(key)`**，不要写 `setPreferences({migrations: {…}})` —— `setPreferences` 是浅合并，会整体替换 `migrations` 对象、抹掉其它 flag。
+4. **API Key 进 OS keychain**：禁止明文写入 electron-store 或日志。
+5. **遥测只上报配置操作，且零个人数据**（v3.1.0）：可上报的只有 `config_write`（字段名）/ `tool_install` / `tool_install_fail`（**本地归类枚举**）。**禁止**上报：设备/客户端标识符（`clientId`）、文件路径、报错原文与堆栈、对话内容、Key 片段。历史上 `tool_install_fail.error_code` 曾把完整 API Key 送进服务端（TASK-098），勿重蹈。
+6. **写 `~/.codex/config.toml` 必须「合并」、绝不能整份覆盖**（v3.0.0 教训）：只剥「我们的顶层键 + **当前**供应商的块 + `[features]` 受管键」，其余一律原样保留。两个理由 —— ① **Codex 按对话记住 `model_provider`**（会话文件 `payload.model_provider`），删掉上一家的块会让那家的历史对话报 `Model provider X not found`；② 整份覆盖会静默抹掉用户/Codex 自有的 `notify` / `[desktop]` / `[mcp_servers.*]` / `[projects.*]` / 自建 `[model_providers.*]`。**凡改动 provider 块，先想「会不会让历史对话失效」。**
+   - **`[model_providers.*]` 块在任何路径下都不得被删**，**包括「切换到 OpenAI 官方」**。切回官方只需清掉顶层 `model_provider`，让 Codex 回落到内置 `openai` —— **未被选中的块是惰性的**（Codex 只解析 `model_provider` 指向的那一家）。`sanitizeManagedConfig` 的 `stripProviderBlocks` **默认 `[]`（一块不剥）**，只有写入路径传「当前那一家」；**永远不要传「全部」**（ADR-036）。
+7. **改完重构必须跑 `pnpm typecheck`（含 tests）+ `pnpm test`；删功能时必须同步搜测试**（v3.1.0 教训：删掉 `'plugins'` 页面的同一次任务里漏改了遍历该页面的测试，而 tests 当时不被类型检查 → 假绿通过。同类事故已发生两次）。测试文件由 `tsconfig.test.json` 覆盖，**不要再让它断链**。
+8. **`~/.codex/*` 改动必须先备份**：备份文件名 `<orig>.bak.<unix-timestamp>`；`auth.json` 写入后必须 `chmod 0o600`；UI 提供一键还原入口。
+9. **协议兼容（直连，无代理）**：Codex 侧要求供应商支持 OpenAI Responses 协议（`wire_api = "responses"`），Claude 侧要求 Anthropic Messages 兼容端点。新增供应商必须两个端点都想清楚。
+10. **日志脱敏**：默认过滤 `Authorization`、`api_key`、`sk-*`。
+11. **代码限制**：行宽 100 字符；单函数 ≤ 50 行；单文件 ≤ 400 行。
+12. **依赖克制**：不引入 Redux/MobX/Next.js/Electron-Forge/Ant Design/MUI。UI 用 Tailwind + 自写组件。
+13. **跨平台兼容**：所有路径用 `path.join`；不假设 POSIX shell；图标同时提供 `.icns` 与 `.ico`。
+14. **多架构必出**：macOS x64/arm64 + Windows x64/arm64 都必须产出安装包；Release 资产名带架构后缀。
+15. **UI 文案说人话**：面向最终用户的文案禁止技术术语（避免出现 "SSE"、"proxy"、"IPC" 等词）；错误提示要附"下一步该做什么"。
+16. **测试覆盖**：核心模块（providers 注册表 / codex 写入 / claude 写入）≥ 90%；整体 ≥ 80%。注册表有两条硬护栏：描述符必须能 JSON 往返（IPC 契约）、任何供应商的模板都不得含 `127.0.0.1` 或端口。
 
 ---
 
@@ -216,8 +228,7 @@ pnpm package:win    # Windows：x64 + arm64 两个 NSIS .exe
 
 ### 参考资源
 - 参考工程（本项目的前身）：`/Users/mark/work/gitspace/opensource/codex-deepseek-installer`
-  - 代理核心文件：`proxy/deepseek-proxy.mjs`（~523 行，Node + ws，默认端口 11435）
-  - Codex 配置模板：`config/config.toml.template`（`openai_base_url = "http://127.0.0.1:11435/v1"`）
+  - （其代理核心 `proxy/deepseek-proxy.mjs` 已于 v3.0.0 删除，仅作历史渊源）
   - 安装脚本：`install.sh` / `uninstall.sh`（是本项目要取代的 CLI 门槛）
 - DeepSeek API 文档：<https://api-docs.deepseek.com/>
 - Codex CLI / Desktop 配置规范：参考 `~/.codex/config.toml` 现有结构

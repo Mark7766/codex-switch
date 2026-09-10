@@ -3,6 +3,178 @@
 > **用途**：记录近期任务摘要，为 AI Agent 提供短期上下文记忆。
 > 保留最近 30 条任务记录，超出后归档。
 
+### [TASK-129] 修复「切换到 OpenAI 官方后，DeepSeek / 智谱 GLM 的旧对话打不开」
+
+- **日期**：2026-09-10
+- **类型**：fix
+- **摘要**：TASK-127 修好了「切换**供应商**后旧对话打不开」，用户随即报告**同一 bug 的另一条入口**：点「切换到 OpenAI 官方」后，`Model provider ZAI not found` / `Model provider deepseek not found` 原样复现。用户判断准确——**OpenAI 官方也是「一家供应商」**，不该被特殊对待。
+- **🔴 根因**：全仓只有两条剥离路径，上次只修了一条 —— `writeCodexConfig` 传 `[当前那家]`（已修），而 `restoreOriginalConfig()` **不传参数**，落到 `sanitizeManagedConfig` 的默认值 `'all'` → 把 `[model_providers.deepseek]` / `[model_providers.ZAI]` 整段删光 → 会话文件里记着这两家的历史对话全部解析不到。
+- **🔑 关键认识（推翻旧假设）**：
+  1. **BUG-007（v2.3.0）的要害是顶层 `model_provider` 残留，不是块。** 当时 `model` 被清掉、`model_provider = "deepseek"` 还在 → Codex 把官方默认模型名发给 DeepSeek（`but you passed gpt-6-astra`）。**删顶层键就已切回官方。**
+  2. **未被选中的 provider 块是惰性的** —— Codex 只解析 `model_provider` 指向的那一家。**这就是 ADR-034 的机制本身**（deepseek ↔ ZAI 互切能工作，靠的正是「保留另一家的块」），同一机制对 OpenAI 官方照样成立。
+- **修法**：① `SanitizeOptions.stripProviderBlocks` 由 `'all' | string[]` 收敛为 `string[]`，**默认 `[]`（一块都不剥）**；② `restoreOriginalConfig()` 不传该参数，只清顶层受管键 + `[features]` 受管键；③ 删掉随之变成死代码的 `MANAGED_PROVIDER_BLOCK` 与 `managedProviderBlockPattern` import（`providers.ts` 的导出保留，`providers.test.ts:117,124` 仍在用）；④ 重写 `config-restore.ts` 文件头与 `writer.ts` `restoreOriginalConfig()` 注释（旧注释写着 "All must be removed wholesale"，与行为相反）；⑤ `Settings.tsx` 按钮说明改为如实描述。
+- **变更文件**：`electron/codex/config-restore.ts`、`electron/codex/writer.ts`、`src/pages/Settings.tsx`、`tests/unit/config-merge.test.ts`（+3 条回归）、`tests/unit/writer.test.ts`、`tests/unit/providers.test.ts`
+- **验证**：typecheck ✅、lint ✅、format:check ✅、**163/163 tests ✅**（基线 160 + 新增 3）。
+  - **变异验证已做**：把 `stripProviderBlocks` 默认值临时改回「剥光 deepseek/ZAI/custom」→ **恰好 8 条断言如期失败**（3 个文件），还原后全绿。证实这组测试真的守住了本 bug。
+- **注意事项**：
+  1. **`[model_providers.*]` 块在任何路径下都不得被删**，包括「切换到 OpenAI 官方」。已写进 project-memory 关键约束 6。
+  2. **不保留不安全的能力**：`'all'` 模式在修完这条路径后已无调用方，删掉它是本次决策的一部分——留着就是留一个会复现本 bug 的陷阱。默认值必须是最安全的那个。
+  3. **已知残留（与 TASK-127 同类，本轮不动）**：切回官方后顶层 `model_catalog_json` 被剥，旧对话的 `model` 不在 Codex 内置目录里。Codex 对目录外模型是退化处理而非硬报错，且本 bug 报错指向 provider 解析而非 model。
+  4. 未 push / 未 commit / 未 release。
+
+### [TASK-128] 四版折叠为单一 3.0.0（更新日志与版本号归一）
+
+- **日期**：2026-09-10
+- **类型**：chore
+- **摘要**：2.4.0 / 3.0.0 / 3.1.0 / 3.1.1 四个版本**从未发布**（上次发版是 2.3.0），对升级用户来说它们只是从 2.3.0 到最新的一次连续升级。用户要求**只保留一个 `[3.0.0]`**，并**从用户使用角度**重写——言简意赅、点到为止。
+- **实施**：
+  1. `CHANGELOG.md` 原第 6–118 行的四个标题及其内容 → 合并为 **14 行**的 `## [3.0.0] - 2026-09-10`（`## [2.3.0]` 及更早原样保留）。
+  2. `package.json`：`3.1.1` → `3.0.0`。
+  3. `docs/help/faq.json`：「这是旧版本（3.1.0 及更早）的问题」→「这是 3.0.0 之前版本的已知问题」；「升级到 3.1.1 即可」→「升级到最新版即可」。
+  4. `docs/LEGAL-RISK-CHINA.md`：`v3.1.0` → `v3.0.0`。
+  5. 代码内 **32 处**版本注释（`v3.1.1` / `v3.1.0` / `v2.4.0`）统一改写为 `v3.0.0`，涉及 **20 个文件**（electron 10 / src 3 / tests 7）；三串版本号长度相同，行宽不变。
+- **变更文件**：`CHANGELOG.md`、`package.json`、`docs/help/faq.json`、`docs/LEGAL-RISK-CHINA.md` + 上述 20 个源/测试文件
+- **验证**：typecheck ✅、lint ✅、format:check ✅、**160/160 tests ✅**；`grep -rn "3\.1\.1\|3\.1\.0\|v2\.4\.0" electron src tests docs` **无输出**；`docs/help/faq.json` 仍是合法 JSON。
+- **注意事项**：
+  1. **用户明确要求不写**「修复」「隐私」「保持不变」三节。于是 `config.toml` 合并写、备份去重、遥测收窄这些修复**不再出现在更新日志里**——它们仍记录在 TASK-127 / ADR-034 与 `docs/help/faq.json` 的故障条目中。**更新日志的读者是升级用户，不是维护者。**
+  2. 本轮**只动注释与文案，未改任何行为**。因此「测试全绿」是必要但不充分的证据 —— 已用 `git diff` 逐行确认 `tests/` 的改动**全部落在注释行**（含两处需要手工顺句的：`src/App.tsx:76`、`tests/unit/store.test.ts:25`，替换后出现「v3.0.0 … v3.0.0」重复，已改为合并表述）。
+  3. 3.0.0 是升级用户看到的**第一条**更新日志（`ChangelogModal` 原样渲染 CHANGELOG.md，`lastSeenVersion !== 当前版本` 触发弹窗），写得短尤其重要。
+  4. 未 push / 未 commit / 未 release。
+
+### [TASK-127] v3.1.1 — 修复「切换供应商后原供应商的历史对话全部打不开」
+
+- **日期**：2026-09-10
+- **类型**：fix
+- **摘要**：用户报告在 Codex Switch 里切换供应商后，**原供应商的历史对话全部打不开**，ChatGPT/Codex Desktop 报「ChatGPT 无法加载 config.toml，因此此对话串无法继续。请修复 config.toml：Model provider `deepseek` not found」。切到 GLM 报 `deepseek` not found、切回 DeepSeek 又报 `ZAI` not found —— **对称的：切走谁，谁的对话就废**。
+- **🔴 根因（基于本机实证，非推测）**：
+  1. **Codex 是按对话记住 `model_provider` 的** —— 会话文件 `~/.codex/sessions/**/rollout-*.jsonl` 里有 `payload.model_provider`。本机 49 个会话分布：`deepseek` 44 个 · `custom` 3 · `ZAI` 1 · `openai` 1。
+  2. 旧写入实现**只写当前供应商的 provider 块**（`buildCodexToml()` 只输出一家 + `writeWithBackup()` 整份覆盖），切到 GLM 后 `~/.codex/config.toml` 只剩 `[model_providers.ZAI]` → 那 44 个记录着 `deepseek` 的对话打不开，正是报错原文。
+  3. **顺带发现更严重的一条**：写入是**整份覆盖**，全仓唯一的 `readFile` + `sanitizeManagedConfig` 只出现在 `restoreOriginalConfig()`。「保存并应用」会抹掉 config.toml 里所有非受管内容（`notify` / `[desktop]` / `[mcp_servers.*]` / `[plugins.*]` / `[projects.*]` / 用户自建 `[model_providers.foo]`）——本机之所以还活着这些段，是 **Codex Desktop 自己事后又写回去的**，属于运气而非设计。
+- **修法（合并写）**：`config.toml` **始终保留所有受管供应商的块**，只有顶层 `model` / `model_provider` 随切换变化。其它供应商的块**原样保留、不合成、不删除**（因此不需要它们的 Key，也不会产生残缺块）。实现：① `sanitizeManagedConfig(text, opts?)` 新增 `stripProviderBlocks: 'all' | string[]`（**传供应商 id**，内部补 `model_providers.` 前缀比对；默认 `'all'` 保持还原路径行为不变）；② `buildCodexToml()` 拆成 `managedTopKeys` / `providerBlock` / `featuresBlock` 三个可组合构件；③ 新增 `composeCodexToml(preserved, …)` 负责 TOML 顺序（**顶层键必须在所有表头之前**，且保留内容按「第一个表头」切成顶层键段与表段分别就位）；④ `writeCodexConfig()` 改为 读现有 → 只剥当前供应商的块 → 合并组装。
+- **变更文件**：`electron/codex/config-restore.ts`、`electron/codex/writer.ts`、`tests/unit/config-merge.test.ts`（新增 9 例）、`package.json`（3.1.1）、`CHANGELOG.md`、`docs/help/faq.json`（新增 1 条故障 FAQ）
+- **验证**：typecheck ✅、lint ✅、format:check ✅、**160/160 tests ✅**（基线 151 + 新增 9）。
+  - **做了变异验证**：把写入临时改回旧的「整份覆盖」写法 → **恰好 4 条回归用例如期失败**（「切到 GLM 后仍保留 deepseek 块」「切回后保留 ZAI 块」「用户自有内容逐字保留」「顶层键顺序」），还原后 9/9 通过。证实这组测试真的守住了本 bug，不是空测试。
+  - **用探针脚本端到端验证**过一份「真实用户文件」（我方 deepseek 块 + `notify` + `[desktop]` + `[mcp_servers.*]` + `[mcp_servers.*.env]` + `[projects."…"]` + 自建 `[model_providers.mine]`）：切到 GLM 后 deepseek 块与全部用户段逐字保留、ZAI 块恰好追加一份、且**第二次写入字节完全一致**（幂等，故内容去重与备份修剪仍然生效）。
+- **注意事项**：
+  1. **`~/.codex/config.toml` 的写入必须合并、绝不能整份覆盖**；受管 provider 块**只更新当前那家，其余保留**。已写进 project-memory 关键约束。
+  2. **新增的 Codex 行为事实**：Codex 把「对话用哪家供应商」记在会话文件里，与当前 `config.toml` 解耦 —— 这意味着**任何删改 provider 块的动作都会让历史对话失效**。以后凡是动 provider 块的改动，都要先想这一点。
+  3. **本轮不动 `models.json`**（它现在只装当前供应商目录，旧对话的 model 多数是已退役的 `deepseek-v4-flash`）。判断依据：Codex 对目录里没有的模型是**退化处理而非硬报错**（那批 `deepseek-v4-flash` 会话在该模型退役后仍能打开即为旁证），且 `models.json` 同时是 Codex 自己模型列表的数据源，混入别家 slug 反而更乱。**列为已知残留风险**：若修复后旧对话出现「模型找不到」类新错误，再单独处理。
+  4. 用户明确表示要**产品层修复**、不需要我代为手工改他的 `~/.codex/config.toml`，故未做任何手工救急。
+  5. 未 push / 未 commit / 未 release。
+
+### [TASK-126] 全仓无用文件审计（导入图可达性）+ 接入「测试文件类型检查」
+
+- **日期**：2026-09-10
+- **类型**：chore / fix
+- **摘要**：用户要求「遍历所有代码文件，甄别哪些是没有被使用的无用文件」。**用导入图可达性分析做的，不是靠眼看**：脚本枚举 `electron/` `src/` `tests/` `scripts/` 下全部 60 个 `.ts/.tsx/.mjs/.cjs`，解析每处 `import` / 动态 `import()` / `require()`（含 `@/` 别名、相对路径扩展名补全、`index.ts` 解析），从入口（`main.ts` / `preload.ts` / `src/main.tsx` / 全部测试与脚本 / 三个构建配置）做可达性遍历。
+- **审计结论**：
+  - **源码层面没有无用文件**：60 个里 59 个从入口可达。唯一「不可达」的 `src/types/global.d.ts` 是 **tsc 通过 `include` 自动加载的全局环境声明**，本就不需要被 import —— 误报。
+  - `scripts/` 3 个脚本全被 `package.json` 引用；`build/` 6 个资产全在用（`icon.iconset` 是 `make-icons.mjs` 的输入）；`docs/help/*.json` 由 IPC 读取。
+  - 非代码层面**两个真问题** + 一个**比死文件更值钱的缺口**（见下）。
+- **🔴 缺口（本次最有价值的发现）：`tests/` 从来没有被类型检查过。** `pnpm typecheck` 只跑 `tsconfig.electron.json`（include `electron/**`）与 `tsconfig.renderer.json`（include `src/**`），而**第三个 `tsconfig.test.json` 没有任何脚本或配置引用它** —— 断链。实测跑一次立刻暴露 4 处前几轮重构的遗留：
+  1. `tests/unit/store.test.ts` 仍在遍历 `['settings','dashboard','plugins','help']` 调 `setPage()` —— **`plugins` 与 `help` 两个页面早已删除**，测试在断言不存在的东西（**我自己写的测试，且我删页面时没改它**）。
+  2. `tests/unit/writer.test.ts` 用例名「strips proxy (agnes) routing」仍传 `provider: 'agnes'` —— **Agnes 供应商已移除**；该场景（`[model_providers.custom]` + `[features]`）现在只可能由 `custom` 供应商产生，已改写为 custom 用例。
+  3. `tests/unit/migrations.test.ts:12` mock 里 `cur?.migrations` 的 `cur` 被推断为 `{}` → 补类型标注。
+  4. `tests/unit/ipc-consistency.test.ts` `channelsValues.has(pv)` 的 Set 是字面量联合而 `pv` 是 `string` → 标注 `Set<string>`。
+- **修复**：① `package.json` 的 `typecheck` 追加 `&& tsc -p tsconfig.test.json --noEmit`（测试纳入类型检查）；② 修掉上述 4 处（前两处按**当前真实行为**改正，不是为了让编译器闭嘴）；③ 删 5 个零引用导出；④ 清 `test-results/`。
+- **删除的 5 个零引用导出**（逐个 grep 过含 tests/scripts，全仓 0 引用）：`IpcChannel`（channels.ts）、`WriteOpts`（codex/writer.ts）、`getServerConfig`（server-client/config.ts，其唯一意义是给遥测构造 ServerConfig，而 v3.1.0 遥测已不再需要它）、`resetPreferences`（store.ts）、`updateClaudeDesktopApiKey`（desktop-writer.ts，「只更新 profile 里的 Key」的旧快捷路径，v3.0.0 起改配置一律走整份重写的 `writeClaudeDesktopConfig()`）。
+- **清理的误提交产物**：`test-results/`（2026-06-13 一次失败 Playwright 运行的 `.last-run.json` + `error-context.md`）**两个文件都在版本控制里**且 `.gitignore` 未忽略 —— 已 `git rm -r --cached` + 删目录 + `.gitignore` 增加 `test-results/`。
+- **变更文件**：`package.json`、`.gitignore`、`electron/ipc/channels.ts`、`electron/codex/writer.ts`、`electron/server-client/config.ts`、`electron/config/store.ts`、`electron/claude/desktop-writer.ts`、`tests/unit/{store,writer,migrations,ipc-consistency}.test.ts`；移除 `test-results/`（2 文件）出仓库
+- **验证**：typecheck（**现含 tests**）✅、lint ✅（0 problems）、format:check ✅、**151/151 tests ✅**；重跑可达性脚本仍为「0 个无用源码文件、0 个零引用导出」。
+  - **做了变异验证**：故意在 `store.test.ts` 末尾加一行 `const x: number = "not a number"` → `pnpm typecheck` 如期报 `TS2322`；还原后复验通过。**证实 tests 真的被类型检查覆盖**，而不是配置看着接上了、实际被 `include` 静默漏掉。
+- **注意事项**：
+  1. **以后重构后必须跑 `pnpm typecheck`（现在含 tests）**。这 4 处遗留全部活过了前几轮「typecheck ✅ + 测试全绿」的验证 —— 因为测试文件既不被类型检查，其内容又只在运行时才暴露（前两处的断言对象早已不存在，但断言本身仍能通过）。这类假绿比编译错误危险。
+  2. 顺带发现：`tests/unit/store.test.ts` 的页面遍历用例是**我自己在 v3.1.0 写的**，而我在同一次任务里刚删掉 `'plugins'`——**删功能时必须同步搜测试**，这条已写进 project-memory 的关键约束。
+  3. `scripts/make-icons.py` 与 `scripts/smoke-proxy.mjs` 在磁盘上已删（上一轮清理），git 里仍是已跟踪状态，等提交时一并落地。
+  4. 未 push / 未 commit / 未 release。
+
+### [TASK-125] v3.1.0 — 审计清理（删插件、收窄遥测）+ 修掉两个真实缺陷（备份堆积 / 迁移重跑）
+
+- **日期**：2026-09-10
+- **类型**：fix / refactor / chore
+- **摘要**：用户要求「review 有没有过度设计、无用设计，统统考虑去掉，并统计功能/设计/代码情况」。产出统计（主进程 5,728 行 / 渲染层 2,931 行 / 单测 2,495 行；IPC 48 通道、preload 99 API、持久化 21 字段、3 家供应商描述符）+ 审计报告后，按用户拍板执行：删插件子系统、收窄遥测、清死代码；同时修掉审计中发现的**两个真实缺陷**。
+- **🔴 缺陷 1：Claude 侧写入既不去重也不修剪备份 → 用户家目录垃圾堆积**
+  - **实测证据（本机）**：`~/.zshrc.bak.*` **415 个 / 约 1.66 MB / 最早 2026-06-02**；`~/.claude/settings.json.bak.*` 55 个。对比 Codex 侧只有 6 个（受修剪）。
+  - **根因**：`codex/writer.ts` 的 `writeWithBackup()` 有「内容相同则跳过 + 按份数滚动修剪」两条不变量，而 Claude 侧 `env-writer.writeToProfile()` / `desktop-writer.backupExisting()` 两条路径**都没有**；偏偏 `startupApplyClaude()` 每次启动都会重写 → **每启动一次多一份 `.bak`，无上限**。
+  - **修法**：抽出共用模块 **`electron/config/file-write.ts`**（`writeWithBackup` / `writeJsonWithBackup` / `listBackupsFor` / `pruneBackups`），Codex 与 Claude 两侧都改用它；Claude 侧改走「内容去重 + 按 `maxBackupsPerFile` 修剪」，且每次操作只读一次偏好快照（`buildGatewayProfile(prefs, …)`）。
+- **🔴 缺陷 2：迁移 flag 互相覆盖 → 三条迁移每次启动都重跑**
+  - **根因**：`setPreferences()` 是**浅合并**，`{migrations: {x: true}}` 会**整体替换** `migrations` 对象 —— 每条迁移写自己 flag 时都抹掉另外两条，三者互为对方的「未执行」。`DEFAULTS.migrations` 还漏声明了 `v300_direct`。
+  - **修法**：新增 `setMigrationFlag(key)` 做**键级合并**；三条迁移改用它；`DEFAULTS.migrations` 补齐 4 个键。
+  - 与缺陷 1 叠加：迁移重跑会额外触发 Claude 配置重写，进一步加剧备份堆积。
+- **🔴 我自己引入的过度设计**：`retiredModels` 精确匹配字段（v3.0.0 预留）—— 3 家描述符无一赋值，分支不可达。已删。
+- **A. 删插件子系统（用户拍板，约 1,750 行）**：`electron/plugins/`（3 文件 1,069）+ `Plugins.tsx`（553）+ `main.ts` 约 123 行 handler + IPC 7 通道 + 3 个下载事件 + 9 个 preload API + `Page` 的 `'plugins'` + 侧边栏项 + `PluginPackInfo`/`DownloadProgress` 类型 + 3 条 FAQ。
+- **B. 遥测收窄（用户拍板：只留配置操作、去掉全部隐私相关数据）**：保留 `config_write`（仅字段名）/ `tool_install` / `tool_install_fail`；**删** `app_start` / `error`（含 error_message + error_stack，可能带用户路径）/ `update_check` / `update_download`。三处隐私面：① `error` 事件整体停发；② `tool_install_fail` 的 `error_code`（原始报错文本，**历史上曾把完整 API Key 送进遥测库**，TASK-098）改为本地归类枚举 `classifyWriteError()`；③ **`client_id` 不再进上报体**（持久设备标识符属 PIPL 个人信息）。顺带删掉 `model_call` 聚合分支（v3.0.0 删代理后已无调用者，约 40 行）。`clientId` 本身保留（社区功能仍需要）。
+- **C. 其余死代码**：`hasSeenOnboarding` / `hasSeenPlugins`（零读者）、`UpdateEvent.notes`、`telemetryGetOnline` / `updateDownload` 两个零调用 API、`auto` 更新镜像模式（`probe` / `pickAuto` 约 47 行；`migrateIfNeeded` 早已把存量改成 `server`，探测结果恒等于 `github`）、未使用依赖 `@testing-library/jest-dom` 与 `tsx`、`docs/qa.png` 打包引用（**文件不存在** → 「交流群」tab 恒为空白，连 tab 一并删除）。
+- **D. `Setup.tsx` 注册表化**：它是 v3.0.0 唯一漏掉泛型化的页面，硬编码 DeepSeek 两个模型 + `sk-` 前缀 + `provider:'deepseek'` → **新装用户无法在向导里选 GLM**（真实功能缺口）。现改为读 `getProviders()`（供应商下拉 + 模型列表 + 注册表的 prefix/placeholder），并删掉从未被传入的 `ModelOption.subtitle`。
+- **变更文件**：新增 `electron/config/file-write.ts`、`tests/unit/file-write.test.ts`、`tests/unit/migration-flag.test.ts`；删除 `electron/plugins/`（3）、`src/pages/Plugins.tsx`、`src/components/QaGroupModal.tsx`、`tests/unit/plugins.test.ts`；改写 `electron/main.ts`、`electron/codex/writer.ts`、`electron/claude/{env,desktop}-writer.ts`、`electron/config/store.ts`、`electron/server-client/telemetry.ts`、`electron/updater/{index,mirrors}.ts`、`electron/{ipc/channels,preload}.ts`、`src/{App.tsx,lib/store.ts,lib/model-fold.ts,types/global.d.ts}`、`src/pages/{Setup,Settings}.tsx`、`src/components/HelpDrawer.tsx`、`package.json`、`CHANGELOG.md`、`docs/help/faq.json`、`electron-builder.yml`
+- **验证**：typecheck ✅、lint ✅（0 warnings）、format:check ✅、**151/151 tests ✅**（17 文件）。新增 14 例回归：`file-write.test.ts` 10 例（去重 / 修剪 / keep<0 / 0600 权限 / JSON 写入）+ `migration-flag.test.ts` 4 例（**用真实 store 模块**，只把 electron-store 换成内存实现）+ `migrations.test.ts` 2 例调用点级。
+  - **迁移 flag 的测试做过变异验证**：把 `setMigrationFlag` 改回旧的「整体替换」写法 → 测试如期失败并给出准确诊断（"v130_claude 被覆盖 —— 这正是每次启动重跑全部迁移的根因"），改回修复版后通过。确认不是空测试。
+- **注意事项**：
+  1. **⚠️ 我在本次任务中犯过一次严重操作失误**：用「从 A 注释删到 B 注释」的方式整块删除 `main.ts` 的插件 handler 时，`next(...)` 匹配到了**文件前部同名注释**（`// v1.10.0 离线插件安装` 在 module state 处也出现一次），结果**误删了 537 行核心代码**（module state / createWindow / applyPreferencesTransaction / registerIpc 前半）。**恢复方式**：`~/.claude/file-history/<session-id>/` 下有 Claude Code 的文件快照，按「含目标符号 + 行数匹配」定位到删除前的版本（842 行）恢复。**教训**：① 整块删除必须用**唯一代码锚点**（如 `ipcMain.handle(IPC.xxx`）而非注释字符串；② 删除脚本必须 `assert` 范围大小合理；③ 销毁性脚本执行后**立刻 typecheck**。此后所有整块删除都已改为唯一锚点 + 范围断言。
+  2. Claude 侧写入现在**必须**走 `config/file-write`，不要退回裸 `fs.writeFile` —— 那正是缺陷 1 的成因。已写进 project-memory 的关键约束。
+  3. 遥测口径变了（不再有设备标识符、不再有崩溃原文），设置页文案与 CHANGELOG 已同步；`LEGAL-RISK-CHINA.md` 的「遥测默认开启违反知情同意」一项随之失效，已在该文件状态更新小节补记。
+  4. 用户机器上既有的 415 份备份**未自动删除**（破坏性操作不擅自执行），改为在 CHANGELOG 里给出一条可选的手动清理命令。
+  5. 未 push / 未 commit / 未 release。
+
+### [TASK-124] v3.0.0 — 从「代理工具」转型为「纯配置工具」（删代理 + 去 Agnes + GLM 转直连 + 供应商注册表）
+
+- **日期**：2026-09-10
+- **类型**：refactor / feat（破坏性）
+- **摘要**：用户要求彻底转型：删掉整个本地代理，去掉 Agnes，GLM 改 Codex 直连，重构为「供应商注册表」，主面板只留工具接入状态、侧边栏「设置」排第一。**权威依据**：用户提供的智谱官方 Codex 文档 webarchive（`docs.bigmodel.cn/cn/coding-plan/tool/codex`）给出 GLM 直连模板（`model_provider="ZAI"`、`base_url="https://open.bigmodel.cn/api/v1"`、`wire_api="responses"`、`model_reasoning_effort="max"`、`model_catalog_json=~/.codex/models.json`）与其 2 模型目录。经比对，**GLM 的直连模板与 DeepSeek 的既有直连模板同构**——差异只有 providerId / name / baseUrl / reasoningEffort / 是否写 `preferred_auth_method`——这正是重构要消灭的重复。落地：① **删除 `electron/proxy/` 全部 13 文件 3,640 行**及 `session-reader.ts`、`Logs.tsx`、`PortConflictModal.tsx`、`dev-proxy.cjs`、`smoke-proxy.mjs`、`ws` 依赖、12 个代理测试文件；② **新建 `electron/config/providers.ts` 供应商注册表**（描述符含 codex/claude/key 三段，纯数据，经新 IPC 通道 `providers:list` 下发给渲染层，因两个 tsconfig 的 rootDir/include 各自独立无法共享模块）；③ `writer.ts` 三个模板收敛为**一个注册表驱动的 `buildCodexToml`**；④ `models-catalog.ts` 改为**合并写**（见注意事项 1）；⑤ `config-restore.ts` 的受管 provider 段正则**由注册表派生**（见注意事项 2）；⑥ `secrets.ts` 4 组三件套→`getKey/setKey/clearKey(descriptor)`；⑦ Key IPC 通道**对供应商泛型化**（12 handler + 9 常量 → 3 通道 + providerId 参数）；⑧ `main.ts` 1694→1057 行（删 `ensureProxy`、代理启停/信息/端口 IPC、日志 IPC、对话缓存 IPC、lifetime flush、`before-quit` 代理分支）；⑨ `store.ts` 删掉全部代理专属字段；⑩ Settings 948→679 行、registry 驱动；⑪ `Dashboard` 重写为「工具接入状态」；⑫ 菜单「设置」第一 + 默认落地页改设置；⑬ `package.json` 3.0.0 + description 修正 + CHANGELOG；⑭ FAQ 删 5 条 / 改 10 条、onboarding 改 3 处、README 与 AGENTS.md 架构段重写。
+- **变更文件**：新增 `electron/config/providers.ts`、`electron/config/redact.ts`、`electron/logging/persistent-log.ts`、`electron/codex/glm-models.json`、`src/lib/model-fold.ts`；删除 20 个文件；改写 `electron/main.ts`、`electron/config/{store,secrets,migrations}.ts`、`electron/codex/{writer,models-catalog,config-restore}.ts`、`electron/claude/{env,desktop}-writer.ts`、`electron/ipc/channels.ts`、`electron/preload.ts`、`src/{App.tsx,lib/store.ts,types/global.d.ts}`、`src/pages/{Settings,Dashboard,Setup}.tsx`、`src/components/ModelMappingModal.tsx`；测试删 12 个 / 新建或重写 8 个
+- **验证**：typecheck ✅、lint ✅、format:check ✅、**154/154 tests ✅（17 文件）**。基线为 225/225（28 文件）——删掉 12 个代理测试文件约 108 例，新增注册表/目录合并/GLM 直连等约 37 例
+- **注意事项**：
+  1. **`~/.codex/models.json` 是共享单文件**，DeepSeek 与 GLM 的 `model_catalog_json` 都指向它 → `writeModelsJson` 必须**合并写**：剔除所有受管 slug（保留用户自加条目）→ 追加当前供应商条目 → 用户无自加条目时**逐字节照抄资产**（保证与官方文件一致）。直接覆盖会让切换供应商后另一家的条目消失
+  2. **`config-restore.ts` 的受管段名正则由注册表派生**（`managedProviderBlockPattern()`）。v3.0.0 新增 GLM 直连（段名 `ZAI`）时若手写清单漏掉它，切回 OpenAI 官方后 GLM 段会残留——正是 BUG-007（v2.3.0 修过）的同类重犯。测试已断言覆盖所有 providerId 且不误伤用户自有段
+  3. **`normalizeProvider` 只在读路径归一化，绝不写回**：用户对 Agnes 存量明确选择「不做任何处理」（不迁移/不提示/不清钥匙串）。但 `PROVIDERS['agnes']` 会是 undefined，故在 `migrations.startupApplyClaude`、`main.applyPreferencesTransaction`、`main.claudeApplyAll`、Settings 四处读时归一到默认供应商——否则每次启动 TypeError。**keytar 里的 `agnes-api-key` 条目刻意保留**（删凭据比留着更糟）
+  4. **`runV200DeepSeekDirectMigration` 泛化为 `runV300DirectMigration`（同时覆盖 GLM）**——这是本版本最有价值的一条迁移：GLM 在 v3.0.0 之前正是走本地代理的，代理一删其 `config.toml` 就指向不存在的端口。flag 改 `v300_direct`，保留 `v200_deepseekDirect` 字段以兼容存量标记
+  5. **`lifetimeFirstStartAt` 不是代理字段**（喂「早期成员」徽章，见 `communityGetProfile`），随 `lifetime*` 前缀一起删会坏功能；已在 store 里加注释警示
+  6. **`isInstallingUpdate` 与代理无关**（守护 `before-quit` 不被升级流程干扰，BUG-004），保留
+  7. 删 `errors.ts` 前先把 `redactSensitive` 迁到 `electron/config/redact.ts`（诊断包与遥测两个非代理消费者）；`PersistentLog` 迁到 `electron/logging/` 并自带 `LogEntry` 类型；其默认文件名由 `proxy.ndjson` 改为 `app.ndjson`（旧文件不迁移、无读者）；诊断包改为 `loadTail(100)` 以免变空
+  8. **GLM 目录资产是手写的**（官方文档只给 2 个模型：glm-5.3 / glm-5-turbo），最终按用户给的清单收录 **glm-5.3 / glm-5.3-flash / glm-5.2**，字段结构逐字段照官方 glm-5.3 条目；`glm-5.3-flash` 按其「多模态」描述声明了 `input_modalities: ["text","image"]`（**属推断，需对官方确认**）；`glm-5-turbo` 按用户清单未收录
+  9. `electron-builder.yml` 的 `extraResources` 与 `.prettierignore` 都已加 `glm-models.json`——**漏了只会在打包后炸**，dev 与单测都过
+  10. 行为变化（已写入 CHANGELOG）：GLM 的 `model_reasoning_effort` 由代理模板的 `xhigh` 变为官方文档的 `max`；GLM 配置不再写 `model_context_window`/`[features]` 覆盖（改为依赖 models.json 声明），若 GLM 用户报 compact 相关错误可考虑补回
+  11. 遗留（未做）：`src/pages/Setup.tsx` 的模型选项仍是硬编码的 DeepSeek 两个模型，未走注册表；`ROADMAP` 中的阿里 Qwen 等新供应商现在只需在注册表加一条数据（若需独立模型目录，再加 json 资产 + `extraResources` 一行）
+  12. 未 push / 未 commit / 未 release（用户明确「只改不发布」）
+  13. **自查复查（同日）：修掉 5 处遗漏**
+      - **`electron/main.ts` 智能搜索系统提示词仍在推荐 Agnes AI**（「用户问『免费』时优先推荐 Agnes AI」）——这是**用户可见**的缺陷：用户问「哪个模型免费」会被引导去切换一个界面上已不存在的供应商。同处还写着 `glm-5.2 / 5.1 / 4.7`。已改为：不再推荐已下线供应商、明确说明 Agnes 已下线需改选、GLM 型号更新为 5.3/5.3-flash/5.2。
+      - **应用内帮助文案漏改**（上一轮只改了 `docs/help/faq.json` 与 `onboarding.json`，漏了在 HTML 里硬编码的两处）：`HelpDrawer` 的 `PAGE_TIP` 说「点『完成』启动代理」「可以启动/停止代理」「可调整端口」且保留了一条 `logs: '当前在日志…'`；`Help.tsx` 与 `HelpDrawer.tsx` 各有一条「端口冲突 → 设置页修改本地端口」；`Help.tsx` 还有「日志页看请求详情」。全部已改。
+      - **根因**：`HeaderBar`/`HelpDrawer` 的 `page` prop 仍声明为含 `'logs'` 的**旧字面量联合**（`Page` 是其子集故能通过类型检查），陈旧联合把这个 stale 分支藏住了。已两处都改为引用 `Page` 类型——**这类"宽联合掩盖死分支"是本次唯一的系统性问题，新增页面/删除页面时都要检查**。
+      - **`electron/claude/detect.ts` 的 Windows 分支按 `deepseek.com` 判定 Claude CLI 是否已配置** → GLM/自定义用户在 Windows 上（settings.json 标记缺失时）会被误判为「未配置」。已改为按注册表派生的受管端点清单判断。
+      - **死导出**：`resolveCodexBaseUrl`、`PROVIDER_IDS`（注册表里导出但无人引用，writer 以显式参数接收自定义端点以便单测）。已删。
+      - `docs/LEGAL-RISK-CHINA.md` 加**状态更新小节**：v3.0.0 删掉代理后，该报告的两项「🔴 严重风险」（代理触及电信准入、AI 转接定性）**已基本消除**，风险 4/6 未变；正文保留为历史记录并注明与当前代码不符。
+  14. 复查后仍**未处理**的两项（已向用户报告，等其决定）：
+      - `scripts/make-icons.py` 是孤儿（ADR-005 已用 `make-icons.mjs` 取代它，package.json 与 CI 均不引用），可删；
+      - `src/pages/Setup.tsx` 的模型选项仍硬编码 DeepSeek 两个模型、未走注册表（新装用户走的是 DeepSeek 路径，故影响有限）
+  15. **第二轮复查（同日）：按「已转型为配置工具」清理冗余功能与死代码**（用户要求「多余无用的功能、过时的描述、采集的 server 端指标都要去掉」）。逐项核对后确认：**没有任何代理时代的 telemetry 发射点残留**（`proxy_start`/`proxy_stop`/`proxy_error`/`model_call` 均随 `ensureProxy` 删除），`telemetry.ts` 也不含 lifetime/proxyPort 等已删字段；客户端→Server 只剩 2 个调用（社区数字 + 邀请统计），与代理无关，保留。实际清理：
+      - **删 `src/pages/Help.tsx`（289 行）**：全项目**没有任何导航入口**（侧边栏只有设置/接入状态/插件，右上角 ❓ 开的是 `HelpDrawer` 抽屉），且其 FAQ/诊断 tab 与 HelpDrawer 重复。连带清掉 `Page` 里的 `'help'`、App.tsx 路由与 `titleOf` 分支、HelpDrawer 的 PAGE_TIP 条目。
+      - **删智能搜索（用户拍板）**：`SearchPopover.tsx`（262 行）+ `main.ts` 里约 208 行的提示词与 https 调用 + `IPC.searchAsk` 三处声明 + 2 个 `smart_search` 遥测。理由：它**硬绑 DeepSeek key**（只用 GLM 的用户点 🔍 得到「请先填写 DeepSeek API Key」的死路），与多供应商定位冲突；FAQ 已有 25 条静态问答可替代。同时去掉 HeaderBar 的搜索按钮、`channels`/`preload`/`global.d.ts` 的 searchAsk。
+      - **删 `persistentLog` 日志子系统（274 行 + 91 行测试）**：日志页删除后它唯一的用途是**把用户的 AI 提问持久化到磁盘**并在提 bug 时附带最近 100 条——既无用户可见入口，又是一处小隐私负担。连带把 `DiagnosticsBundle.recentLogs`、`ReportIssueModal` 的日志段、HelpDrawer 的「含最近日志」文案一起清掉；诊断包现在只有版本/系统/偏好。应用自身日志仍由 electron-log 写盘（「打开日志目录」不受影响）。
+      - **删纯死代码**：`claudeDesktopAppPath`/`codexDesktopAppPath`（标注 @deprecated 且 0 调用者）、`scripts/make-icons.py`（ADR-005 已用 make-icons.mjs 取代）、`app_close` 遥测事件（配置工具「开了多久」无意义）。`redact.ts` 的注释同步更新（main.ts 不再是消费者，只剩 telemetry）。
+      - **⚠️ 过程中踩到的坑（已修，值得记）**：用「从 A 注释删到 B 注释」的方式整块删除 `main.ts` 的搜索 handler 时，**连带删掉了 `registerIpc()` 的收尾 `}`、`app.whenReady(async () => {` 与 `const prefs = getPreferences()`**——编译器报 `TS1128` 才暴露；随后又发现同块里定义的 `readHelpJson()` 也被误删（`helpGetFaq/Onboarding` 依赖它）。两者都已从 `git show HEAD:electron/main.ts` 还原。**教训：跨函数边界整块删除后必须 typecheck，且要检查被删块内是否定义了块外仍在用的符号。**
+      - 成果：`main.ts` 1057 → 842 行；生产构建 62 → 60 模块；测试 154 → 148（删掉 persistent-log 的 6 例）；全仓累计 81 文件 / +2053 / −10795。
+  16. 本轮复查仍未动的一项：`src/pages/Setup.tsx` 的模型选项仍硬编码 DeepSeek 两个模型（新装用户走 DeepSeek 路径，影响有限）
+  17. 复查未发现的问题（已验证为干净）：渲染层无残留的已删 IPC 调用；`src/components/` 无孤儿组件；依赖无孤儿（`keytar` 是动态 `import()`，易被误判）；新增的文件（注册表 / redact / glm-models.json / model-fold）均有真实消费者（persistent-log 已在第二轮删除）
+
+### [TASK-123] v2.4.0 — DeepSeek 模型阵容收敛为两个（`deepseek-flash` + `deepseek-v4-pro`）
+
+- **日期**：2026-09-10
+- **类型**：feat / refactor
+- **摘要**：用户转发 DeepSeek 官方公告：① 模型名改为 `deepseek-flash`，旧名 `deepseek-v4-flash` / `-flash-vision-exp` 仍可调用但已下线（由 V4.1-Flash 提供服务、按 Flash 计费）；② V4 Pro 计划下线，北京时间 2026-09-14 12:00 后其请求全部路由到 V4.1 Flash。要求把 Codex / Claude Desktop / Claude Code CLI 三处接入的模型选择从三个收敛为两个。**权威依据（未靠猜测）**：拉取官方 Codex 一键脚本 v1.3.0（`https://cdn.deepseek.com/api-docs/codex-deepseek-setup.sh`，108,855 B）解析其内嵌 models.json —— 官方目录**恰好两个**模型（脚本自带校验「需恰好包含 deepseek-flash 与 deepseek-v4-pro 两个模型」），且 `deepseek-flash` 的 `input_modalities` 含 `image` / `supports_image_detail_original: true` —— **视觉能力并入 Flash，并未丢失**。落地：① `electron/codex/deepseek-models.json` 用官方 heredoc（脚本 112–250 行，76,107 B）逐字节替换（3 模型 → 2 模型；顺带修正仓库 pro 条目 `supports_search_tool` true→false 与官方不符）；② `ModelMappingModal` `vision?: boolean` prop **删除**（CLI 与 Desktop 选项列表/档位默认值现已完全相同，该开关语义蒸发），`DEEPSEEK_ROLE_DEFAULT_CLI`/`_DESKTOP` 合并为单一 `DEEPSEEK_ROLE_DEFAULT`；③ 全面重命名（用户选定）：`store.ts` 默认值+`DEFAULT_MAPPING`+`activeModelMapping`、`env-writer` `DEFAULT_ENV_VARS`、`desktop-writer` labels、`Settings.tsx` `roleDefault`、`ClaudeSettingsSection` 重置处理器、`Setup.tsx`、`translate.ts` 白名单/`PREFIX_RULES`/fallback、`server.ts`、`anthropic-relay.ts`、`main.ts` 智能搜索、`scripts/dev-proxy.cjs`、`faq.json`；④ `package.json` 2.3.0→2.4.0 + CHANGELOG `[2.4.0]`（从用户视角写「Flash 自己就能看图」「V4 Pro 即将下线」「旧名仍可用且不改动你的设置」）。
+- **变更文件**：`electron/codex/deepseek-models.json`、`electron/config/store.ts`、`electron/codex/writer.ts`、`electron/claude/env-writer.ts`、`electron/claude/desktop-writer.ts`、`electron/proxy/{translate,server,anthropic-relay}.ts`、`electron/main.ts`、`src/pages/{Settings,Setup}.tsx`、`src/components/{ModelMappingModal,ClaudeSettingsSection}.tsx`、`scripts/dev-proxy.cjs`、`docs/help/faq.json`、`package.json`、`CHANGELOG.md`、8 个测试文件
+- **验证**：typecheck ✅、lint ✅、format:check ✅、**224/224 tests ✅**（新增 5：catalog 否定断言「不再含旧 slug」、ModelMappingModal 存量旧名回落自定义态、Settings 下拉三例——恰好两个裸 id 且无说明文案 / 旧名折叠为 flash / pro 原样保留）
+- **注意事项**：
+  1. **存量用户零改动（用户拍板）**：不加迁移、**有意不 bump `CURRENT_MAPPING_VERSION`（保持 5）**——bump 会让 `migrateIfNeeded` 把新默认映射合并进存量配置。已在 `store.ts` 该常量上写明该不变式，防后人误改
+  2. **Codex 下拉只显裸模型名（用户二次拍板，淘汰了首轮的「保留项 + 小字说明」方案）**：`Settings.tsx` 的 DeepSeek 默认模型下拉与 `Setup.tsx` 向导现在**只有** `deepseek-flash` / `deepseek-v4-pro` 两项，选项文字就是模型名本身，无 `· 可读图`、无 V4 Pro 下线小字（`ModelOptionProps.subtitle` 改为可选）。存量用户存的旧名（`deepseek-v4-flash` / `-vision-exp`）在加载时由 `foldRetiredDeepseekModel()` **折叠为 `deepseek-flash`**——否则 `<select>` 匹配不到 option 会渲染空白；折叠只改显示，**点保存才写回存储**，不主动改存量文件。`ModelMappingModal`（Claude 侧）仍走「旧名回落自定义态」，两处策略不同是有意的：弹窗要能容纳任意自定义模型名
+  3. **V4 Pro 下线提示已完全移出 Codex UI**（设置页小字与向导副标题都没了），现仅存于 `docs/help/faq.json` 与 CHANGELOG `[2.4.0]`。若后续要恢复可见提示，需重新引入并考虑与「不写说明」的取舍
+  4. **顺带修掉一个既有 UI bug**：`ModelMappingModal` 的 `isCustom` 原先取 `currentValue === '__custom__'`，导致「从持久化恢复出来的非预设值」下拉显示「自定义…」却不渲染输入框（用户看不到也改不了该值）。改为 `!isPreset(currentValue, presets)`；此 bug 自 v2.2.0 Desktop 隐藏 vision 起就潜伏
+  5. `ClaudeSettingsSection` 的 DeepSeek 重置处理器此前与 `DEFAULT_ENV_VARS` 漂移（sonnet 仍写 pro），本次一并对齐为 opus→pro、其余→flash。⚠️ **该组件是死代码**——`src/components/ClaudeSettingsSection.tsx` 在 `src/` 与 `tests/` 中均无任何 import（Settings.tsx 用的是 `ModelMappingModal`）。本次对它的改动无运行时影响；后续勿在它身上浪费判断，若确认无用可直接删除（需先与用户确认）
+  6. **Claude 映射弹窗也折叠旧名**（用户第三次回访，附前后对比截图）：弹窗外观看似已达标（只渲染两个裸 id），但存量用户持久化的 `deepseek-v4-flash` 不在预设列表 → 被判为「自定义值」→ 渲染出 `✏️ 自定义…` + 输入框，且输入框的 `float-right` 挤压左侧档位标签把「Claude Haiku 4.5」压成三行（用户评价「原来的默认也太难看」）。修复：`ModelMappingModal` 在 `provider==='deepseek'` 时用 `foldRetiredDeepseekMap()` 折叠；`Settings.tsx` 恢复 `cliMapping`/`desktopMapping` 时同样折叠（否则「不打开弹窗直接点保存」会把旧名写回）。**glm/agnes/custom 不折叠**——custom 供应商可合法手填 `deepseek-*` 名，折叠会吃掉用户输入（已有测试锁定）。顺带把输入框的 `float-right` 改为 `flex justify-end` 包裹修掉折行
+  7. **折叠规则已收敛为单一事实来源 `src/lib/deepseek-models.ts`**（`foldRetiredDeepseek` / `foldRetiredDeepseekMap`）——此前 `Settings.tsx` 与弹窗各写一份；本项目已出现两次同类漂移（`ClaudeSettingsSection` vs `DEFAULT_ENV_VARS`；CLI 档位默认值三处不同步），新增使用方请从这里导入，勿再复制前缀判断
+  8. `deepseek-models.json` 在 `.prettierignore`（与官方逐字节一致）——勿对其跑 prettier/format；`version` 字段在 `package.json` 3 行，`pnpm-lock` 根 importer 无版本字段无需改
+  9. 代理层（仅服务 Agnes/GLM）内旧名已一并重命名；旧名请求会走前缀→fallback 落到 `deepseek-flash`，与上游实际落点一致，无功能损失
+  10. 未 push / 未 commit / 未 release（待用户显式指示）
+
 ### [TASK-122] 修复「切换到 OpenAI 官方」对 v2.0.0 DeepSeek 直连格式失效的 bug
 
 - **日期**：2026-09-09

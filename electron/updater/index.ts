@@ -13,7 +13,7 @@ import http from 'node:http';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 
-import { buildFeedUrl, pickAuto, type MirrorMode } from './mirrors';
+import { buildFeedUrl, type MirrorMode } from './mirrors';
 
 // v1.12.2: route electron-updater internal logs through electron-log
 // so we can see feed URL errors, download failures, etc. in main.log
@@ -29,7 +29,6 @@ export interface UpdateEvent {
     | 'downloaded'
     | 'manual-download';
   version?: string;
-  notes?: string;
   message?: string;
   percent?: number;
   bytesPerSecond?: number;
@@ -207,7 +206,6 @@ export class UpdaterManager extends EventEmitter {
       this.emit('event', {
         kind: 'available',
         version: info.version,
-        notes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
       } satisfies UpdateEvent);
 
       // v1.11.0: auto-download if enabled
@@ -251,7 +249,8 @@ export class UpdaterManager extends EventEmitter {
   }
 
   async setMirror(mode: MirrorMode, customPrefix?: string, serverBaseUrl?: string): Promise<void> {
-    const effective = mode === 'auto' ? await pickAuto(serverBaseUrl) : mode;
+    // v3.0.0: auto 模式已移除（等价于 github），mode 直接就是 feed 模式
+    const effective = mode;
     const url = buildFeedUrl(effective, customPrefix, serverBaseUrl);
     log.info('[updater] setMirror mode=%s → feedUrl=%s', effective, url);
     autoUpdater.setFeedURL({ provider: 'generic', url });

@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import https from 'node:https';
 import log from 'electron-log';
 
 import { IPC } from './ipc/channels';
@@ -11,26 +10,8 @@ import {
   setPreferencesSerialized,
   type UserPreferences,
 } from './config/store';
-import {
-  clearApiKey,
-  getApiKey,
-  setApiKey,
-  getAgnesKey,
-  setAgnesKey,
-  clearAgnesKey,
-  getGlmKey,
-  setGlmKey,
-  clearGlmKey,
-  getCustomKey,
-  setCustomKey,
-  clearCustomKey,
-} from './config/secrets';
-import {
-  DeepSeekProxy,
-  type ProxyLogEntry,
-  type ProxyStatus,
-  type ProxyErrorInfo,
-} from './proxy/server';
+import { clearKey, getKey, maskKey, setKey } from './config/secrets';
+import { getProvider, PROVIDER_LIST, type ProviderId } from './config/providers';
 import {
   listBackups,
   restoreCodexConfig,
@@ -41,9 +22,6 @@ import {
   restoreOriginalConfig,
 } from './codex/writer';
 import { UpdaterManager, type UpdateEvent } from './updater';
-import { redactSensitive } from './proxy/errors';
-import { PersistentLog } from './proxy/persistentLog';
-import { lookupPortHolder, killPid } from './proxy/portInfo';
 import { detectAll } from './claude/detect';
 import { writeClaudeCliConfig, removeClaudeCliConfig, resolveEnvVars } from './claude/env-writer';
 import {
@@ -55,57 +33,29 @@ import {
 import {
   runV130ClaudeMigration,
   runV160ClaudeDesktopMigration,
-  runV200DeepSeekDirectMigration,
+  runV300DirectMigration,
   startupApplyClaude,
 } from './config/migrations';
 import { ServerClient } from './server-client/client';
 import { TelemetryClient } from './server-client/telemetry';
 import { resolveServerUrl, generateClientId } from './server-client/config';
-import { PluginManager } from './plugins/index';
 
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
 
 let mainWindow: BrowserWindow | null = null;
-let proxy: DeepSeekProxy | null = null;
-const logBuffer: ProxyLogEntry[] = [];
-const LOG_BUFFER_MAX = 500;
 const updater = new UpdaterManager();
 updater.on('event', (e: UpdateEvent) => {
   mainWindow?.webContents.send(IPC.updateOnEvent, e);
-  // v1.7.0 telemetry
-  if (e.kind === 'available') {
-    telemetry?.track('update_check', {
-      current_version: app.getVersion(),
-      has_update: true,
-      mirror_mode: getPreferences().updateMirror,
-    });
-  } else if (e.kind === 'not-available') {
-    telemetry?.track('update_check', {
-      current_version: app.getVersion(),
-      has_update: false,
-      mirror_mode: getPreferences().updateMirror,
-    });
-  } else if (e.kind === 'downloaded') {
-    telemetry?.track('update_download', {
-      from_version: app.getVersion(),
-      to_version: e.version ?? '',
-      platform: process.platform,
-      arch: process.arch,
-    });
-  }
+  // v3.0.0: 不再上报 update_check / update_download —— 它们不是「配置操作」，
+  // 遥测已收窄为只上报配置写入相关事件（见 ADR-032）。
 });
 
-let persistentLog: PersistentLog | null = null;
-let lifetimeFlushTimer: NodeJS.Timeout | null = null;
-let lifetimeFlushing = false;
 let isInstallingUpdate = false;
 
 // v1.7.0 Server 集成
 let serverClient: ServerClient | null = null;
 let telemetry: TelemetryClient | null = null;
-// v1.10.0 离线插件安装
-let pluginManager: PluginManager | null = null;
 
 // §5 单实例锁：第二实例直接退出，主实例聚焦窗口并广播 toast。
 const gotLock = app.requestSingleInstanceLock();
@@ -120,103 +70,19 @@ app.on('second-instance', () => {
   mainWindow.webContents.send(IPC.appOnSecondInstance);
 });
 
-async function ensureProxy(): Promise<DeepSeekProxy> {
-  if (proxy) return proxy;
-  const prefs = getPreferences();
-
-  // v1.16.0: 自定义供应商直连模式——Codex 直连用户指定的 URL（Responses API），
-  // Claude 工具直连用户指定的 Anthropic 端点。
-  // v2.0.0: DeepSeek 官方直连（原生 Responses API），不再需要本地代理。
-  // 因此仅 agnes/glm 需要代理。
-  const codexNeedsProxy = prefs.provider === 'agnes' || prefs.provider === 'glm';
-  const desktopNeedsProxy = prefs.claudeDesktopProvider === 'agnes';
-  const cliNeedsProxy = prefs.claudeCliProvider === 'agnes';
-  if (!codexNeedsProxy && !desktopNeedsProxy && !cliNeedsProxy) {
-    log.info('所有工具均为直连模式，跳过代理启动');
-    // Return a non-started proxy stub — callers should handle this gracefully
-    throw Object.assign(new Error('当前所有工具均使用直连供应商，无需启动本地代理'), {
-      code: 'NO_PROXY_NEEDED',
-    });
-  }
-
-  const apiKey =
-    prefs.provider === 'agnes'
-      ? await getAgnesKey()
-      : prefs.provider === 'glm'
-        ? await getGlmKey()
-        : prefs.provider === 'custom'
-          ? await getCustomKey()
-          : await getApiKey();
-  const upstreamBase =
-    prefs.provider === 'agnes'
-      ? 'apihub.agnes-ai.com'
-      : prefs.provider === 'glm'
-        ? 'open.bigmodel.cn'
-        : prefs.provider === 'custom'
-          ? // 自定义供应商为直连模式，代理不会实际使用此 hostname
-            'custom-direct'
-          : 'api.deepseek.com';
-  proxy = new DeepSeekProxy({
-    apiKey,
-    upstreamBase,
-    agnesApiKey:
-      prefs.provider === 'agnes'
-        ? apiKey
-        : desktopNeedsProxy || cliNeedsProxy
-          ? await getAgnesKey().catch(() => '')
-          : '',
-    agnesUpstreamBase: 'apihub.agnes-ai.com',
-    activeModelMapping: prefs.activeModelMapping,
-    port: prefs.proxyPort,
-    modelMapping: prefs.modelMapping,
-    defaultModel: prefs.defaultModel,
-    blockBackgroundSuggestions: prefs.blockBackgroundSuggestions,
-    // v1.14.1: 使用用户配置的缓存上限，确保与 store 一致
-    cacheMaxEntries: prefs.conversationCacheLimit,
-    // v1.7.0 telemetry: model_call 事件
-    onModelCall: (event) => {
-      telemetry?.track('model_call', event);
-    },
-  });
-  proxy.on('status', (status: ProxyStatus) => {
-    mainWindow?.webContents.send(IPC.proxyOnStatus, status);
-    // v1.7.0 telemetry
-    if (status === 'running') {
-      telemetry?.track('proxy_start', {
-        port: proxy?.getPort() ?? prefs.proxyPort,
-        default_model: prefs.defaultModel,
-      });
-    } else if (status === 'stopped') {
-      telemetry?.track('proxy_stop', {
-        uptime_seconds: proxy ? Math.floor(proxy.getUptimeMs() / 1000) : 0,
-        request_count: proxy?.getRequestCount() ?? 0,
-      });
-    }
-  });
-  proxy.on('log', (entry: ProxyLogEntry) => {
-    logBuffer.push(entry);
-    if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
-    mainWindow?.webContents.send(IPC.proxyOnLog, entry);
-    persistentLog?.append(entry);
-    log.info(`[${entry.source}] ${entry.message}`);
-  });
-  proxy.on('proxy-error', (info: ProxyErrorInfo) => {
-    mainWindow?.webContents.send(IPC.proxyOnError, info);
-    try {
-      setPreferences({ lastErrorMessage: info.message, lastErrorAt: Date.now() });
-    } catch (e) {
-      log.warn('记录 lastError 失败：', (e as Error).message);
-    }
-    // v1.15.1 telemetry（增强：附带 error_message / platform / app_version）
-    telemetry?.track('proxy_error', {
-      error_kind: info.kind,
-      port: info.port,
-      error_message: info.message,
-      platform: process.platform,
-      app_version: app.getVersion(),
-    });
-  });
-  return proxy;
+/**
+ * 把文件写入类异常归类成**不含任何用户数据**的枚举（v3.0.0）。
+ *
+ * 绝不要改成返回 `e.message`：历史上正是原始报错文本把 API Key 送进了遥测库。
+ */
+function classifyWriteError(e: unknown): string {
+  const code = (e as NodeJS.ErrnoException)?.code;
+  if (code === 'EACCES' || code === 'EPERM') return 'path-denied';
+  if (code === 'ENOENT') return 'path-missing';
+  if (code === 'ENOSPC') return 'disk-full';
+  const msg = (e as Error)?.message ?? '';
+  if (msg.includes('API Key') || msg.includes('Key')) return 'key-missing';
+  return 'write-failed';
 }
 
 function isDev(): boolean {
@@ -258,134 +124,43 @@ async function createWindow(): Promise<void> {
 /** §3：事务性应用偏好——store → ~/.codex → 必要时重启代理。任一步失败抛出。 */
 async function applyPreferencesTransaction(
   patch: Partial<UserPreferences> & { codexModel?: string },
-): Promise<{
-  prefs: UserPreferences;
-  codexWritten: boolean;
-  restarted: boolean;
-  portChanged: boolean;
-}> {
+): Promise<{ prefs: UserPreferences; codexWritten: boolean }> {
   const before = getPreferences();
   const { codexModel, ...prefsPatch } = patch;
-  const portChanged =
-    prefsPatch.proxyPort !== undefined && prefsPatch.proxyPort !== before.proxyPort;
-  const providerChanged =
-    prefsPatch.provider !== undefined && prefsPatch.provider !== before.provider;
-  const apiKey = await getApiKey();
 
-  // 1) 写偏好（H6: serialized to prevent concurrent write races）
+  // 1) 写偏好（H6: 串行化，避免并发写竞争）
   const next = await setPreferencesSerialized(prefsPatch);
 
-  // 2) 同步代理选项（不重启）
-  if (proxy && !providerChanged) {
-    proxy.updateOptions({
-      port: next.proxyPort,
-      modelMapping: next.modelMapping,
-      defaultModel: next.defaultModel,
-      blockBackgroundSuggestions: next.blockBackgroundSuggestions,
-    });
-  }
-  // v1.10.0: sync PluginManager + ServerClient when serverUrl changes
+  // 2) serverUrl 变化时同步 PluginManager + ServerClient（v1.10.0）
   if (prefsPatch.serverUrl !== undefined) {
     const newUrl = resolveServerUrl(next);
     if (serverClient) serverClient.setBaseUrl(newUrl);
-    if (pluginManager) pluginManager.setServerUrl(newUrl);
   }
 
-  // 3) 供应商切换：更新 proxy 上游+Key + 映射
-  // v1.16.0: 检测是否跨直连/代理边界——跨边界时需要重写 config.toml 并启停代理
-  // v2.0.0: DeepSeek 官方直连，custom/deepseek 均视为直连
-  const beforeDirect = before.provider === 'custom' || before.provider === 'deepseek';
-  const afterDirect = next.provider === 'custom' || next.provider === 'deepseek';
-  if (providerChanged && proxy) {
-    const newKey =
-      next.provider === 'agnes'
-        ? await getAgnesKey()
-        : next.provider === 'glm'
-          ? await getGlmKey()
-          : next.provider === 'custom'
-            ? await getCustomKey()
-            : apiKey;
-    const newUpstream =
-      next.provider === 'agnes'
-        ? 'apihub.agnes-ai.com'
-        : next.provider === 'glm'
-          ? 'open.bigmodel.cn'
-          : next.provider === 'custom'
-            ? 'custom-direct'
-            : 'api.deepseek.com';
-    const agnesK = next.provider === 'deepseek' ? await getAgnesKey().catch(() => '') : undefined;
-    proxy.updateOptions({
-      apiKey: newKey,
-      upstreamBase: newUpstream,
-      agnesApiKey: agnesK,
-      defaultModel: next.defaultModel,
-      activeModelMapping: {
-        'codex-switch': { model: next.defaultModel, provider: next.provider },
-      },
-    });
-  }
-
-  // v1.16.0: 所有工具直连时自动停止代理；反之，从直连切回代理时自动启动
-  // v2.0.0: DeepSeek 官方直连（custom/deepseek 均直连）。以「系统级全直连」判定
-  // 代理启停——任一工具需要代理（Codex=glm/agnes，或 Claude Desktop/CLI=agnes）
-  // 就确保代理在跑，避免「Codex 直连 + Claude 工具切 Agnes」时代理不自动启动。
-  const codexDirectBefore = before.provider === 'custom' || before.provider === 'deepseek';
-  const codexDirectAfter = next.provider === 'custom' || next.provider === 'deepseek';
-  const desktopDirectBefore = before.claudeDesktopProvider !== 'agnes';
-  const desktopDirectAfter = next.claudeDesktopProvider !== 'agnes';
-  const cliDirectBefore = before.claudeCliProvider !== 'agnes';
-  const cliDirectAfter = next.claudeCliProvider !== 'agnes';
-  const beforeAllDirect = codexDirectBefore && desktopDirectBefore && cliDirectBefore;
-  const afterAllDirect = codexDirectAfter && desktopDirectAfter && cliDirectAfter;
-  const allDirectChanged = beforeAllDirect !== afterAllDirect;
-
-  if (proxy) {
-    if (afterAllDirect && proxy.getStatus() === 'running') {
-      log.info('所有工具均为直连模式，自动停止代理');
-      await proxy.stop();
-    } else if (!afterAllDirect && allDirectChanged && proxy.getStatus() !== 'running') {
-      log.info('工具从直连切换为代理模式，自动启动代理');
-      await proxy.start();
-    }
-  } else if (!afterAllDirect && allDirectChanged) {
-    // proxy 实例不存在（之前全直连）→ 现在有工具需要代理时创建并启动
-    log.info('从全直连切换到代理模式，创建并启动代理');
-    try {
-      const newProxy = await ensureProxy();
-      await newProxy.start();
-    } catch (e) {
-      log.error('自动启动代理失败：', (e as Error).message);
-    }
-  }
-
-  // 4) 写 ~/.codex
-  // - 供应商未变或有 apiKey 时写入
-  // - 跨直连/代理边界时必须重写（因为 config.toml 的 base_url 会变）
-  // v1.16.0: 自定义供应商直连模式——config.toml 写用户指定 URL，auth.json 写 Custom Key
-  // v2.0.0: 直连模板内容因供应商而异（deepseek/custom 各写各的 base_url），
-  // 供应商变更时只要任意一侧是直连就需重写 config.toml（纯代理 agnes↔glm 模板相同，无需重写）。
+  // 3) 写 ~/.codex
+  //
+  // v3.0.0: 无条件写。原先有一长串 shouldWriteCodex 判断，只为在「代理模板相同的
+  // agnes↔glm 切换」时省一次写入；现在每个供应商的模板都不同（base_url / providerId
+  // 都不一样），而且 writeWithBackup 对内容相同的写入本来就会跳过——无条件写既更简单，
+  // 也更正确（顺带自愈用户手工改坏或外部工具覆盖过的配置）。
   let codexWritten = false;
-  const effectiveKey = next.provider === 'custom' ? await getCustomKey().catch(() => '') : apiKey;
-  const shouldWriteCodex = (!providerChanged || beforeDirect || afterDirect) && effectiveKey;
-  if (shouldWriteCodex) {
+  const provider = getProvider(next.provider);
+  const effectiveKey = await getKey(provider).catch(() => '');
+  if (effectiveKey) {
     try {
       await writeCodexConfig({
-        proxyPort: next.proxyPort,
         model: codexModel || next.defaultModel,
         apiKey: effectiveKey,
-        provider: next.provider,
+        provider: provider.id,
         customCodexBaseUrl: next.customProvider?.codexBaseUrl,
+        maxBackupsPerFile: next.maxBackupsPerFile,
       });
       codexWritten = true;
     } catch (e) {
-      // H6: rollback with serialized write — re-read current prefs to avoid
-      // overwriting concurrent changes from another IPC handler
+      // H6: 回滚（串行写；重新读取当前值，避免覆盖其他 IPC handler 的并发改动）
       const current = getPreferences();
       await setPreferencesSerialized({
-        proxyPort: before.proxyPort,
         defaultModel: before.defaultModel,
-        modelMapping: before.modelMapping,
-        blockBackgroundSuggestions: before.blockBackgroundSuggestions,
         ...Object.fromEntries(
           Object.keys(prefsPatch).map((k) => [
             k,
@@ -393,56 +168,21 @@ async function applyPreferencesTransaction(
           ]),
         ),
       } as Partial<UserPreferences>);
-      if (proxy) {
-        proxy.updateOptions({
-          port: before.proxyPort,
-          modelMapping: before.modelMapping,
-          defaultModel: before.defaultModel,
-          blockBackgroundSuggestions: before.blockBackgroundSuggestions,
-        });
-      }
       throw e;
     }
   }
 
-  // 5) 端口变了且代理在跑则重启（供应商切换不重启）
-  let restarted = false;
-  if (portChanged && proxy && proxy.getStatus() === 'running') {
-    await proxy.restart();
-    restarted = true;
-  }
-
-  return { prefs: next, codexWritten, restarted, portChanged };
+  return { prefs: next, codexWritten };
 }
 
 function registerIpc(): void {
   ipcMain.handle(IPC.prefsGet, () => getPreferences());
   ipcMain.handle(IPC.prefsSet, async (_e, patch: Partial<UserPreferences>) => {
-    // H5: validate critical fields
-    if (patch.proxyPort !== undefined) {
-      if (
-        typeof patch.proxyPort !== 'number' ||
-        !Number.isInteger(patch.proxyPort) ||
-        patch.proxyPort < 1 ||
-        patch.proxyPort > 65535
-      ) {
-        throw new Error(`端口号无效：${patch.proxyPort}`);
-      }
-    }
     const next = setPreferences(patch);
-    if (proxy) {
-      proxy.updateOptions({
-        port: next.proxyPort,
-        modelMapping: next.modelMapping,
-        defaultModel: next.defaultModel,
-        blockBackgroundSuggestions: next.blockBackgroundSuggestions,
-      });
-    }
-    // v1.10.0: sync PluginManager + ServerClient when user changes server URL
-    if (patch.serverUrl !== undefined || patch.proxyPort !== undefined) {
+    // sync ServerClient when user changes server URL
+    if (patch.serverUrl !== undefined) {
       const newUrl = resolveServerUrl(next);
       if (serverClient) serverClient.setBaseUrl(newUrl);
-      if (pluginManager) pluginManager.setServerUrl(newUrl);
     }
     return next;
   });
@@ -459,188 +199,61 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle(IPC.keyGet, async () => {
-    const v = await getApiKey();
-    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
-  });
-  ipcMain.handle(IPC.agnesKeyGet, async () => {
-    const v = await getAgnesKey();
-    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
-  });
-  ipcMain.handle(IPC.agnesKeySet, async (_e, key: string) => {
-    if (typeof key !== 'string' || key.length < 4) {
-      throw new Error('Agnes Key 格式不正确');
+  // ─── 供应商注册表 ────────────────────────────────────────────────────────
+  // 渲染进程不能 import electron/，设置页所需的供应商元数据（标签、模型表、档位默认值、
+  // Key 提示语）统一由这条通道下发。返回纯数据，见 tests/unit/providers.test.ts 的守门断言。
+  ipcMain.handle(IPC.providersList, () => PROVIDER_LIST);
+
+  // ─── API Key ─────────────────────────────────────────────────────────────
+  // v3.0.0: 通道对「供应商」泛型化——原先每个供应商各一套 get/set/clear（12 个 handler、
+  // 9 条通道常量，共约 195 行复制粘贴），现统一为 3 条通道 + 一个 providerId 参数。
+  const requireProvider = (id: unknown): ProviderId => {
+    const found = PROVIDER_LIST.find((p) => p.id === id);
+    if (!found) throw new Error(`未知供应商：${String(id)}`);
+    return found.id;
+  };
+
+  ipcMain.handle(IPC.keyGet, async (_e, providerId: unknown) =>
+    maskKey(await getKey(requireProvider(providerId))),
+  );
+
+  ipcMain.handle(IPC.keySet, async (_e, providerId: unknown, key: string) => {
+    const provider = getProvider(requireProvider(providerId));
+    const raw = String(key ?? '');
+    if (raw.trim().length < provider.key.minLength) {
+      throw new Error(`${provider.label} Key 格式不正确：长度应至少 ${provider.key.minLength} 位`);
     }
-    await setAgnesKey(key);
-    if (proxy && getPreferences().provider === 'agnes') {
-      proxy.updateOptions({ apiKey: key });
+    if (provider.key.prefix && !raw.startsWith(provider.key.prefix)) {
+      throw new Error(
+        `${provider.label} Key 格式不正确：应以 ${provider.key.prefix} 开头且长度至少 ${provider.key.minLength} 位`,
+      );
     }
-    // v1.14.0: auto-apply Claude configs only for tools whose provider is Agnes.
+    const trimmed = raw.trim();
+    await setKey(provider, trimmed);
+    // 保存 Key 后，为「当前正使用该供应商」的工具补写 Claude 配置（尽力而为）
     const prefs = getPreferences();
     if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
       detectAll()
         .then(async (result) => {
           if (
             prefs.claudeCli.enabled &&
-            (prefs.claudeCliProvider ?? 'deepseek') === 'agnes' &&
-            result.claudeCli.installed &&
-            !result.claudeCli.configApplied
-          ) {
-            await writeClaudeCliConfig(
-              key,
-              resolveEnvVars(prefs.claudeCli.envVars, 'agnes').envVars,
-              'agnes',
-            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
-          }
-          if (
-            prefs.claudeDesktop.enabled &&
-            (prefs.claudeDesktopProvider ?? 'deepseek') === 'agnes' &&
-            result.claudeDesktop.installed &&
-            !result.claudeDesktop.configApplied
-          ) {
-            await writeClaudeDesktopConfig(key, 'agnes').catch((e) =>
-              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
-            );
-          }
-        })
-        .catch((e) => log.warn('[main] 保存 Agnes key 后检测失败：', (e as Error).message));
-    }
-    return true;
-  });
-  ipcMain.handle(IPC.agnesKeyClear, async () => {
-    await clearAgnesKey();
-    return true;
-  });
-  ipcMain.handle(IPC.glmKeyGet, async () => {
-    const v = await getGlmKey();
-    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
-  });
-  ipcMain.handle(IPC.glmKeySet, async (_e, key: string) => {
-    // H5: validate GLM key (JWT-style token, min 10 chars)
-    if (typeof key !== 'string' || key.trim().length < 10) {
-      throw new Error('GLM Key 格式不正确：长度应至少 10 位');
-    }
-    const trimmed = key.trim();
-    await setGlmKey(trimmed);
-    if (proxy && getPreferences().provider === 'glm') proxy.updateOptions({ apiKey: trimmed });
-    // v1.14.0: auto-apply Claude configs only for tools whose provider is GLM.
-    const prefs = getPreferences();
-    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
-      detectAll()
-        .then(async (result) => {
-          if (
-            prefs.claudeCli.enabled &&
-            (prefs.claudeCliProvider ?? 'deepseek') === 'glm' &&
+            (prefs.claudeCliProvider ?? 'deepseek') === provider.id &&
             result.claudeCli.installed &&
             !result.claudeCli.configApplied
           ) {
             await writeClaudeCliConfig(
               trimmed,
-              resolveEnvVars(prefs.claudeCli.envVars, 'glm').envVars,
-              'glm',
+              resolveEnvVars(prefs.claudeCli.envVars, provider.id).envVars,
+              provider.id,
             ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
           }
           if (
             prefs.claudeDesktop.enabled &&
-            (prefs.claudeDesktopProvider ?? 'deepseek') === 'glm' &&
+            (prefs.claudeDesktopProvider ?? 'deepseek') === provider.id &&
             result.claudeDesktop.installed &&
             !result.claudeDesktop.configApplied
           ) {
-            await writeClaudeDesktopConfig(trimmed, 'glm').catch((e) =>
-              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
-            );
-          }
-        })
-        .catch((e) => log.warn('[main] 保存 GLM key 后检测失败：', (e as Error).message));
-    }
-    return true;
-  });
-  ipcMain.handle(IPC.glmKeyClear, async () => {
-    await clearGlmKey();
-    return true;
-  });
-  // v1.16.0 自定义供应商
-  ipcMain.handle(IPC.customKeyGet, async () => {
-    const v = await getCustomKey();
-    return v ? `${v.slice(0, 4)}…${v.slice(-4)}` : '';
-  });
-  ipcMain.handle(IPC.customKeySet, async (_e, key: string) => {
-    if (typeof key !== 'string' || key.trim().length < 10) {
-      throw new Error('自定义供应商 Key 格式不正确：长度应至少 10 位');
-    }
-    const trimmed = key.trim();
-    await setCustomKey(trimmed);
-    // 自定义供应商直连模式：不需要更新代理 upstream（Codex 直连用户指定 URL）
-    if (proxy && getPreferences().provider === 'custom') {
-      proxy.updateOptions({ apiKey: trimmed });
-    }
-    // v1.16.0: auto-apply Claude configs only for tools whose provider is custom.
-    const prefs = getPreferences();
-    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
-      detectAll()
-        .then(async (result) => {
-          if (
-            prefs.claudeCli.enabled &&
-            (prefs.claudeCliProvider ?? 'deepseek') === 'custom' &&
-            result.claudeCli.installed &&
-            !result.claudeCli.configApplied
-          ) {
-            await writeClaudeCliConfig(
-              trimmed,
-              resolveEnvVars(prefs.claudeCli.envVars, 'custom').envVars,
-              'custom',
-            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
-          }
-          if (
-            prefs.claudeDesktop.enabled &&
-            (prefs.claudeDesktopProvider ?? 'deepseek') === 'custom' &&
-            result.claudeDesktop.installed &&
-            !result.claudeDesktop.configApplied
-          ) {
-            await writeClaudeDesktopConfig(trimmed, 'custom').catch((e) =>
-              log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
-            );
-          }
-        })
-        .catch((e) => log.warn('[main] 保存自定义供应商 key 后检测失败：', (e as Error).message));
-    }
-    return true;
-  });
-  ipcMain.handle(IPC.customKeyClear, async () => {
-    await clearCustomKey();
-    return true;
-  });
-  ipcMain.handle(IPC.keySet, async (_e, key: string) => {
-    // H5: validate API key format
-    if (typeof key !== 'string' || key.length < 10 || !key.startsWith('sk-')) {
-      throw new Error('API Key 格式不正确：应以 sk- 开头且长度至少 10 位');
-    }
-    await setApiKey(key);
-    if (proxy) proxy.updateOptions({ apiKey: key });
-    // v1.14.0: auto-apply Claude configs only for tools whose provider is DeepSeek.
-    const prefs = getPreferences();
-    if (prefs.claudeCli.enabled || prefs.claudeDesktop.enabled) {
-      detectAll()
-        .then(async (result) => {
-          if (
-            prefs.claudeCli.enabled &&
-            (prefs.claudeCliProvider ?? 'deepseek') === 'deepseek' &&
-            result.claudeCli.installed &&
-            !result.claudeCli.configApplied
-          ) {
-            await writeClaudeCliConfig(
-              key,
-              resolveEnvVars(prefs.claudeCli.envVars, 'deepseek').envVars,
-              'deepseek',
-            ).catch((e) => log.warn('[main] claudeCli 自动写入失败：', (e as Error).message));
-          }
-          if (
-            prefs.claudeDesktop.enabled &&
-            (prefs.claudeDesktopProvider ?? 'deepseek') === 'deepseek' &&
-            result.claudeDesktop.installed &&
-            !result.claudeDesktop.configApplied
-          ) {
-            await writeClaudeDesktopConfig(key, 'deepseek').catch((e) =>
+            await writeClaudeDesktopConfig(trimmed, provider.id).catch((e) =>
               log.warn('[main] claudeDesktop 自动写入失败：', (e as Error).message),
             );
           }
@@ -649,88 +262,10 @@ function registerIpc(): void {
     }
     return true;
   });
-  ipcMain.handle(IPC.keyClear, async () => {
-    await clearApiKey();
-    if (proxy) proxy.updateOptions({ apiKey: '' });
-    return true;
-  });
 
-  ipcMain.handle(IPC.proxyStart, async () => {
-    try {
-      const p = await ensureProxy();
-      const port = await p.start();
-      return { port, status: p.getStatus() };
-    } catch (e) {
-      if ((e as Record<string, unknown>).code === 'NO_PROXY_NEEDED') {
-        return { port: getPreferences().proxyPort, status: 'direct' as const };
-      }
-      throw e;
-    }
-  });
-  ipcMain.handle(IPC.proxyStop, async () => {
-    // v1.16.0: 自定义供应商直连模式下没有代理实例，直接返回
-    if (!proxy) return { status: 'stopped' as const };
-    // v1.16.0: 代理未启动（direct 模式）时跳过 stop
-    if (proxy.getStatus() === 'stopped') return { status: 'stopped' as const };
-    await proxy.stop();
-    return { status: proxy.getStatus() };
-  });
-  ipcMain.handle(IPC.proxyInfo, async () => {
-    const prefs = getPreferences();
-    const lifetime = {
-      requestCount: prefs.lifetimeRequestCount,
-      uptimeSec: prefs.lifetimeUptimeSec,
-      firstStartAt: prefs.lifetimeFirstStartAt,
-      inputTokens: prefs.lifetimeInputTokens,
-      outputTokens: prefs.lifetimeOutputTokens,
-    };
-    const lastError = prefs.lastErrorMessage
-      ? { message: prefs.lastErrorMessage, ts: prefs.lastErrorAt }
-      : null;
-    if (!proxy) {
-      // v2.0.0: 无代理实例时区分「全直连（deepseek/custom + Claude 非 agnes）」与「已停止」
-      const codexDirect = prefs.provider === 'deepseek' || prefs.provider === 'custom';
-      const desktopDirect = prefs.claudeDesktopProvider !== 'agnes';
-      const cliDirect = prefs.claudeCliProvider !== 'agnes';
-      const allDirect = codexDirect && desktopDirect && cliDirect;
-      return {
-        status: allDirect ? ('direct' as const) : ('stopped' as const),
-        port: prefs.proxyPort,
-        uptimeMs: 0,
-        requestCount: 0,
-        logs: [],
-        recentStats: { total: 0, successRate: 1, avgDurationMs: 0, lastError: null },
-        lifetime,
-        lastError,
-      };
-    }
-    return {
-      status: proxy.getStatus(),
-      port: proxy.getPort(),
-      uptimeMs: proxy.getUptimeMs(),
-      requestCount: proxy.getRequestCount(),
-      logs: logBuffer.slice(-200),
-      recentStats: proxy.getRecentStats(),
-      lifetime,
-      lastError,
-    };
-  });
-  ipcMain.handle(IPC.proxyLookupPort, async (_e, port: number) => {
-    // H5: validate port range
-    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error(`端口号无效：${port}`);
-    }
-    return lookupPortHolder(port);
-  });
-  ipcMain.handle(IPC.proxyKillPort, async (_e, port: number) => {
-    // H5: validate port range
-    if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error(`端口号无效：${port}`);
-    }
-    const holder = await lookupPortHolder(port);
-    if (!holder) return { ok: false, reason: 'no-holder' as const };
-    const out = await killPid(holder.pid, holder.command);
-    return { ...out, holder };
+  ipcMain.handle(IPC.keyClear, async (_e, providerId: unknown) => {
+    await clearKey(getProvider(requireProvider(providerId)));
+    return true;
   });
 
   ipcMain.handle(IPC.codexWrite, async (_e, payload: { model: string }) => {
@@ -739,19 +274,15 @@ function registerIpc(): void {
       throw new Error('模型名称不能为空');
     }
     const prefs = getPreferences();
-    const provider = prefs.provider;
-    // v1.16.0: 自定义供应商直连模式使用 Custom Key
-    const apiKey = provider === 'custom' ? await getCustomKey() : await getApiKey();
+    const provider = getProvider(prefs.provider);
+    const apiKey = await getKey(provider).catch(() => '');
     if (!apiKey) {
-      throw new Error(
-        provider === 'custom' ? '请先填写自定义供应商 API Key' : '请先填写 DeepSeek API Key',
-      );
+      throw new Error(`请先填写 ${provider.label} API Key`);
     }
     return writeCodexConfig({
-      proxyPort: proxy?.getPort() ?? prefs.proxyPort,
       model: payload.model || prefs.defaultModel,
       apiKey,
-      provider,
+      provider: provider.id,
       customCodexBaseUrl: prefs.customProvider?.codexBaseUrl,
     });
   });
@@ -782,20 +313,6 @@ function registerIpc(): void {
   // ─── 帮助中心 ─────────────────────────────────────────────────────────
   ipcMain.handle(IPC.helpGetFaq, () => readHelpJson('faq.json'));
   ipcMain.handle(IPC.helpGetOnboarding, () => readHelpJson('onboarding.json'));
-  ipcMain.handle(IPC.helpGetQaImage, async () => {
-    const candidates = app.isPackaged
-      ? [path.join(process.resourcesPath, 'docs', 'qa.png')]
-      : [path.join(process.cwd(), 'docs', 'qa.png')];
-    for (const p of candidates) {
-      try {
-        const b = await fs.readFile(p);
-        return `data:image/png;base64,${b.toString('base64')}`;
-      } catch {
-        /* try next */
-      }
-    }
-    return '';
-  });
   ipcMain.handle(IPC.helpOpenLogsDir, () => {
     const p = log.transports.file.getFile().path;
     shell.showItemInFolder(p);
@@ -804,19 +321,13 @@ function registerIpc(): void {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
   });
   ipcMain.handle(IPC.helpGetDiagnostics, () => {
-    const prefs = getPreferences();
-    const safePrefs: Record<string, unknown> = { ...prefs };
-    delete (safePrefs as Record<string, unknown>).modelMapping;
-    const recent = logBuffer.slice(-100).map((l) => ({
-      ...l,
-      message: redactSensitive(l.message),
-    }));
+    // v3.0.0: 代理日志与持久化日志子系统均已删除，诊断包只含版本 / 系统 / 偏好。
+    // 应用自身的运行日志仍由 electron-log 写盘，可用「打开日志目录」查看。
     return {
       version: app.getVersion(),
       os: process.platform,
       arch: process.arch,
-      prefs: safePrefs,
-      recentLogs: recent,
+      prefs: getPreferences(),
       generatedAt: Date.now(),
     };
   });
@@ -825,36 +336,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.updateCheck, async () => {
     await updater.check();
   });
-  ipcMain.handle(IPC.updateDownload, async () => {
-    await updater.download();
-  });
   ipcMain.handle(IPC.updateInstall, async () => {
     log.info('用户点击升级，准备清理资源并重启安装…');
     isInstallingUpdate = true;
-    try {
-      if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
-      if (proxy) {
-        await Promise.race([
-          flushLifetime(),
-          new Promise((resolve) => setTimeout(resolve, 1500)), // 限时 1.5s
-        ]);
-        await Promise.race([
-          proxy.stop(),
-          new Promise((resolve) => setTimeout(resolve, 2000)), // 限时 2s
-        ]);
-      }
-      await Promise.race([
-        persistentLog?.close(),
-        new Promise((resolve) => setTimeout(resolve, 1000)),
-      ]);
-    } catch (e) {
-      log.warn('清理资源准备更新失败：', (e as Error).message);
-    }
+    // v3.0.0: 代理与持久化日志都已删除，无需再等待任何资源释放（BUG-004 的前提消失）。
     updater.install();
   });
   ipcMain.handle(
     IPC.updateSetMirror,
-    async (_e, mirror: 'server' | 'auto' | 'github' | 'ghproxy' | 'custom', custom?: string) => {
+    async (_e, mirror: 'server' | 'github' | 'ghproxy' | 'custom', custom?: string) => {
       const prefs = getPreferences();
       const serverUrl = resolveServerUrl(prefs);
       await updater.setMirror(mirror, custom, serverUrl);
@@ -875,23 +365,6 @@ function registerIpc(): void {
   });
 
   // ─── 持久化日志 ───────────────────────────────────────────────────────
-  ipcMain.handle(IPC.logsLoadPersisted, async (_e, limit?: number) => {
-    if (!persistentLog) return [];
-    return persistentLog.loadTail(typeof limit === 'number' && limit > 0 ? limit : 500);
-  });
-  ipcMain.handle(IPC.logsClearPersisted, async () => {
-    if (persistentLog) await persistentLog.clearAll();
-    logBuffer.length = 0;
-    return true;
-  });
-  ipcMain.handle(IPC.logsOpenDir, () => {
-    if (persistentLog) shell.showItemInFolder(persistentLog.getFilePath());
-  });
-  ipcMain.handle(IPC.logsGetStats, async () => {
-    if (!persistentLog) return { files: 0, totalBytes: 0 };
-    return persistentLog.getStats();
-  });
-
   // ─── v1.3.0 Claude 接入 ──────────────────────────────────────────────
   ipcMain.handle(IPC.claudeDetect, () => detectAll());
   ipcMain.handle(IPC.claudeApplyAll, async () => {
@@ -900,98 +373,60 @@ function registerIpc(): void {
 
     // v1.13.0: Claude Desktop 和 CLI 各自独立的供应商
     // v1.14.3: 不再依赖 installed 检测（用户显式保存时即使未检测到安装也应写入配置）
-    if (prefs.claudeDesktop.enabled) {
-      const dp = prefs.claudeDesktopProvider ?? 'deepseek';
-      const dk =
-        dp === 'agnes'
-          ? await getAgnesKey()
-          : dp === 'glm'
-            ? await getGlmKey()
-            : dp === 'custom'
-              ? await getCustomKey()
-              : await getApiKey();
-      if (dk) {
-        try {
-          await writeClaudeDesktopConfig(dk, dp);
-          telemetry?.track('tool_install', { tool: 'claude-desktop' });
-        } catch (e) {
-          const msg = (e as Error).message?.slice(0, 50) ?? 'unknown';
-          errors.push(`Claude Desktop 配置写入失败：${msg}`);
-          telemetry?.track('tool_install_fail', {
-            tool: 'claude-desktop',
-            error_code: msg,
-            platform: process.platform,
-            app_version: app.getVersion(),
-          });
-        }
-      } else {
-        const providerLabel =
-          dp === 'glm'
-            ? '智谱 GLM'
-            : dp === 'agnes'
-              ? 'Agnes AI'
-              : dp === 'custom'
-                ? '自定义供应商'
-                : 'DeepSeek';
-        errors.push(`缺少 ${providerLabel} API Key，请先在供应商设置中配置`);
+    // v3.0.0: 取 Key 与展示名统一走注册表，两个工具共用同一段逻辑（原先各抄一份含 agnes 的级联）
+    const applyClaudeTool = async (
+      enabled: boolean,
+      providerId: ProviderId,
+      tool: 'claude-desktop' | 'claude-cli',
+      label: string,
+    ): Promise<void> => {
+      if (!enabled) return;
+      const provider = getProvider(providerId);
+      const key = await getKey(provider).catch(() => '');
+      if (!key) {
+        errors.push(
+          tool === 'claude-cli'
+            ? `${label}：缺少 ${provider.label} API Key，请先在供应商设置中配置`
+            : `缺少 ${provider.label} API Key，请先在供应商设置中配置`,
+        );
+        return;
       }
-    }
-
-    if (prefs.claudeCli.enabled) {
-      const cp = prefs.claudeCliProvider ?? 'deepseek';
-      const ck =
-        cp === 'agnes'
-          ? await getAgnesKey()
-          : cp === 'glm'
-            ? await getGlmKey()
-            : cp === 'custom'
-              ? await getCustomKey()
-              : await getApiKey();
-      if (ck) {
-        try {
-          // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值覆盖，保护用户手动选择的模型
-          const { envVars, changed } = resolveEnvVars(prefs.claudeCli.envVars, cp);
-          if (changed) {
-            setPreferences({ claudeCli: { enabled: true, envVars } });
-          }
-          await writeClaudeCliConfig(ck, envVars, cp);
-          telemetry?.track('tool_install', { tool: 'claude-cli' });
-        } catch (e) {
-          const msg = (e as Error).message?.slice(0, 50) ?? 'unknown';
-          errors.push(`Claude Code CLI 配置写入失败：${msg}`);
-          telemetry?.track('tool_install_fail', {
-            tool: 'claude-cli',
-            error_code: msg,
-            platform: process.platform,
-            app_version: app.getVersion(),
-          });
+      try {
+        if (tool === 'claude-desktop') {
+          await writeClaudeDesktopConfig(key, provider.id);
+        } else {
+          // v1.14.1: 只在 envVars 为空或属于其他供应商时才用默认值覆盖，保护用户手选的模型
+          const { envVars, changed } = resolveEnvVars(prefs.claudeCli.envVars, provider.id);
+          if (changed) setPreferences({ claudeCli: { enabled: true, envVars } });
+          await writeClaudeCliConfig(key, envVars, provider.id);
         }
-      } else {
-        const providerLabel =
-          cp === 'glm'
-            ? '智谱 GLM'
-            : cp === 'agnes'
-              ? 'Agnes AI'
-              : cp === 'custom'
-                ? '自定义供应商'
-                : 'DeepSeek';
-        errors.push(`Claude Code CLI：缺少 ${providerLabel} API Key，请先在供应商设置中配置`);
-      }
-    }
-
-    // v1.13.0: 同步代理上游（任一 Claude 工具选 Agnes 时）
-    const hasAgnesClaude =
-      prefs.claudeDesktopProvider === 'agnes' || prefs.claudeCliProvider === 'agnes';
-    if (proxy && hasAgnesClaude) {
-      const agnesK = await getAgnesKey();
-      if (agnesK) {
-        proxy.updateOptions({
-          upstreamBase: 'apihub.agnes-ai.com',
-          apiKey: agnesK,
-          defaultModel: 'agnes-2.0-flash',
+        telemetry?.track('tool_install', { tool });
+      } catch (e) {
+        const msg = (e as Error).message?.slice(0, 50) ?? 'unknown';
+        errors.push(`${label} 配置写入失败：${msg}`);
+        // v3.0.0: 只上报**本地归类后的枚举**，绝不上报原始报错文本 ——
+        // 历史上 error_code 曾把完整 API Key 送进遥测库（TASK-098），服务端至今需人工清理。
+        telemetry?.track('tool_install_fail', {
+          tool,
+          error_kind: classifyWriteError(e),
+          platform: process.platform,
+          app_version: app.getVersion(),
         });
       }
-    }
+    };
+
+    await applyClaudeTool(
+      prefs.claudeDesktop.enabled,
+      prefs.claudeDesktopProvider ?? 'deepseek',
+      'claude-desktop',
+      'Claude Desktop',
+    );
+    await applyClaudeTool(
+      prefs.claudeCli.enabled,
+      prefs.claudeCliProvider ?? 'deepseek',
+      'claude-cli',
+      'Claude Code CLI',
+    );
 
     if (errors.length > 0) {
       throw Object.assign(new Error(errors.join('；')), { errors });
@@ -1023,150 +458,9 @@ function registerIpc(): void {
     telemetry?.setEnabled(v);
     setPreferences({ telemetryEnabled: v });
   });
-  ipcMain.handle(IPC.telemetryGetOnline, () => {
-    return telemetry?.isOnline() ?? false;
-  });
   ipcMain.handle(IPC.serverPing, async () => {
     if (!serverClient) return false;
     return serverClient.ping();
-  });
-
-  // ─── v1.9.0 对话缓存 ────────────────────────────────────────────────────
-  ipcMain.handle(IPC.conversationCacheStats, async () => {
-    if (!proxy) return { count: 0, oldestTimestamp: null };
-    return proxy.getConversationCacheStats();
-  });
-  ipcMain.handle(IPC.conversationCacheClear, async () => {
-    if (!proxy) return;
-    await proxy.clearConversationCache();
-  });
-  ipcMain.handle(IPC.conversationCacheSetLimit, async (_e, limit: number) => {
-    if (!proxy) return;
-    proxy.setConversationCacheLimit(limit);
-    setPreferences({ conversationCacheLimit: limit });
-  });
-
-  // ─── v1.10.0 离线插件安装 ──────────────────────────────────────────────
-  ipcMain.handle(IPC.pluginsGetPackInfo, async (_e, type?: 'codex' | 'claude') => {
-    if (!pluginManager) throw new Error('插件管理器未初始化');
-    const effectiveUrl = resolveServerUrl(getPreferences());
-    const packType = type || 'codex';
-    log.info('[plugins] 获取插件包信息，type=%s，服务器：%s', packType, effectiveUrl);
-    const startedAt = Date.now();
-    try {
-      const info = await pluginManager.getPackInfo(packType);
-      telemetry?.track('plugin_pack_info_fetch', {
-        success: true,
-        duration_ms: Date.now() - startedAt,
-        version: info.version,
-        plugin_count: info.plugin_count,
-      });
-      return info;
-    } catch (e) {
-      telemetry?.track('plugin_pack_info_fetch', {
-        success: false,
-        duration_ms: Date.now() - startedAt,
-        error: (e as Error).message?.slice(0, 100) ?? 'unknown',
-      });
-      throw e;
-    }
-  });
-
-  ipcMain.handle(IPC.pluginsDownload, async (_e, savePath?: string, type?: 'codex' | 'claude') => {
-    if (!pluginManager) throw new Error('插件管理器未初始化');
-    const packType = type || 'codex';
-    const effectiveUrl = resolveServerUrl(getPreferences());
-    log.info('[plugins] 开始下载插件包，type=%s，服务器：%s', packType, effectiveUrl);
-    const effectiveSavePath = savePath || '';
-    const downloadStartedAt = Date.now();
-    telemetry?.track('plugin_pack_download', { phase: 'start', type: packType });
-    // Download runs async; progress/complete/error sent via webContents
-    pluginManager
-      .downloadPack(
-        effectiveSavePath,
-        (progress) => {
-          mainWindow?.webContents.send('plugins:download-progress', progress);
-        },
-        packType,
-      )
-      .then((filePath) => {
-        telemetry?.track('plugin_pack_download', {
-          success: true,
-          duration_ms: Date.now() - downloadStartedAt,
-          cancelled: false,
-        });
-        mainWindow?.webContents.send('plugins:download-complete', filePath);
-      })
-      .catch((err) => {
-        const msg = (err as Error).message || '下载失败';
-        telemetry?.track('plugin_pack_download', {
-          success: false,
-          duration_ms: Date.now() - downloadStartedAt,
-          cancelled: msg.includes('已取消'),
-          error: msg.slice(0, 100),
-        });
-        mainWindow?.webContents.send('plugins:download-error', msg);
-      });
-    // Return immediately; actual download is async with event push
-    return 'started';
-  });
-
-  ipcMain.handle(IPC.pluginsCancelDownload, async () => {
-    if (pluginManager) pluginManager.cancelDownload();
-  });
-
-  ipcMain.handle(
-    IPC.pluginsGetInstallCommand,
-    async (
-      _e,
-      filePath: string,
-      type?: 'codex' | 'claude',
-      selectedPlugins?: string[],
-      target?: 'cowork' | 'code',
-    ) => {
-      if (!pluginManager) throw new Error('插件管理器未初始化');
-      telemetry?.track('plugin_install_command_copy', {
-        type: type ?? 'codex',
-        target: target ?? 'cowork',
-        count: selectedPlugins?.length ?? 0,
-      });
-      return pluginManager.getInstallCommand(filePath, type, selectedPlugins, target);
-    },
-  );
-
-  ipcMain.handle(IPC.pluginsOpenDownloadDir, async () => {
-    const downloadsPath = app.getPath('downloads');
-    shell.openPath(downloadsPath);
-  });
-
-  ipcMain.handle(
-    IPC.pluginsCheckExistingFile,
-    async (_e, savePath?: string, type?: 'codex' | 'claude') => {
-      if (!pluginManager) return null;
-      return pluginManager.checkExistingFile(savePath, type || 'codex');
-    },
-  );
-
-  ipcMain.handle(IPC.pluginsGetLogo, async (_e, type: 'codex' | 'claude') => {
-    const filename = type === 'codex' ? 'logo-codex.png' : 'logo-claude.svg';
-    const isSvg = filename.endsWith('.svg');
-    const mime = isSvg ? 'image/svg+xml' : 'image/png';
-    const candidates = app.isPackaged
-      ? [path.join(process.resourcesPath, 'build', filename)]
-      : [
-          path.join(__dirname, '..', '..', 'build', filename),
-          path.join(process.cwd(), 'build', filename),
-        ];
-    for (const p of candidates) {
-      try {
-        const b = await fs.readFile(p);
-        return `data:${mime};base64,${b.toString('base64')}`;
-      } catch {
-        /* try next */
-      }
-    }
-    // Fallback: return empty (renderer will use emoji fallback)
-    return '';
   });
 
   // ─── v1.11.0 邀请好友 ─────────────────────────────────────────────────
@@ -1245,254 +539,6 @@ Codex Switch 帮你突破网络限制，
       return localFallback;
     }
   });
-
-  // ─── v1.13.0 智能搜索 ─────────────────────────────────────────────────
-  ipcMain.handle(IPC.searchAsk, async (_e, query: string) => {
-    if (!query?.trim()) return { answer: '请输入问题' };
-    const apiKey = await getApiKey();
-    if (!apiKey) return { answer: '请先在设置中填写 DeepSeek API Key' };
-
-    const startedAt = Date.now();
-    const truncatedQuery = query.length > 80 ? query.slice(0, 80) + '…' : query;
-
-    // Emit log start
-    const searchEntry: ProxyLogEntry = {
-      ts: Date.now(),
-      level: 'info',
-      source: 'search',
-      message: `→ 智能搜索 query="${truncatedQuery}"`,
-      model: 'deepseek-v4-flash',
-      phase: 'start',
-    };
-    logBuffer.push(searchEntry);
-    if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
-    mainWindow?.webContents.send(IPC.proxyOnLog, searchEntry);
-    persistentLog?.append(searchEntry);
-
-    try {
-      // Build knowledge base from local help files
-      const faqText = await readHelpJson('faq.json');
-      const onboardingText = await readHelpJson('onboarding.json');
-      const contextParts: string[] = [];
-
-      if (Array.isArray(faqText)) {
-        contextParts.push(
-          '--- FAQ ---\n' +
-            faqText
-              .map(
-                (item: { question: string; answer: string }) =>
-                  `Q: ${item.question}\nA: ${item.answer}`,
-              )
-              .join('\n\n'),
-        );
-      }
-
-      if (Array.isArray(onboardingText)) {
-        contextParts.push(
-          '--- 上手指南 ---\n' +
-            onboardingText
-              .map((item: { title: string; body: string }) => `## ${item.title}\n${item.body}`)
-              .join('\n\n'),
-        );
-      }
-
-      const context = contextParts.join('\n\n');
-
-      const prompt = `你是 Codex Switch 的智能助手。Codex Switch 是一款桌面应用，
-帮助国内用户使用 Codex Desktop、Codex CLI、Claude Desktop 和 Claude Code CLI 接入 DeepSeek、智谱 GLM、Agnes AI（免费模型）和自定义 API。
-
-用户问"自定义""custom""自建""第三方""聚合""中转""多模型""API"等问题时，推荐自定义供应商——在设置中的【🔑 供应商设置】切换供应商为「自定义 · 直连」，填写你的 API 服务商的 Codex Base URL 和 Claude Base URL 以及 API Key；然后在【Codex 接入】/【Claude Desktop 接入】/【Claude Code CLI 接入】卡片中选择供应商为「自定义 · 直连」，保存即可。具体选什么供应商、填什么 Base URL 完全由你自主决定。
-用户问"免费""省钱""不要钱""哪个模型免费"等问题时，优先推荐 Agnes AI——在设置中的【Codex 接入】卡片切换供应商为 Agnes AI 即可。
-用户问"国内""中文""GLM""智谱""zhipu"等问题时，推荐智谱 GLM——在设置中的【Codex 接入】卡片切换供应商为「智谱 GLM」即可，支持 glm-5.2 / glm-5.1 / glm-4.7 三个版本。
-
-请根据以下知识库回答用户问题，注意格式：
-- 每个要点之间用空行分隔，保持整体结构清晰可读
-- 需要步骤时，每步单独一行，如 "1. 打开设置页面"
-- 涉及按钮或页面时，用【】标注，如【设置】→【保存并应用】
-- 回答控制在 5-8 句，简洁有料
-- 知识库没有覆盖的，诚实说明并给出排查方向
-- 涉及外部安装步骤（Node.js、Git 等），引导访问 https://www.codex-switch.cloud/guide
-
----知识库---
-${context}
-
----用户问题---
-${query}`;
-
-      // Call DeepSeek API
-      const {
-        hostname,
-        port,
-        path: reqPath,
-      } = (() => {
-        const u = new URL('https://api.deepseek.com/v1/chat/completions');
-        return {
-          hostname: u.hostname,
-          port: 443,
-          path: u.pathname + u.search,
-        };
-      })();
-
-      const dsResult = await new Promise<{
-        status: number;
-        body: string;
-      }>((resolve, reject) => {
-        const body = JSON.stringify({
-          model: 'deepseek-v4-flash',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 800,
-          temperature: 0.3,
-        });
-
-        const req = https.request(
-          {
-            hostname,
-            port,
-            path: reqPath,
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(body),
-              Authorization: `Bearer ${apiKey}`,
-            },
-            timeout: 15_000,
-          },
-          (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (c: Buffer) => chunks.push(c));
-            res.on('end', () =>
-              resolve({ status: res.statusCode ?? 500, body: Buffer.concat(chunks).toString() }),
-            );
-            res.on('error', reject);
-          },
-        );
-        req.on('error', reject);
-        req.on('timeout', () => {
-          req.destroy();
-          reject(new Error('请求超时'));
-        });
-        req.write(body);
-        req.end();
-      });
-
-      if (dsResult.status !== 200) {
-        throw new Error(`DeepSeek API 返回 ${dsResult.status}`);
-      }
-
-      const parsed = JSON.parse(dsResult.body) as {
-        choices?: Array<{ message?: { content?: string } }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const answer = parsed.choices?.[0]?.message?.content || '抱歉，未能生成回答，请重试。';
-
-      const durationMs = Date.now() - startedAt;
-      const usage = parsed.usage;
-
-      // Emit log success
-      const successEntry: ProxyLogEntry = {
-        ts: Date.now(),
-        level: 'info',
-        source: 'search',
-        message: `✓ 智能搜索完成 耗时=${durationMs}ms ↑${usage?.prompt_tokens ?? '?'}↓${usage?.completion_tokens ?? '?'}`,
-        model: 'deepseek-v4-flash',
-        phase: 'success',
-        durationMs,
-        meta: {
-          queryLength: query.length,
-          inputTokens: usage?.prompt_tokens,
-          outputTokens: usage?.completion_tokens,
-        },
-      };
-      logBuffer.push(successEntry);
-      if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
-      mainWindow?.webContents.send(IPC.proxyOnLog, successEntry);
-      persistentLog?.append(successEntry);
-
-      // Telemetry
-      telemetry?.track('smart_search', {
-        query_length: query.length,
-        duration_ms: durationMs,
-        success: true,
-      });
-
-      return { answer };
-    } catch (e) {
-      const durationMs = Date.now() - startedAt;
-
-      // Emit log error
-      const errorEntry: ProxyLogEntry = {
-        ts: Date.now(),
-        level: 'error',
-        source: 'search',
-        message: `✗ 智能搜索失败 ${(e as Error).message}`,
-        phase: 'error',
-      };
-      logBuffer.push(errorEntry);
-      if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
-      mainWindow?.webContents.send(IPC.proxyOnLog, errorEntry);
-      persistentLog?.append(errorEntry);
-
-      telemetry?.track('smart_search', {
-        query_length: query.length,
-        duration_ms: durationMs,
-        success: false,
-      });
-
-      return { answer: `搜索失败：${(e as Error).message}，请重试或浏览帮助页面` };
-    }
-  });
-}
-
-async function readHelpJson(name: string): Promise<unknown> {
-  const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath, 'docs', 'help', name)]
-    : [path.join(process.cwd(), 'docs', 'help', name)];
-  for (const p of candidates) {
-    try {
-      const t = await fs.readFile(p, 'utf-8');
-      return JSON.parse(t);
-    } catch {
-      /* try next */
-    }
-  }
-  return [];
-}
-
-/** §6：每 30s 把 proxy 累计的请求增量与运行时长合并到 prefs。 */
-async function flushLifetime(): Promise<void> {
-  if (lifetimeFlushing) return;
-  if (!proxy) return;
-  lifetimeFlushing = true;
-  try {
-    const { requestsDelta, uptimeMs, inputTokensDelta, outputTokensDelta } =
-      proxy.consumeLifetimeDelta();
-    if (requestsDelta === 0 && uptimeMs === 0) return;
-    const cur = getPreferences();
-    setPreferences({
-      lifetimeRequestCount: cur.lifetimeRequestCount + requestsDelta,
-      // 仅当代理在跑时累加；uptimeMs 是当前会话累计时长，所以不能直接加
-      // 这里用增量：上次 flush 时已经把 uptimeMs 记到 sessionLastUptimeMs
-      lifetimeUptimeSec: cur.lifetimeUptimeSec + Math.floor(consumeUptimeDelta(uptimeMs) / 1000),
-      lifetimeInputTokens: cur.lifetimeInputTokens + inputTokensDelta,
-      lifetimeOutputTokens: cur.lifetimeOutputTokens + outputTokensDelta,
-    });
-  } catch (e) {
-    log.warn('flushLifetime 失败：', (e as Error).message);
-  } finally {
-    lifetimeFlushing = false;
-  }
-}
-
-let sessionLastUptimeMs = 0;
-function consumeUptimeDelta(currentUptimeMs: number): number {
-  // currentUptimeMs 为 0 表示代理已停；把 baseline 重置。
-  if (currentUptimeMs === 0) {
-    sessionLastUptimeMs = 0;
-    return 0;
-  }
-  const delta = currentUptimeMs - sessionLastUptimeMs;
-  sessionLastUptimeMs = currentUptimeMs;
-  return delta > 0 ? delta : 0;
 }
 
 app.whenReady().then(async () => {
@@ -1510,7 +556,6 @@ app.whenReady().then(async () => {
     app.isPackaged,
   );
   serverClient = new ServerClient(serverBaseUrl);
-  pluginManager = new PluginManager(serverBaseUrl);
   telemetry = new TelemetryClient(
     serverClient,
     {
@@ -1523,36 +568,15 @@ app.whenReady().then(async () => {
   if (effectivePrefs.telemetryEnabled) {
     telemetry.start();
   }
-  telemetry.track('app_start', { first_run: !effectivePrefs.hasCompletedSetup });
-
-  // ─── 持久化日志 ────────────────────────────────────────────────────────
-  try {
-    persistentLog = new PersistentLog({ dir: path.join(app.getPath('userData'), 'logs') });
-    await persistentLog.prune();
-  } catch (e) {
-    log.warn('持久化日志初始化失败：', (e as Error).message);
-  }
 
   registerIpc();
   await createWindow();
 
-  const hasApiKey = (await getApiKey().catch(() => '')).length > 0;
-  // v1.16.0: 自定义供应商直连模式下跳过代理启动（ensureProxy 会 throw NO_PROXY_NEEDED）
-  if ((prefs.hasCompletedSetup || hasApiKey) && prefs.autoStartProxy) {
-    try {
-      const p = await ensureProxy();
-      await p.start();
-    } catch (e) {
-      if ((e as Record<string, unknown>).code === 'NO_PROXY_NEEDED') {
-        log.info('自动启动跳过：所有工具直连模式');
-      } else {
-        log.error('自动启动代理失败：', (e as Error).message);
-      }
-    }
-  }
+  // v3.0.0: 不再自动启动任何本地代理（已删除）。
 
   // v1.3.0 一次性迁移 + v1.6.0 直连 DeepSeek 迁移
-  const apiKey = await getApiKey().catch(() => '');
+  // 这两条迁移只服务于 DeepSeek 的历史配置，故固定取 DeepSeek 的 Key
+  const apiKey = await getKey('deepseek').catch(() => '');
   try {
     if (apiKey) await runV130ClaudeMigration(apiKey);
   } catch (e) {
@@ -1563,11 +587,12 @@ app.whenReady().then(async () => {
   } catch (e) {
     log.warn('v1.6.0 Claude Desktop 迁移失败：', (e as Error).message);
   }
-  // v2.0.0: DeepSeek 官方直连迁移（老代理模板 → 直连 + models.json）
+  // v3.0.0: 把仍指向本地代理的 config.toml 改写为当前供应商的直连配置。
+  // 对存量 GLM 用户是必需的——GLM 在 v3.0.0 之前正是走本地代理的。
   try {
-    await runV200DeepSeekDirectMigration();
+    await runV300DirectMigration();
   } catch (e) {
-    log.warn('v2.0.0 DeepSeek 直连迁移失败：', (e as Error).message);
+    log.warn('v3.0.0 直连迁移失败：', (e as Error).message);
   }
 
   // 每次启动都重新写入 Claude 配置，确保外部工具更新后仍然生效。
@@ -1591,17 +616,11 @@ app.whenReady().then(async () => {
     }
   }
 
-  lifetimeFlushTimer = setInterval(() => {
-    flushLifetime().catch(() => undefined);
-  }, 30_000);
-
   // v1.11.0: 每 6 小时自动检查更新
+  // v3.0.0: 原先要等「代理空闲」才检查，代理删除后该门槛一并消失
   if (prefs.autoCheckUpdate) {
     setInterval(() => {
-      // 仅在代理空闲时检查（无进行中的请求）
-      if (!proxy || proxy.getRecentStats().total === 0) {
-        updater.check(Boolean(getPreferences().autoDownload)).catch(() => {});
-      }
+      updater.check(Boolean(getPreferences().autoDownload)).catch(() => {});
     }, 6 * 3600_000);
   }
 
@@ -1610,85 +629,42 @@ app.whenReady().then(async () => {
   });
 });
 
-// v1.15.1 全局异常上报（增强：附带 error_message / error_stack / platform / app_version）
+// 全局异常**只写本地日志**。
+//
+// v3.0.0: 停发 error 遥测事件。它原有 error_message / error_stack（截断 500 字符），
+// 报错信息里可能带用户家目录路径与配置内容片段 —— 这是整条遥测里最明确的隐私泄露面，
+// 且崩溃排障看本地日志（electron-log）即可，无需上传。见 ADR-032。
 process.on('uncaughtException', (err) => {
   log.error('uncaughtException:', err);
-  try {
-    telemetry?.track('error', {
-      error_type: 'uncaughtException',
-      error_message: err.message,
-      error_stack: err.stack?.slice(0, 500) ?? '',
-      platform: process.platform,
-      app_version: app.getVersion(),
-    });
-  } catch {
-    /* 遥测本身失败不能递归触发 uncaughtException */
-  }
 });
 process.on('unhandledRejection', (reason) => {
   log.error('unhandledRejection:', reason);
-  try {
-    const message = reason instanceof Error ? reason.message : String(reason);
-    const stack = reason instanceof Error ? (reason.stack?.slice(0, 500) ?? '') : '';
-    telemetry?.track('error', {
-      error_type: 'unhandledRejection',
-      error_message: message,
-      error_stack: stack,
-      platform: process.platform,
-      app_version: app.getVersion(),
-    });
-  } catch {
-    /* 遥测本身失败不能递归触发 unhandledRejection */
-  }
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-let quitInProgress = false;
-app.on('before-quit', (e) => {
-  if (isInstallingUpdate) {
-    return;
+async function readHelpJson(name: string): Promise<unknown> {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'docs', 'help', name)]
+    : [path.join(process.cwd(), 'docs', 'help', name)];
+  for (const p of candidates) {
+    try {
+      const t = await fs.readFile(p, 'utf-8');
+      return JSON.parse(t);
+    } catch {
+      /* try next */
+    }
   }
-  if (quitInProgress) return;
+  return [];
+}
 
-  // v1.7.0 telemetry: 记录关闭事件
-  telemetry?.track('app_close', {
-    uptime_seconds: Math.floor(process.uptime()),
-    request_count: proxy?.getRequestCount() ?? 0,
-  });
+app.on('before-quit', () => {
+  // v3.0.0: 本地代理已删除，不再有任何需要等待其停止的资源，因此不再 preventDefault。
+  // 保留 isInstallingUpdate 的提前返回：升级流程会自行 app.exit(0)，不能被这里干扰（BUG-004）。
+  if (isInstallingUpdate) return;
 
-  if (proxy && proxy.getStatus() !== 'stopped') {
-    e.preventDefault();
-    quitInProgress = true;
-    if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
-    flushLifetime().catch(() => undefined);
-    const hardTimer = setTimeout(() => {
-      log.warn('代理 stop 超时，强制退出');
-      app.exit(0);
-    }, 3000);
-    proxy
-      .stop()
-      .catch(() => undefined)
-      .finally(async () => {
-        clearTimeout(hardTimer);
-        try {
-          // v1.7.0: 停止遥测（仅在线时 flush）
-          await telemetry?.stop();
-        } catch {
-          /* ignore */
-        }
-        try {
-          await persistentLog?.close();
-        } catch {
-          /* ignore */
-        }
-        app.exit(0);
-      });
-  } else {
-    if (lifetimeFlushTimer) clearInterval(lifetimeFlushTimer);
-    // v1.7.0: 无代理运行中，直接停止遥测
-    telemetry?.stop().catch(() => undefined);
-  }
+  // v3.0.0: 不再上报 app_close —— 配置工具「开了多久」没有意义（打开几秒关掉是常态）。
+  telemetry?.stop().catch(() => undefined);
 });

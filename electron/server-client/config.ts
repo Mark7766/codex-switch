@@ -9,8 +9,6 @@
 import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
 
-import type { UserPreferences } from '../config/store';
-
 /** 生产环境默认服务器地址 */
 export const PROD_SERVER_URL = 'https://www.codex-switch.cloud/api/v1';
 
@@ -45,15 +43,6 @@ export interface ServerConfig {
   baseUrl: string;
   telemetryEnabled: boolean;
   clientId: string;
-}
-
-/** 从 UserPreferences 构建 ServerConfig。 */
-export function getServerConfig(prefs: UserPreferences): ServerConfig {
-  return {
-    baseUrl: resolveServerUrl(prefs),
-    telemetryEnabled: prefs.telemetryEnabled ?? true,
-    clientId: prefs.clientId || '',
-  };
 }
 
 /** 拼接 baseUrl + path。baseUrl 不应带尾部 '/'。 */

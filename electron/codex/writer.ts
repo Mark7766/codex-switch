@@ -1,21 +1,27 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { authJsonPath, backupPath, codexDir, configTomlPath } from './paths';
+import { authJsonPath, codexDir, configTomlPath } from './paths';
+import {
+  backupIfExists,
+  listBackupsFor,
+  pruneBackups,
+  readFileOrNull,
+  writeWithBackup,
+} from '../config/file-write';
 import { writeModelsJson } from './models-catalog';
 import { sanitizeManagedConfig } from './config-restore';
+import { getProvider, type ProviderDescriptor, type ProviderId } from '../config/providers';
 
 export interface WriteCodexConfigInput {
-  proxyPort: number;
-  model: string; // 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'deepseek-v4-flash-vision-exp'（vision 实验模型，Codex 可读图）
+  model: string; // 供应商的模型 id，例如 'deepseek-flash' / 'glm-5.3'
   apiKey: string;
   /** 每个文件保留的最大备份份数。默认 5。 */
   maxBackupsPerFile?: number;
   /**
-   * v1.16.0: AI 供应商。custom 时使用直连模板（绕过本地代理，读取 customProvider 字段）。
-   * v2.0.0: deepseek 使用官方直连模板（base_url 指向 api.deepseek.com，写入 models.json）。
-   * 其他供应商使用代理模板（base_url 指向 127.0.0.1）。
+   * v3.0.0: AI 供应商。**所有供应商都是直连**（本地代理已移除），差异全部由
+   * `electron/config/providers.ts` 的注册表描述。
    */
-  provider?: 'deepseek' | 'agnes' | 'glm' | 'custom';
+  provider?: ProviderId;
   /** v1.16.0: 自定义供应商 Codex Base URL（仅 provider='custom' 时使用）。 */
   customCodexBaseUrl?: string;
 }
@@ -36,113 +42,101 @@ export interface WriteCodexConfigResult {
   modelsSkipped: boolean;
 }
 
-export interface WriteOpts {
-  maxBackupsPerFile?: number;
+/**
+ * 生成 config.toml（v3.0.0）。
+ *
+ * 原先 deepseek / custom / 代理 各有硬编码模板，此处收敛为**一个由注册表驱动的**构造器——
+ * 各家的差异（providerId、端点、推理强度、鉴权方式、是否写上下文窗口与 feature 开关）
+ * 全部来自 `ProviderDescriptor`。新增供应商不再需要动这个文件。
+ *
+ * `baseUrl` 一律逐字节写入：DeepSeek 的 `https://api.deepseek.com/`（带尾斜杠）和
+ * GLM 的 `https://open.bigmodel.cn/api/v1` 都是端点的一部分，不能做任何「规范化」。
+ */
+/**
+ * 生成 config.toml 中**受管的三段内容**（可组合，供合并写使用）。
+ *
+ * 拆成三段是因为 TOML 对顺序有硬要求：表头之后的裸键属于那张表。合并写时必须让
+ * 「所有顶层键」排在「所有表」之前，所以顶层键与表不能混在一个字符串里拼。
+ */
+function managedTopKeys(provider: ProviderDescriptor, model: string): string[] {
+  const c = provider.codex;
+  const lines: string[] = [`model = "${model}"`, `model_provider = "${c.providerId}"`];
+  if (c.preferredAuthMethod) lines.push(`preferred_auth_method = "${c.preferredAuthMethod}"`);
+  if (c.forcedLoginMethod) lines.push(`forced_login_method = "${c.forcedLoginMethod}"`);
+  lines.push(`model_reasoning_effort = "${c.reasoningEffort}"`);
+  if (c.catalogAsset) lines.push(`model_catalog_json = "~/.codex/models.json"`);
+  if (c.contextWindowOverrides) {
+    // 与 cc-switch 策略一致：设 1M 窗口避免 Codex 触发 compact。compact 端点需要 OpenAI
+    // 专有 encrypted_content，非 OpenAI 服务不支持，会 404。
+    lines.push(`model_context_window = 1000000`);
+    lines.push(`model_auto_compact_token_limit = 900000`);
+  }
+  return lines;
 }
 
-// v1.13.0: config.toml 写死中间模型 codex-switch。
-// 代理根据 activeModelMapping 动态路由到 DeepSeek 或 Agnes。
-// 切供应商不改 config.toml，Codex 不重启。
-const TEMPLATE = (
-  port: number,
-  _model: string,
-): string => `# Codex CLI 配置（由 Codex Switch 自动生成）
-# 完整配置参考: https://github.com/openai/codex
+/** 当前供应商的 `[model_providers.X]` 段。 */
+function providerBlock(
+  provider: ProviderDescriptor,
+  apiKey: string,
+  customBaseUrl: string,
+): string[] {
+  const c = provider.codex;
+  const baseUrl = c.baseUrl === 'custom' ? customBaseUrl : c.baseUrl;
+  const lines = [
+    `[model_providers.${c.providerId}]`,
+    `name = "${c.name}"`,
+    `base_url = "${baseUrl}"`,
+    `wire_api = "responses"`,
+  ];
+  if (c.bearerTokenInToml) lines.push(`experimental_bearer_token = "${apiKey}"`);
+  if (c.requiresOpenAiAuth) lines.push(`requires_openai_auth = true`);
+  return lines;
+}
 
-model_provider = "custom"
-model = "codex-switch"
-model_reasoning_effort = "xhigh"
-# v1.5.5: 注释掉 disable_response_storage。
-# 该行导致 Codex Desktop 切到客户端压缩模式，
-# 压缩阈值从 ~200K token 骤降到 ~10K，正常对话频繁触发 compaction。
-# compact 502 的真正修复是 wire_api + requires_openai_auth；此行非必要。
-# disable_response_storage = true
+/** 需要时输出 `[features]` 段（目前只有自定义供应商需要）。 */
+function featuresBlock(provider: ProviderDescriptor): string[] {
+  if (!provider.codex.featureFlags) return [];
+  return ['[features]', 'enable_request_compression = false', 'remote_compaction_v2 = false'];
+}
 
-# v1.13.0: 与 cc-switch 策略一致 —— 设 1M 窗口避免 Codex 触发 compact。
-# compact 端点需要 OpenAI 专有 encrypted_content，DeepSeek 不支持，
-# 经非 OpenAI 代理会 404。禁用后 Codex 不再发 compact 请求。
-model_context_window = 1000000
-model_auto_compact_token_limit = 900000
-
-[model_providers.custom]
-name = "Codex Switch"
-base_url = "http://127.0.0.1:${port}/v1"
-wire_api = "responses"
-requires_openai_auth = true
-
-# 如果你使用 DeepSeek 等非 OpenAI 服务，且 Codex 需要执行命令，可按需开启：
-# sandbox = "none"
-# approval = "auto-edit"
-
-[features]
-enable_request_compression = false
-remote_compaction_v2 = false
-`;
-
-// v1.16.0: 自定义供应商直连模板 —— Codex 直接连接用户指定的 API，不经过本地代理。
-const CUSTOM_TEMPLATE = (
+/**
+ * 把「保留内容」+「本次要写的受管内容」组装成完整的 config.toml。
+ *
+ * 顺序（TOML 硬要求，别调）：
+ *   1. 我们的顶层键
+ *   2. 保留内容里的**顶层键**（如用户的 `notify = [...]`）
+ *   3. 保留内容里的**所有表**（`[desktop]` / `[mcp_servers.*]` / 其它供应商的块 …）
+ *   4. 当前供应商的块（放最后 = 取代第 3 步里被剥掉的那份）
+ *   5. `[features]`（如需要）
+ *
+ * 1 与 2 必须排在 3 之前，否则会被 TOML 当成上一张表里的键。
+ */
+function composeCodexToml(
+  preserved: string,
+  provider: ProviderDescriptor,
   model: string,
-  baseUrl: string,
-): string => `# Codex CLI 配置（由 Codex Switch 自动生成 · 自定义供应商直连模式）
-# 完整配置参考: https://github.com/openai/codex
+  apiKey: string,
+  customBaseUrl: string,
+): string {
+  const lines = preserved.split('\n');
+  const firstTable = lines.findIndex((l) => /^\s*\[[^\]\n]+\]/.test(l));
+  const headKeys = (firstTable === -1 ? preserved : lines.slice(0, firstTable).join('\n')).trim();
+  const tables = (firstTable === -1 ? '' : lines.slice(firstTable).join('\n')).trim();
 
-model_provider = "custom"
-model = "${model}"
-model_reasoning_effort = "xhigh"
-
-model_context_window = 1000000
-model_auto_compact_token_limit = 900000
-
-[model_providers.custom]
-name = "自定义"
-base_url = "${baseUrl}"
-wire_api = "responses"
-requires_openai_auth = true
-
-[features]
-enable_request_compression = false
-remote_compaction_v2 = false
-`;
-
-// v2.0.0: DeepSeek 官方直连模板 —— Codex 直接连 DeepSeek Responses API，不经过本地代理。
-// 参照 https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/codex
-const DEEPSEEK_DIRECT_TEMPLATE = (model: string, apiKey: string): string =>
-  `# Codex CLI 配置（由 Codex Switch 自动生成 · DeepSeek 官方直连）
-model = "${model}"
-model_provider = "deepseek"
-preferred_auth_method = "apikey"
-forced_login_method = "api"
-model_reasoning_effort = "high"
-model_catalog_json = "~/.codex/models.json"
-
-[model_providers.deepseek]
-name = "deepseek"
-base_url = "https://api.deepseek.com/"
-wire_api = "responses"
-experimental_bearer_token = "${apiKey}"
-`;
+  // 按「块」拼接：块与块之间空一行，块内的行用换行 —— 别再往每个键之间塞空行
+  const blocks = [
+    `# Codex CLI 配置（由 Codex Switch 自动生成 · ${provider.label} 直连）`,
+    managedTopKeys(provider, model).join('\n'),
+    headKeys,
+    tables,
+    providerBlock(provider, apiKey, customBaseUrl).join('\n'),
+    featuresBlock(provider).join('\n'),
+  ];
+  return blocks.filter((b) => b.trim() !== '').join('\n\n') + '\n';
+}
 
 const AUTH_TEMPLATE = (apiKey: string): string =>
   JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2) + '\n';
-
-async function readFileOrNull(p: string): Promise<string | null> {
-  try {
-    return await fs.readFile(p, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-async function backupIfExists(filePath: string, suffix?: string): Promise<string | null> {
-  try {
-    await fs.access(filePath);
-  } catch {
-    return null;
-  }
-  const target = suffix ? `${filePath}.bak.${suffix}` : backupPath(filePath);
-  await fs.copyFile(filePath, target);
-  return target;
-}
 
 /** v1.9.0: 首次安装时保存原始配置，标记为 install-original，永久保留。 */
 export async function backupOriginalIfMissing(): Promise<void> {
@@ -173,11 +167,16 @@ export async function hasOriginalBackup(): Promise<boolean> {
 }
 
 /**
- * 还原为 OpenAI 官方配置——移除 Codex Switch 注入的管理路由。
- * v2.0.0 起 deepseek/custom 为官方直连（`[model_providers.deepseek]` /
- * `[model_providers.custom]` 块 + `model_provider`），v2.1.0 前只处理自定义
- * 块内的 base_url，直连块从未被清理，导致 Codex 仍路由到 DeepSeek。
- * 现统一交由 `sanitizeManagedConfig` 整段剥离（保留用户自有配置段）。
+ * 还原为 OpenAI 官方配置——让 Codex 回落到内置的 `openai`。
+ *
+ * 做法：清掉顶层受管键（`model` / `model_provider` / `model_reasoning_effort` /
+ * `model_catalog_json` / 上下文窗口 / 鉴权方式）与 `[features]` 受管键。
+ * v2.3.0 的 BUG-007（切回官方后 Codex 仍连着 DeepSeek，报 `but you passed gpt-6-astra`）
+ * 就是**顶层 `model_provider` 残留**造成的——清掉它就已经切回官方了。
+ *
+ * ⚠️ **`[model_providers.*]` 块一律保留，不传 `stripProviderBlocks`。** 删块是多余的
+ * （未被选中的块是惰性的），也是**有害的**——Codex 按对话记住 `model_provider`，
+ * 删掉某家的块会让那家的历史对话报 `Model provider X not found`。详见 ADR-034 / ADR-036。
  */
 export async function restoreOriginalConfig(): Promise<void> {
   const configPath = configTomlPath();
@@ -185,58 +184,6 @@ export async function restoreOriginalConfig(): Promise<void> {
   await backupIfExists(configPath);
   const content = await fs.readFile(configPath, 'utf8');
   await fs.writeFile(configPath, sanitizeManagedConfig(content), 'utf8');
-}
-
-/** 列出某文件所有备份（按时间倒序，最新在前）。 */
-export async function listBackupsFor(filePath: string): Promise<string[]> {
-  const dir = path.dirname(filePath);
-  const base = path.basename(filePath);
-  let entries: string[] = [];
-  try {
-    entries = await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-  const prefix = `${base}.bak.`;
-  return entries
-    .filter((n) => n.startsWith(prefix) && !n.endsWith('.install-original'))
-    .map((n) => path.join(dir, n))
-    .sort()
-    .reverse();
-}
-
-/** 滚动保留最近 keep 份；超出的删除并返回被删路径。 */
-export async function pruneBackups(filePath: string, keep: number): Promise<string[]> {
-  if (keep < 0) return [];
-  const all = await listBackupsFor(filePath);
-  const toDelete = all.slice(keep);
-  for (const p of toDelete) {
-    try {
-      await fs.unlink(p);
-    } catch {
-      // ignore
-    }
-  }
-  return toDelete;
-}
-
-/**
- * 写一个文件 + 备份 + 滚动清理；若内容相同则跳过整个流程。
- * 返回: { backup, skipped, pruned }
- */
-async function writeWithBackup(
-  filePath: string,
-  content: string,
-  keep: number,
-): Promise<{ backup: string | null; skipped: boolean; pruned: string[] }> {
-  const existing = await readFileOrNull(filePath);
-  if (existing !== null && existing === content) {
-    return { backup: null, skipped: true, pruned: [] };
-  }
-  const backup = await backupIfExists(filePath);
-  await fs.writeFile(filePath, content, 'utf8');
-  const pruned = backup ? await pruneBackups(filePath, keep) : [];
-  return { backup, skipped: false, pruned };
 }
 
 export async function writeCodexConfig(
@@ -249,18 +196,33 @@ export async function writeCodexConfig(
   const authPath = authJsonPath();
   const keep = Math.max(0, input.maxBackupsPerFile ?? 5);
 
-  // v2.0.0: 三态模板选择 —— deepseek 官方直连 / custom 直连 / 其余走本地代理
-  const configContent =
-    input.provider === 'deepseek'
-      ? DEEPSEEK_DIRECT_TEMPLATE(input.model, input.apiKey)
-      : input.provider === 'custom'
-        ? CUSTOM_TEMPLATE(input.model, input.customCodexBaseUrl ?? '')
-        : TEMPLATE(input.proxyPort, input.model);
+  // v3.0.0: 所有供应商都是直连，模板由注册表描述驱动
+  const provider = getProvider(input.provider);
+  // v3.0.0: **合并写**，不再整份覆盖。读出现有配置，只剥掉「我们的顶层键 + 当前供应商的块 +
+  // [features] 受管键」，其余一律原样保留。两个原因：
+  //   1. **Codex 按对话记住 model_provider**（会话文件 payload.model_provider）。若把上一家
+  //      的块删掉，那些历史对话再打开就报 `Model provider <旧供应商> not found`。
+  //   2. 整份覆盖会连用户/Codex 自己写的段（notify / [desktop] / [mcp_servers.*] /
+  //      [projects.*] / 自建 [model_providers.foo]）一起抹掉 —— 此前只是靠 Codex 自己重写
+  //      才没出事。详见 ADR-034。
+  const existing = await readFileOrNull(configPath);
+  const preserved = existing
+    ? sanitizeManagedConfig(existing, { stripProviderBlocks: [provider.codex.providerId] })
+    : '';
+  const configContent = composeCodexToml(
+    preserved,
+    provider,
+    input.model,
+    input.apiKey,
+    input.customCodexBaseUrl ?? '',
+  );
   const cfg = await writeWithBackup(configPath, configContent, keep);
   const auth = await writeWithBackup(authPath, AUTH_TEMPLATE(input.apiKey), keep);
 
-  // v2.0.0: DeepSeek 直连需同步写入官方模型目录 models.json
-  const models = input.provider === 'deepseek' ? await writeModelsJson() : null;
+  // v3.0.0: 声明了模型目录资产的供应商需合并写入 ~/.codex/models.json
+  const models = provider.codex.catalogAsset
+    ? await writeModelsJson(provider.codex.catalogAsset)
+    : null;
 
   // auth.json 必须 0o600
   try {
@@ -307,6 +269,9 @@ export async function restoreCodexConfig(backupPathArg: string): Promise<string>
   }
   return original;
 }
+
+// v3.0.0: 抽到 config/file-write.ts 后在此转发，保持对外 API 不变（测试与 main.ts 直接引用）
+export { listBackupsFor, pruneBackups };
 
 export async function deleteBackup(backupPathArg: string): Promise<void> {
   // H1: path traversal prevention
