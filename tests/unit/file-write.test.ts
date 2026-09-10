@@ -9,6 +9,9 @@ import {
   writeWithBackup,
 } from '../../electron/config/file-write';
 
+/** Windows 没有 POSIX 权限位，Node 会把 `st.mode` 合成为 0o666 —— 见下方「权限」用例。 */
+const isWindows = process.platform === 'win32';
+
 let dir = '';
 let target = '';
 
@@ -83,8 +86,14 @@ describe('writeWithBackup — 备份滚动修剪', () => {
   });
 });
 
+/**
+ * Windows 上没有 POSIX 权限位：`fs.stat().mode` 是 Node 合成的 `0o666`，`chmod` 也只对
+ * 「只读位」有意义。生产代码在 Windows 上同样是尽力而为（`writer.ts` 的 chmod 外包了
+ * try/catch），因此这条不变量只在 POSIX 上成立、也只在该平台断言。
+ * **跳过而不是放宽断言** —— 放宽后「除属主外无权限」这条真正的护栏就名存实亡了。
+ */
 describe('writeWithBackup — 权限', () => {
-  it('按 opts.mode 写盘（Claude 侧含 Key 的文件需要 0600）', async () => {
+  it.skipIf(isWindows)('按 opts.mode 写盘（Claude 侧含 Key 的文件需要 0600）', async () => {
     await writeWithBackup(target, '{}\n', 5, { mode: 0o600 });
     const st = await fs.stat(target);
     // 与 umask 无关地断言「除属主外无权限」
