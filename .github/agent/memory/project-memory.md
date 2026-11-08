@@ -15,7 +15,7 @@
 | 项目类型 | **跨平台桌面配置工具**（Electron 桌面应用）——v3.0.0 起不做任何流量转发 |
 | 业务场景 | 让不懂命令行的用户在 macOS / Windows 上"双击安装、点几下按钮"，把 Codex（CLI/Desktop）与 Claude（Desktop/CLI）接到 DeepSeek / 智谱 GLM / 自定义等国内模型服务上 |
 | 用户规模 | 个人用户与小团队，早期目标 100 – 1000 人 |
-| 当前阶段 | **v3.0.0**（2.4.0 / 3.0.0 / 3.1.0 / 3.1.1 四版**从未发布**，已折叠为单一 3.0.0，见 TASK-128/ADR-035；内容含代理移除 → 配置工具转型、GLM 直连、`config.toml` 合并写，见 TASK-127/ADR-034；未 push，160/160 tests ✅） |
+| 当前阶段 | **v3.1.1**（修复切回 OpenAI 官方时保留第三方 API 凭据；未发布） |
 | 设计原则 | 零门槛、图形化、一键安装；极简实用 > 功能堆砌 |
 | 主语言 | TypeScript 5.x（strict） |
 | 桌面运行时 | Electron 30+ |
@@ -147,7 +147,7 @@
 | **供应商注册表** | `electron/config/providers.ts` | **唯一事实来源**：端点/模型表/档位默认值/Key 账户/模板开关 + `normalizeProvider` + 受管段名正则 | ✅ v3.0.0 |
 | Codex 配置写入 | `electron/codex/writer.ts` | 注册表驱动的**单个** `buildCodexToml`；备份/回滚/滚动保留 | ✅ v3.0.0 |
 | 模型目录 | `electron/codex/models-catalog.ts` | 读打包资产 + **合并写** `~/.codex/models.json` | ✅ v3.0.0 |
-| 配置还原 | `electron/codex/config-restore.ts` | 「切换到 OpenAI 官方」：整段剥离受管块（段名由注册表派生） | ✅ v3.0.0 |
+| 配置还原 | `electron/codex/config-restore.ts` | 「切换到 OpenAI 官方」：清理受管顶层键、保留供应商块，并恢复被本工具替换的登录凭据 | ✅ v3.1.1 |
 | Claude Desktop 写入 | `electron/claude/desktop-writer.ts` | 3P gateway profile + `_meta.json`（条目名跟随供应商） | ✅ v3.0.0 |
 | Claude CLI 写入 | `electron/claude/env-writer.ts` | `~/.claude/settings.json` env + `config.json` 旁路 + shell profile | ✅ v3.0.0 |
 | 凭据存储 | `electron/config/secrets.ts` | keytar 优先、加密 store 回退；对供应商泛型（`getKey/setKey/clearKey`） | ✅ v3.0.0 |

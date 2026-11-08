@@ -360,7 +360,10 @@ function registerIpc(): void {
   // v1.9.0 对话记录来源切换
   ipcMain.handle(IPC.codexHasOriginalBackup, () => hasOriginalBackup());
   ipcMain.handle(IPC.codexRestoreOriginal, async () => {
-    await restoreOriginalConfig();
+    const keys = await Promise.all(
+      PROVIDER_LIST.map((provider) => getKey(provider).catch(() => '')),
+    );
+    await restoreOriginalConfig(keys);
     return true;
   });
 

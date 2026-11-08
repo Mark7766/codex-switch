@@ -239,6 +239,77 @@ describe('writeCodexConfig — GLM direct mode (v3.0.0)', () => {
 // 删块是多余的（未被选中的块是惰性的），也是有害的——Codex 按对话记住 `model_provider`，
 // 删掉某家的块会让那家的历史对话报 `Model provider X not found`。详见 ADR-036。
 describe('restoreOriginalConfig — switch to OpenAI official', () => {
+  it('恢复切换到 DeepSeek 前的 ChatGPT 凭据，重复供应商写入不会覆盖快照', async () => {
+    const authPath = path.join(TMP_ROOT, 'auth.json');
+    const original = '{"tokens":{"access_token":"test-token"}}\n';
+    await fs.writeFile(authPath, original, { mode: 0o600 });
+    await writeCodexConfig({ model: 'deepseek-flash', apiKey: 'sk-test', provider: 'deepseek' });
+    await writeCodexConfig({ model: 'deepseek-v4-pro', apiKey: 'sk-test', provider: 'deepseek' });
+    await restoreOriginalConfig();
+    expect(await fs.readFile(authPath, 'utf8')).toBe(original);
+    if (process.platform !== 'win32') expect((await fs.stat(authPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it('旧版留下的供应商凭据在切回官方时备份并清除，以便重新登录', async () => {
+    const authPath = path.join(TMP_ROOT, 'auth.json');
+    await fs.writeFile(authPath, JSON.stringify({ OPENAI_API_KEY: 'sk-provider' }));
+    await restoreOriginalConfig(['sk-provider']);
+    await expect(fs.access(authPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await listBackupsFor(authPath)).toHaveLength(1);
+  });
+
+  it('原来未登录时切回官方会移除受管凭据', async () => {
+    const r = await writeCodexConfig({
+      model: 'deepseek-flash',
+      apiKey: 'sk-provider',
+      provider: 'deepseek',
+    });
+    await restoreOriginalConfig();
+    await expect(fs.access(r.authPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('升级后再次应用旧版留下的相同 Key 不把它当成官方登录', async () => {
+    const authPath = path.join(TMP_ROOT, 'auth.json');
+    await fs.writeFile(authPath, JSON.stringify({ OPENAI_API_KEY: 'sk-provider' }, null, 2) + '\n');
+    await writeCodexConfig({
+      model: 'deepseek-flash',
+      apiKey: 'sk-provider',
+      provider: 'deepseek',
+    });
+    await restoreOriginalConfig();
+    await expect(fs.access(authPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('不清除不属于已知供应商的 API 凭据', async () => {
+    const authPath = path.join(TMP_ROOT, 'auth.json');
+    const original = JSON.stringify({ OPENAI_API_KEY: 'sk-official' });
+    await fs.writeFile(authPath, original);
+    await restoreOriginalConfig(['sk-provider']);
+    expect(await fs.readFile(authPath, 'utf8')).toBe(original);
+  });
+
+  it('保留已有凭据并备份配置，重复切换不限定登录方式', async () => {
+    const r = await writeCodexConfig({
+      model: 'deepseek-flash',
+      apiKey: 'sk-test',
+      provider: 'deepseek',
+    });
+    const originalConfig = await fs.readFile(r.configPath, 'utf8');
+    const credentials = '{"tokens":{"access_token":"test-token"}}\n';
+    await fs.writeFile(r.authPath, credentials);
+    await restoreOriginalConfig();
+    const backups = await listBackupsFor(r.configPath);
+    expect(await fs.readFile(backups[0]!, 'utf8')).toBe(originalConfig);
+    expect(await fs.readFile(r.authPath, 'utf8')).toBe(credentials);
+    await restoreOriginalConfig();
+    expect(await fs.readFile(r.authPath, 'utf8')).toBe(credentials);
+    expect(await fs.readFile(r.configPath, 'utf8')).not.toMatch(/^forced_login_method\s*=/m);
+  });
+
+  it('没有配置文件时也能安全切换', async () => {
+    await expect(restoreOriginalConfig()).resolves.toBeUndefined();
+  });
+
   it('清掉顶层受管键，让 Codex 回落到内置 openai', async () => {
     const r = await writeCodexConfig({
       model: 'deepseek-flash',

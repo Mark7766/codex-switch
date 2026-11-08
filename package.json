@@ -1,6 +1,6 @@
 {
   "name": "codex-switch",
-  "version": "3.0.0",
+  "version": "3.1.1",
   "description": "Cross-platform desktop config tool that connects Codex CLI / Desktop and Claude Desktop / Code CLI to DeepSeek, 智谱 GLM and other OpenAI-Responses / Anthropic compatible providers.",
   "author": "Codex Switch Contributors",
   "license": "MIT",

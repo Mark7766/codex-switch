@@ -5,8 +5,9 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Settings } from '../../src/pages/Settings';
+import { useAppStore } from '../../src/lib/store';
 
 /** 默认偏好；单测可就地覆盖某一字段（如 defaultModel）后用 mockResolvedValueOnce 注入。 */
 const BASE_PREFS = {
@@ -138,6 +139,7 @@ const mockApi = {
   claudeUninstallDesktop: vi.fn().mockResolvedValue({}),
   claudeDesktopBackups: vi.fn().mockResolvedValue([]),
   codexHasOriginalBackup: vi.fn().mockResolvedValue(false),
+  codexRestoreOriginal: vi.fn().mockResolvedValue(true),
 };
 
 beforeEach(() => {
@@ -160,6 +162,29 @@ describe('Settings page', () => {
     render(<Settings />);
     expect(await screen.findByText(/Codex 接入/)).toBeDefined();
     expect(await screen.findByText('默认模型')).toBeDefined();
+  });
+
+  it('keeps the official switch available after use without an original backup', async () => {
+    render(<Settings />);
+    const button = await screen.findByRole('button', { name: '切换到 OpenAI 官方' });
+    fireEvent.click(button);
+    await waitFor(() => expect(mockApi.codexRestoreOriginal).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '切换到 OpenAI 官方' })).toBeDefined(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '切换到 OpenAI 官方' }));
+    await waitFor(() => expect(mockApi.codexRestoreOriginal).toHaveBeenCalledTimes(2));
+  });
+
+  it('reports failure when Codex configuration was not written', async () => {
+    mockApi.applyPreferences.mockResolvedValueOnce({ prefs: {}, codexWritten: false });
+    useAppStore.setState({ toasts: [] });
+    render(<Settings />);
+    await screen.findByText('默认模型');
+    fireEvent.click(screen.getAllByRole('button', { name: '保存并应用' })[0]!);
+    await waitFor(() =>
+      expect(useAppStore.getState().toasts.some((toast) => toast.kind === 'error')).toBe(true),
+    );
   });
 
   it('no longer renders proxy-only settings (端口 / 自动启动代理 / 对话缓存)', async () => {

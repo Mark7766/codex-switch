@@ -19,6 +19,8 @@ export function Settings(): JSX.Element {
   const [providers, setProviders] = useState<ProviderDescriptor[]>([]);
   const [version, setVersion] = useState('');
   const [savingKey, setSavingKey] = useState(false);
+  const [switchingOfficial, setSwitchingOfficial] = useState(false);
+  const [savingCodex, setSavingCodex] = useState(false);
 
   // 供应商选择（每个工具独立）
   const [keyEditorProvider, setKeyEditorProvider] = useState<ProviderId>('deepseek');
@@ -45,7 +47,6 @@ export function Settings(): JSX.Element {
   const [cliMapping, setCliMapping] = useState<Record<string, string>>({});
 
   // 备份 / 更新 / 遥测
-  const [hasOriginalBak, setHasOriginalBak] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [autoCheckUpdate, setAutoCheckUpdate] = useState(true);
   const [autoDownload, setAutoDownload] = useState(true);
@@ -118,11 +119,6 @@ export function Settings(): JSX.Element {
       setMirror(prefs.updateMirror);
       setCustomMirror(prefs.customMirrorUrl);
       setTelemetryEnabled(prefs.telemetryEnabled ?? true);
-      try {
-        setHasOriginalBak(await window.codexSwitch.codexHasOriginalBackup());
-      } catch {
-        /* ignore */
-      }
     })();
 
     const off = window.codexSwitch.onUpdateEvent((e) => {
@@ -171,17 +167,36 @@ export function Settings(): JSX.Element {
       pushToast({ kind: 'info', message: '请先填写 Codex Base URL' });
       return;
     }
+    setSavingCodex(true);
     try {
-      await window.codexSwitch.applyPreferences({
+      const result = await window.codexSwitch.applyPreferences({
         provider: descriptor.id,
         defaultModel: defaultModel === '__custom__' ? customModel.trim() : defaultModel,
         codexModel: defaultModel === '__custom__' ? customModel.trim() : defaultModel,
         customProvider: { codexBaseUrl: customCodexBaseUrl, claudeBaseUrl: customClaudeBaseUrl },
       });
+      if (!result.codexWritten) {
+        throw new Error(`无法读取 ${descriptor.label} Key，请重新保存后再试`);
+      }
       setMsg('已保存并写入 Codex 配置（重启 Codex 生效）');
       pushToast({ kind: 'success', message: '已保存并写入 Codex 配置' });
     } catch (e) {
       pushToast({ kind: 'error', message: '保存失败：' + (e as Error).message });
+    } finally {
+      setSavingCodex(false);
+    }
+  }
+
+  async function switchOfficial(): Promise<void> {
+    setSwitchingOfficial(true);
+    try {
+      await window.codexSwitch.codexRestoreOriginal();
+      setMsg(null);
+      pushToast({ kind: 'success', message: '已切换到 OpenAI 官方，请重启 Codex' });
+    } catch (e) {
+      pushToast({ kind: 'error', message: '切换失败：' + (e as Error).message });
+    } finally {
+      setSwitchingOfficial(false);
     }
   }
 
@@ -386,36 +401,31 @@ export function Settings(): JSX.Element {
             </label>
           )}
 
-          {hasOriginalBak && (
-            <div className="border-t border-slate-700 pt-3">
-              <button
-                onClick={async () => {
-                  try {
-                    await window.codexSwitch.codexRestoreOriginal();
-                    setHasOriginalBak(false);
-                    pushToast({ kind: 'success', message: '已还原为 OpenAI 官方配置' });
-                  } catch (e) {
-                    pushToast({ kind: 'error', message: '还原失败：' + (e as Error).message });
-                  }
-                }}
-                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs"
-              >
-                切换到 OpenAI 官方
-              </button>
-              <span className="text-xs text-slate-500 ml-2">
-                Codex 改回用 OpenAI 官方；已接入的供应商配置会保留（历史对话需要它）
-              </span>
-            </div>
-          )}
-
           <div className="flex items-center justify-between pt-1">
             <button
               onClick={saveCodex}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 rounded-md text-sm"
+              disabled={savingCodex || switchingOfficial}
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 rounded-md text-sm"
             >
-              保存并应用
+              {savingCodex ? '正在应用…' : '保存并应用'}
             </button>
             <span className="text-xs text-slate-500">重启 Codex 后生效</span>
+          </div>
+          <div className="border-t border-slate-700 pt-4 space-y-3">
+            <div>
+              <p className="font-medium">使用 OpenAI 官方</p>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                重启 Codex 后可使用切换前的登录；如需重新登录，可选择 ChatGPT 账号或 API Key。
+                已接入的供应商配置会保留，供历史对话使用。
+              </p>
+            </div>
+            <button
+              onClick={switchOfficial}
+              disabled={switchingOfficial || savingCodex}
+              className="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-md text-xs"
+            >
+              {switchingOfficial ? '正在切换…' : '切换到 OpenAI 官方'}
+            </button>
           </div>
         </div>
       </Section>

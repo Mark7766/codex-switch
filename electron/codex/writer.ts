@@ -10,6 +10,7 @@ import {
 } from '../config/file-write';
 import { writeModelsJson } from './models-catalog';
 import { sanitizeManagedConfig } from './config-restore';
+import { rememberAuth, restoreAuth } from './auth-switch';
 import { getProvider, type ProviderDescriptor, type ProviderId } from '../config/providers';
 
 export interface WriteCodexConfigInput {
@@ -178,12 +179,22 @@ export async function hasOriginalBackup(): Promise<boolean> {
  * （未被选中的块是惰性的），也是**有害的**——Codex 按对话记住 `model_provider`，
  * 删掉某家的块会让那家的历史对话报 `Model provider X not found`。详见 ADR-034 / ADR-036。
  */
-export async function restoreOriginalConfig(): Promise<void> {
+export async function restoreOriginalConfig(legacyKeys: string[] = []): Promise<void> {
   const configPath = configTomlPath();
+  let content: string;
+  try {
+    content = await fs.readFile(configPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      await restoreAuth(authJsonPath(), legacyKeys);
+      return;
+    }
+    throw error;
+  }
   // 先备份当前配置再改写
   await backupIfExists(configPath);
-  const content = await fs.readFile(configPath, 'utf8');
   await fs.writeFile(configPath, sanitizeManagedConfig(content), 'utf8');
+  await restoreAuth(authJsonPath(), legacyKeys);
 }
 
 export async function writeCodexConfig(
@@ -217,7 +228,9 @@ export async function writeCodexConfig(
     input.customCodexBaseUrl ?? '',
   );
   const cfg = await writeWithBackup(configPath, configContent, keep);
-  const auth = await writeWithBackup(authPath, AUTH_TEMPLATE(input.apiKey), keep);
+  const authContent = AUTH_TEMPLATE(input.apiKey);
+  await rememberAuth(authPath, authContent);
+  const auth = await writeWithBackup(authPath, authContent, keep);
 
   // v3.0.0: 声明了模型目录资产的供应商需合并写入 ~/.codex/models.json
   const models = provider.codex.catalogAsset
